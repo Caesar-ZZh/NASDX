@@ -1,0 +1,42 @@
+# 数据文件（含当日行情，不入库）
+stock_data_*.json
+focus8_data.json
+stocks.json.bak
+
+# 报告输出（HTML/JSON，动态生成）
+reports/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# 日志
+*.txt
+nasdx_*.txt
+fetch_log.txt
+pip_install.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# API Key 安全：绝不入库
+config.toml
+.env
+scheduled_tasks.lock
+streamlit.log
+focus_ind.json
