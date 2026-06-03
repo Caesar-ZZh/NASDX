@@ -1,0 +1,23 @@
+# NASDX 配置文件示例
+# 复制为 config.toml 并填写真实值
+
+[llm]
+# 支持任何 OpenAI 兼容接口：DeepSeek / Qwen / GPT-4o / Ollama
+api_key   = "sk-your-api-key-here"
+base_url  = "https://api.deepseek.com"    # DeepSeek（推荐，低成本）
+# base_url = "https://api.openai.com/v1" # OpenAI
+# base_url = "http://localhost:11434/v1"  # Ollama 本地
+model     = "deepseek-chat"
+# model   = "gpt-4o"
+# model   = "qwen2.5:14b"
+max_tokens  = 4096
+temperature = 0.3
+
+[analysis]
+debate_rounds = 2    # Battle 辩论轮次（建议2-3）
+max_steps     = 3    # 每 Agent 最大步数
+agent_delay   = 1.0  # Agent 间隔秒数（避免 API 过速）
+battle_delay  = 0.5  # 辩论间隔秒数
+
+[output]
+dir = "./reports"    # 报告输出目录
