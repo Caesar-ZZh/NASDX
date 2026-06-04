@@ -1,9 +1,10 @@
 """
-NASDX V2 量化引擎页面 — 由 app.py 路由调用
-整合 QLib 因子 + FinRL 强化学习 + VnPy 回测
+NASDX V2 — 量化策略页面
 """
-import sys, json, time
+from __future__ import annotations
+import sys, json, glob, subprocess, threading
 from pathlib import Path
+from datetime import datetime
 import pandas as pd
 import numpy as np
 
@@ -11,463 +12,555 @@ ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
 
-def render_quant_page(st, ROOT):
-    """渲染量化引擎完整页面"""
+# ══════════════════════════════════════════
+#  工具
+# ══════════════════════════════════════════
+def _sc(v):
+    return "#22c55e" if v >= 60 else "#ef4444" if v <= 40 else "#f59e0b"
 
-    st.markdown("""
-    <div style="padding:24px 0 20px">
-      <div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">量化引擎</div>
-      <div style="font-size:13px;color:#6b6b6b;margin-top:4px">
-        QLib 因子挖掘 · FinRL 强化学习 · 回测验证 · 投资组合优化
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
+def _bar(v, h=4):
+    c = _sc(v)
+    return (f'<div style="background:rgba(255,255,255,0.06);border-radius:2px;height:{h}px;overflow:hidden">'
+            f'<div style="width:{min(v,100):.0f}%;height:100%;background:{c};border-radius:2px"></div></div>')
 
-    # ── Tabs ─────────────────────────────────────────
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📐 因子分析", "🔁 策略回测", "🤖 强化学习", "📦 投资组合"
-    ])
+def _sig_html(sig):
+    cfg = {"bullish":("#22c55e","rgba(34,197,94,0.12)","↑ 看多"),
+           "bearish":("#ef4444","rgba(239,68,68,0.12)","↓ 看空"),
+           "neutral":("#f59e0b","rgba(245,158,11,0.10)","→ 中性")}
+    c, bg, lb = cfg.get(sig, ("#9ca3af","rgba(156,163,175,0.1)","— 无"))
+    return (f'<span style="color:{c};background:{bg};border:1px solid {c}40;'
+            f'border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600">{lb}</span>')
 
-    # ══════════════════════════════════════════════════
-    #  Tab1：因子分析（QLib Alpha158）
-    # ══════════════════════════════════════════════════
+def _card(content, accent=None):
+    top = f"background:linear-gradient(90deg,transparent,{accent},transparent)" if accent else "none"
+    return (f'<div style="background:#111;border:1px solid rgba(255,255,255,0.06);border-radius:8px;'
+            f'padding:16px;position:relative;overflow:hidden">'
+            f'<div style="position:absolute;top:0;left:0;right:0;height:1px;{top}"></div>'
+            f'{content}</div>')
+
+
+def _run_etf50_bg(days, top_n, freq, log_path):
+    """后台线程运行 ETF50 量化"""
+    import sys, json
+    sys.path.insert(0, str(ROOT))
+    with open(log_path, "w", encoding="utf-8", buffering=1) as log:
+        try:
+            import quant.patch_requests  # noqa
+            from quant.etf50_quant import run_etf50_quant
+
+            class Tee:
+                def write(self, msg):
+                    log.write(msg); log.flush()
+                def flush(self): log.flush()
+
+            import builtins
+            _orig_print = builtins.print
+            def _tee_print(*args, **kw):
+                import io
+                buf = io.StringIO()
+                _orig_print(*args, file=buf, **kw)
+                log.write(buf.getvalue()); log.flush()
+                _orig_print(*args, **kw)
+            builtins.print = _tee_print
+
+            result = run_etf50_quant(days=days, top_n=top_n,
+                                     rebalance_freq=freq, verbose=True)
+            builtins.print = _orig_print
+            log.write(f"\n__DONE__:{result.get('_saved_to','')}\n")
+        except Exception as e:
+            import traceback
+            log.write(f"\n__ERROR__:{e}\n{traceback.format_exc()}\n")
+
+
+# ══════════════════════════════════════════
+#  主页面
+# ══════════════════════════════════════════
+def render_quant_page(st):
+    st.markdown(
+        '<div style="padding:20px 0 16px"><div style="font-size:22px;font-weight:700;color:#fff">量化策略引擎</div>'
+        '<div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:3px">'
+        'Alpha158 因子 · Walk-Forward 回测 · 50只ETF全量分析 · 抗过拟合验证</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    tab1, tab2, tab3, tab4 = st.tabs(["🚀 ETF50 量化扫描", "📐 因子分析", "📈 策略回测", "🛡️ 过拟合诊断"])
+
+    # ════════════════════════════════════════
+    #  Tab1: ETF50 全量量化
+    # ════════════════════════════════════════
     with tab1:
-        st.markdown('<div class="n-section-title">Alpha 因子分析（参考 QLib Alpha158）</div>',
-                    unsafe_allow_html=True)
-        st.markdown("""
-        <div class="n-card" style="padding:12px 16px;margin-bottom:16px">
-          <div style="font-size:12px;color:#9b9b9b;line-height:1.8">
-            计算 80+ 个量价因子（动量/反转/波动/量比/MACD/RSI/布林带），
-            并进行横截面排名，找出因子最强的 ETF/股票。
-          </div>
-        </div>""", unsafe_allow_html=True)
+        # 说明
+        st.markdown(_card(
+            '<div style="font-size:12px;color:rgba(255,255,255,0.5);line-height:1.9">'
+            '对 <b style="color:#fff">50 只主流 ETF</b> 执行完整量化分析：<br>'
+            '① 获取历史 OHLCV 数据 &nbsp;→&nbsp; '
+            '② 计算 <b style="color:#3b82f6">Alpha158</b> 80个因子 &nbsp;→&nbsp; '
+            '③ 多因子合成评分 &nbsp;→&nbsp; '
+            '④ Top-N 组合 Walk-Forward 回测 &nbsp;→&nbsp; '
+            '⑤ 量化排行榜 + 操作建议'
+            '</div>', accent="#3b82f6"
+        ), unsafe_allow_html=True)
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            codes_input = st.text_area(
-                "分析标的（每行一个代码）",
-                value="512480\n159611\n513160\n513130\n515880\n159995\n588200\n512660",
-                height=160,
-            )
-        with c2:
-            factor_days = st.slider("历史数据天数", 60, 365, 120)
-            top_factor = st.selectbox("重点因子", [
-                "ROC20","ROC5","RSI14","MACD","VOLU5",
-                "BIAS20","BOLL_POS20","ATR14","MOM5_REVERSAL"
-            ])
-        with c3:
-            st.markdown("""
-            <div class="n-card" style="padding:12px;font-size:12px;color:#6b6b6b;line-height:1.8">
-              <b style="color:#fff">因子说明</b><br>
-              ROC20: 20日动量<br>
-              RSI14: 超买超卖<br>
-              MACD: 趋势动能<br>
-              VOLU5: 量比放量<br>
-              BIAS20: 均线偏离<br>
-              ATR14: 波动率
-            </div>""", unsafe_allow_html=True)
+        st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
 
-        if st.button("🔍 计算因子", use_container_width=False, key="calc_factor"):
-            codes = [c.strip() for c in codes_input.split("\n") if c.strip()]
-            if not codes:
-                st.warning("请输入股票代码")
-            else:
-                with st.spinner(f"抓取 {len(codes)} 只数据并计算因子..."):
-                    try:
-                        from quant.data import get_batch_ohlcv
-                        from quant.factors import compute_alpha158, multi_factor_score, rank_stocks
-
-                        price_data = get_batch_ohlcv(codes, days=factor_days)
-                        if not price_data:
-                            st.error("未能获取数据，请检查代码或网络")
-                        else:
-                            factor_data = {}
-                            for code, df in price_data.items():
-                                if len(df) >= 60:
-                                    factor_data[code] = compute_alpha158(df)
-
-                            # 单因子排名
-                            ranking = rank_stocks(factor_data, factor_name=top_factor)
-                            # 多因子综合
-                            composite = multi_factor_score(factor_data)
-
-                            if not ranking.empty:
-                                st.markdown(f'<div class="n-section-title">{top_factor} 因子排名</div>',
-                                            unsafe_allow_html=True)
-                                for _, row in ranking.iterrows():
-                                    code = row["code"]
-                                    val  = row[top_factor]
-                                    pct  = row["pct_rank"]
-                                    rank = int(row["rank"])
-                                    bar_w = int((1 - pct) * 100)
-                                    color = "#4bae8a" if val > 0 else "#e16b6b"
-                                    medal = {1:"🥇",2:"🥈",3:"🥉"}.get(rank,"")
-                                    st.markdown(f"""
-                                    <div class="n-card" style="margin-bottom:6px;padding:10px 16px">
-                                      <div style="display:flex;justify-content:space-between;align-items:center">
-                                        <span style="font-weight:600;color:#fff">{medal} {code}</span>
-                                        <span style="color:{color};font-weight:700">{val:+.3f}</span>
-                                        <span style="font-size:11px;color:#5b5b5b">排名 {rank}/{len(ranking)}</span>
-                                      </div>
-                                      <div class="bar-wrap" style="margin-top:6px">
-                                        <div class="bar-fill-green" style="width:{bar_w}%"></div>
-                                      </div>
-                                    </div>""", unsafe_allow_html=True)
-
-                            if not composite.empty:
-                                st.markdown('<div class="n-section-title">多因子综合评分</div>',
-                                            unsafe_allow_html=True)
-                                top3 = composite.head(3)
-                                tcols = st.columns(3)
-                                for col, (_, row) in zip(tcols, top3.iterrows()):
-                                    sc = row["factor_score"]
-                                    color = "#4bae8a" if sc > 0 else "#e16b6b"
-                                    medal = {1:"🥇",2:"🥈",3:"🥉"}.get(int(row["rank"]),"")
-                                    with col:
-                                        st.markdown(f"""
-                                        <div class="n-card" style="text-align:center;padding:16px">
-                                          <div style="font-size:18px">{medal}</div>
-                                          <div style="font-size:15px;font-weight:700;color:#fff;margin:6px 0">{row['code']}</div>
-                                          <div style="font-size:24px;font-weight:700;color:{color}">{sc:+.3f}</div>
-                                          <div style="font-size:11px;color:#5b5b5b">综合因子分</div>
-                                        </div>""", unsafe_allow_html=True)
-
-                    except Exception as e:
-                        st.error(f"因子计算失败：{e}")
-
-    # ══════════════════════════════════════════════════
-    #  Tab2：策略回测（参考 VnPy BacktestingEngine）
-    # ══════════════════════════════════════════════════
-    with tab2:
-        st.markdown('<div class="n-section-title">策略回测（参考 VnPy BacktestingEngine）</div>',
-                    unsafe_allow_html=True)
-
-        b1, b2 = st.columns([2,1])
-        with b1:
-            bt_codes = st.text_input(
-                "回测标的（逗号分隔）",
-                value="512480,159611,513160,513130,515880",
-            )
-            bt_strategy = st.selectbox("策略", [
-                "动量策略 (Momentum)",
-                "均值回归策略 (Mean Reversion)",
-                "多因子排名策略 (Factor Rank)",
-            ])
-            bt_capital = st.number_input("初始资金（元）", value=100000, step=10000)
-            bt_days    = st.slider("回测天数", 90, 500, 252)
-            bt_freq    = st.selectbox("再平衡频率", ["W（每周）","M（每月）","D（每日）"])
-
-        with b2:
-            st.markdown("""
-            <div class="n-card" style="padding:14px;font-size:12px;color:#6b6b6b;line-height:2">
-              <b style="color:#fff">三大策略说明</b><br>
-              <b style="color:#d4a843">动量</b>: 买涨最强的Top3<br>
-              <b style="color:#5b8af0">均值回归</b>: 买跌最多的Top3<br>
-              <b style="color:#4bae8a">多因子</b>: 按Alpha158综合评分<br><br>
-              <b style="color:#fff">手续费</b>: 万3 + 千1印花税<br>
-              <b style="color:#fff">滑点</b>: 0.1%
-            </div>""", unsafe_allow_html=True)
-
-        if st.button("▶ 开始回测", use_container_width=False, key="run_backtest"):
-            codes = [c.strip() for c in bt_codes.split(",") if c.strip()]
-            freq_map = {"W（每周）":"W","M（每月）":"M","D（每日）":"D"}
-            freq = freq_map.get(bt_freq, "W")
-
-            with st.spinner("抓取数据并运行回测..."):
-                try:
-                    from quant.data import get_batch_ohlcv
-                    from quant.backtest import Backtester, strategy_momentum, strategy_mean_reversion, strategy_factor_rank
-
-                    price_data = get_batch_ohlcv(codes, days=bt_days + 60)
-                    if not price_data:
-                        st.error("无法获取数据")
-                    else:
-                        strat_map = {
-                            "动量策略 (Momentum)":        strategy_momentum,
-                            "均值回归策略 (Mean Reversion)": strategy_mean_reversion,
-                            "多因子排名策略 (Factor Rank)":  strategy_factor_rank,
-                        }
-                        signal_fn = strat_map[bt_strategy]
-                        bt = Backtester(initial_capital=bt_capital)
-                        result = bt.run(price_data, signal_fn, rebalance_freq=freq)
-
-                        # 显示结果
-                        st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
-                        st.markdown('<div class="n-section-title">回测结果</div>', unsafe_allow_html=True)
-
-                        m1,m2,m3,m4 = st.columns(4)
-                        metrics = [
-                            ("总收益", f"{result.total_return:.2%}", "#4bae8a" if result.total_return>0 else "#e16b6b"),
-                            ("年化收益", f"{result.annual_return:.2%}", "#4bae8a" if result.annual_return>0 else "#e16b6b"),
-                            ("最大回撤", f"{result.max_drawdown:.2%}", "#e16b6b"),
-                            ("夏普比率", f"{result.sharpe_ratio:.3f}", "#4bae8a" if result.sharpe_ratio>1 else "#d4a843"),
-                        ]
-                        for col, (label, val, color) in zip([m1,m2,m3,m4], metrics):
-                            with col:
-                                st.markdown(f"""
-                                <div class="n-card" style="text-align:center;padding:14px">
-                                  <div style="font-size:20px;font-weight:700;color:{color}">{val}</div>
-                                  <div style="font-size:11px;color:#5b5b5b;margin-top:3px">{label}</div>
-                                </div>""", unsafe_allow_html=True)
-
-                        m5,m6,m7,m8 = st.columns(4)
-                        metrics2 = [
-                            ("卡玛比率", f"{result.calmar_ratio:.3f}", "#d4a843"),
-                            ("胜率",     f"{result.win_rate:.2%}", "#4bae8a" if result.win_rate>0.5 else "#e16b6b"),
-                            ("盈亏比",   f"{result.profit_loss_ratio:.2f}", "#4bae8a" if result.profit_loss_ratio>1 else "#e16b6b"),
-                            ("总交易",   f"{result.total_trades}笔", "#9b9b9b"),
-                        ]
-                        for col, (label, val, color) in zip([m5,m6,m7,m8], metrics2):
-                            with col:
-                                st.markdown(f"""
-                                <div class="n-card" style="text-align:center;padding:14px">
-                                  <div style="font-size:20px;font-weight:700;color:{color}">{val}</div>
-                                  <div style="font-size:11px;color:#5b5b5b;margin-top:3px">{label}</div>
-                                </div>""", unsafe_allow_html=True)
-
-                        # 净值曲线
-                        if not result.equity_curve.empty:
-                            import plotly.graph_objects as go
-                            eq = result.equity_curve
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatter(
-                                x=list(eq.index), y=eq.values,
-                                mode="lines", name="策略净值",
-                                line=dict(color="#4bae8a", width=2)
-                            ))
-                            fig.add_hline(y=bt_capital, line_dash="dash",
-                                          line_color="#5b5b5b", annotation_text="初始资金")
-                            fig.update_layout(
-                                template="plotly_dark",
-                                paper_bgcolor="#191919",
-                                plot_bgcolor="#191919",
-                                height=300, margin=dict(l=0,r=0,t=20,b=0),
-                                showlegend=True,
-                                font=dict(color="#9b9b9b", size=11),
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
-
-                except Exception as e:
-                    st.error(f"回测失败：{e}")
-                    import traceback; st.code(traceback.format_exc())
-
-    # ══════════════════════════════════════════════════
-    #  Tab3：强化学习（参考 FinRL）
-    # ══════════════════════════════════════════════════
-    with tab3:
-        st.markdown('<div class="n-section-title">强化学习策略（参考 FinRL DRLAgent）</div>',
-                    unsafe_allow_html=True)
-        st.markdown("""
-        <div class="n-card" style="padding:12px 16px;border-left:3px solid #5b8af0;margin-bottom:16px">
-          <div style="font-size:12px;color:#9b9b9b;line-height:1.8">
-            使用 PPO/A2C 强化学习算法，让 AI 自主学习 ETF 仓位配置策略。
-            Agent 通过最大化累计收益来优化动作（每只 ETF 的仓位权重）。<br>
-            <b style="color:#d4a843">⚠️ 需要安装：pip install stable-baselines3 gymnasium</b>
-          </div>
-        </div>""", unsafe_allow_html=True)
-
-        rl1, rl2 = st.columns([2,1])
-        with rl1:
-            rl_codes = st.text_input("训练标的", value="512480,159611,513160,515880,588200")
-            rl_algo  = st.selectbox("算法", ["PPO","A2C","DDPG","TD3","SAC"])
-            rl_steps = st.slider("训练步数", 10000, 200000, 50000, step=10000)
-            rl_days  = st.slider("训练数据天数", 120, 365, 252)
-            rl_capital = st.number_input("模拟资金", value=100000, step=10000, key="rl_cap")
-        with rl2:
-            st.markdown(f"""
-            <div class="n-card" style="padding:14px;font-size:12px;color:#6b6b6b;line-height:2">
-              <b style="color:#fff">算法对比</b><br>
-              <b style="color:#4bae8a">PPO</b>: 最稳定，推荐首选<br>
-              <b style="color:#5b8af0">A2C</b>: 更快，适合小数据<br>
-              <b style="color:#d4a843">DDPG</b>: 连续动作精确<br>
-              <b style="color:#e16b6b">TD3</b>: DDPG改进版<br>
-              <b style="color:#bc8cff">SAC</b>: 最大熵，探索强<br><br>
-              训练 {rl_steps:,} 步约需<br>
-              <b style="color:#fff">{rl_steps//5000} 分钟</b>
-            </div>""", unsafe_allow_html=True)
-
-        col_train, col_bt = st.columns(2)
-        with col_train:
-            if st.button("🎮 开始训练", use_container_width=True, key="rl_train"):
-                codes = [c.strip() for c in rl_codes.split(",") if c.strip()]
-                with st.spinner(f"训练 {rl_algo} 策略中（{rl_steps:,} 步）..."):
-                    try:
-                        from quant.data import get_batch_ohlcv
-                        from quant.rl_strategy import ETFTradingEnv, RLTrainer
-
-                        price_data = get_batch_ohlcv(codes, days=rl_days)
-                        if not price_data:
-                            st.error("无法获取数据")
-                        else:
-                            env     = ETFTradingEnv(price_data, initial_capital=rl_capital)
-                            trainer = RLTrainer(algorithm=rl_algo)
-                            trainer.train(env, total_timesteps=rl_steps, verbose=0)
-                            model_path = trainer.save(f"etf_{rl_algo.lower()}")
-                            st.session_state["rl_trainer"] = trainer
-                            st.session_state["rl_env"]     = env
-                            st.success(f"✅ {rl_algo} 训练完成！模型已保存：{model_path}")
-
-                    except ImportError:
-                        st.error("请先安装：pip install --no-cache-dir stable-baselines3 gymnasium")
-                    except Exception as e:
-                        st.error(f"训练失败：{e}")
-
-        with col_bt:
-            if st.button("📊 回测已训练模型", use_container_width=True, key="rl_bt"):
-                if "rl_trainer" not in st.session_state:
-                    st.warning("请先训练模型")
-                else:
-                    trainer = st.session_state["rl_trainer"]
-                    env     = st.session_state["rl_env"]
-                    with st.spinner("回测中..."):
-                        try:
-                            res = trainer.backtest(env)
-                            r1,r2,r3,r4 = st.columns(4)
-                            for col,(k,label) in zip([r1,r2,r3,r4],[
-                                ("total_return","总收益"),("annual_return","年化"),
-                                ("sharpe_ratio","夏普"),("max_drawdown","最大回撤")
-                            ]):
-                                v = res[k]
-                                fmt = f"{v:.2%}" if "return" in k or "drawdown" in k else f"{v:.3f}"
-                                color = "#4bae8a" if v > 0 else "#e16b6b"
-                                with col:
-                                    st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:18px;font-weight:700;color:{color}">{fmt}</div><div style="font-size:11px;color:#5b5b5b">{label}</div></div>', unsafe_allow_html=True)
-                        except Exception as e:
-                            st.error(f"回测失败：{e}")
-
-    # ══════════════════════════════════════════════════
-    #  Tab4：投资组合优化（参考 QLib Portfolio）
-    # ══════════════════════════════════════════════════
-    with tab4:
-        st.markdown('<div class="n-section-title">投资组合优化（参考 QLib Portfolio Optimizer）</div>',
-                    unsafe_allow_html=True)
-
-        p1, p2 = st.columns([2,1])
+        # 参数
+        p1, p2, p3 = st.columns(3)
         with p1:
-            port_codes = st.text_input(
-                "候选标的（逗号分隔）",
-                value="512480,159611,513160,513130,515880,159995,588200,512660",
-                key="port_codes",
-            )
-            port_method = st.selectbox("优化方法", [
-                "多因子加权 (Factor)",
-                "均值方差 (Mean-Variance)",
-                "风险平价 (Risk Parity)",
-                "等权 (Equal Weight)",
-            ])
-            port_top_n   = st.slider("持仓只数", 3, 8, 5)
-            port_max_w   = st.slider("单只最大仓位", 0.2, 0.5, 0.4, step=0.05)
-            port_capital = st.number_input("总资金（元）", value=26000, step=1000, key="port_cap")
-
+            days = st.select_slider("历史数据天数", [90, 180, 252, 365], value=252,
+                                    help="天数越长因子越稳定，但数据获取时间越长")
         with p2:
-            st.markdown("""
-            <div class="n-card" style="padding:14px;font-size:12px;color:#6b6b6b;line-height:2">
-              <b style="color:#fff">方法说明</b><br>
-              <b style="color:#4bae8a">多因子</b>: 因子分越高权重越大<br>
-              <b style="color:#5b8af0">均值方差</b>: 最大化夏普比率<br>
-              <b style="color:#d4a843">风险平价</b>: 各资产等风险贡献<br>
-              <b style="color:#9b9b9b">等权</b>: 简单均等分配
-            </div>""", unsafe_allow_html=True)
+            top_n = st.slider("组合只数 Top-N", 3, 10, 5,
+                               help="选取因子评分最高的 N 只 ETF 构建等权组合进行回测")
+        with p3:
+            freq  = st.selectbox("调仓频率", ["W 每周","M 每月","D 每日"], index=0).split()[0]
 
-        if st.button("⚖️ 计算最优组合", use_container_width=False, key="opt_port"):
-            codes = [c.strip() for c in port_codes.split(",") if c.strip()]
-            with st.spinner("计算中..."):
+        est_min = max(3, len(json.load(open(ROOT/"etf50_pool.json",encoding="utf-8"))["etfs"]) * days // 5000)
+        st.caption(f"预计耗时约 {est_min}-{est_min*2} 分钟（受网络速度影响）")
+
+        col_btn, col_status = st.columns([1, 3])
+        with col_btn:
+            run_btn = st.button("▶  开始全量分析", key="run_etf50_quant",
+                                type="primary", use_container_width=True,
+                                disabled=st.session_state.get("etf50q_running", False))
+
+        # 触发后台任务
+        if run_btn:
+            log_path = ROOT / "etf50_quant_log.txt"
+            log_path.write_text("", encoding="utf-8")
+            t = threading.Thread(
+                target=_run_etf50_bg,
+                args=(days, top_n, freq, str(log_path)),
+                daemon=True
+            )
+            t.start()
+            st.session_state["etf50q_running"] = True
+            st.session_state["etf50q_thread"]  = t
+            st.session_state["etf50q_log"]     = str(log_path)
+            st.rerun()
+
+        # 运行中状态
+        if st.session_state.get("etf50q_running"):
+            log_path = Path(st.session_state.get("etf50q_log",""))
+            log_text = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
+            lines = [l for l in log_text.splitlines() if l.strip()]
+
+            # 进度
+            done_lines = sum(1 for l in lines if any(x in l for x in ["✅","❌","⚠️","📈","📉","➡️"]))
+            total_pool = 50
+            pct = min(done_lines / total_pool, 0.95)
+            st.progress(pct, text=f"分析中... {done_lines}/{total_pool}")
+
+            with st.expander("📟 实时日志", expanded=True):
+                recent = "\n".join(lines[-20:]) if lines else "启动中..."
+                st.code(recent, language=None)
+
+            # 检查完成
+            thread = st.session_state.get("etf50q_thread")
+            thread_done = thread is None or not thread.is_alive()
+            if "__DONE__" in log_text or (thread_done and done_lines > 5):
+                st.session_state["etf50q_running"] = False
+                st.session_state.pop("etf50q_thread", None)
+                # 找到保存的文件路径
+                for line in lines:
+                    if "__DONE__:" in line:
+                        saved = line.split("__DONE__:")[-1].strip()
+                        st.session_state["etf50q_result"] = saved
+                        break
+                st.rerun()
+            elif "__ERROR__" in log_text and thread_done:
+                st.session_state["etf50q_running"] = False
+                err_lines = [l for l in lines if "__ERROR__" in l or "Traceback" in l]
+                st.error("分析失败：" + "\n".join(err_lines[:5]))
+            else:
+                import time; time.sleep(3); st.rerun()
+
+        # 展示结果
+        from quant.etf50_quant import load_latest_quant
+        data = load_latest_quant()
+
+        if data:
+            _show_etf50_result(st, data)
+
+    # ════════════════════════════════════════
+    #  Tab2: 单只因子分析
+    # ════════════════════════════════════════
+    with tab2:
+        st.markdown('<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,0.3);padding:0 0 10px">Alpha158 单只因子诊断</div>', unsafe_allow_html=True)
+
+        c1, c2 = st.columns([2,1])
+        with c1:
+            fa_code = st.text_input("ETF / 股票代码", value="159611", label_visibility="visible", key="fa_code")
+        with c2:
+            fa_days = st.select_slider("天数", [90,180,252], value=180, key="fa_days")
+
+        if st.button("计算因子", key="calc_factor", type="primary"):
+            with st.spinner("获取数据并计算因子..."):
                 try:
-                    from quant.data import get_batch_ohlcv, get_realtime_quotes
-                    from quant.factors import compute_alpha158, multi_factor_score
-                    from quant.portfolio import build_portfolio, calc_portfolio_metrics
-
-                    price_data = get_batch_ohlcv(codes, days=120)
-                    if not price_data:
-                        st.error("无法获取数据")
+                    import quant.patch_requests  # noqa
+                    from quant.data import get_ohlcv
+                    from quant.factors import compute_alpha158
+                    df = get_ohlcv(fa_code, days=fa_days)
+                    if df.empty:
+                        st.error("无数据，请确认代码正确且网络畅通")
                     else:
-                        # 因子评分
-                        factor_data = {c: compute_alpha158(df) for c,df in price_data.items() if len(df)>=60}
-                        composite   = multi_factor_score(factor_data)
+                        factors = compute_alpha158(df)
+                        latest = factors.iloc[-1].dropna()
+                        st.success(f"计算完成：{len(factors.columns)} 个因子 · {len(df)} 天数据")
 
-                        # 收益率矩阵
-                        returns = pd.DataFrame({
-                            c: df["close"].pct_change()
-                            for c, df in price_data.items()
-                        }).dropna()
+                        # 分组展示
+                        GROUPS = [
+                            ("动量", [c for c in latest.index if "ROC" in c]),
+                            ("均线偏离", [c for c in latest.index if "BIAS" in c or "MA" in c]),
+                            ("震荡", [c for c in latest.index if "RSI" in c or "MACD" in c or "BOLL" in c]),
+                            ("量价", [c for c in latest.index if "VOL" in c or "VPT" in c or "CORR" in c]),
+                            ("波动", [c for c in latest.index if "STD" in c or "ATR" in c]),
+                            ("形态", [c for c in latest.index if "SHADOW" in c or "BODY" in c or "MOM" in c]),
+                        ]
+                        for gname, cols in GROUPS:
+                            if not cols: continue
+                            vals = latest[cols].sort_values(ascending=False)
+                            st.markdown(f'<div style="font-size:11px;color:rgba(255,255,255,0.35);font-weight:600;text-transform:uppercase;letter-spacing:.05em;padding:10px 0 6px">{gname}</div>', unsafe_allow_html=True)
+                            gcols = st.columns(min(len(vals), 6))
+                            for col, (fn, fv) in zip(gcols * 10, vals.items()):
+                                fc = "#22c55e" if fv > 0.5 else "#ef4444" if fv < -0.5 else "rgba(255,255,255,0.5)"
+                                with col:
+                                    st.markdown(
+                                        f'<div style="background:#161616;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:8px;text-align:center">'
+                                        f'<div style="font-size:10px;color:rgba(255,255,255,0.3);margin-bottom:4px">{fn}</div>'
+                                        f'<div style="font-size:15px;font-weight:700;color:{fc}">{fv:.2f}</div>'
+                                        f'</div>',
+                                        unsafe_allow_html=True,
+                                    )
+                except Exception as e:
+                    st.error(f"因子计算失败：{e}")
 
-                        method_map = {
-                            "多因子加权 (Factor)":      "factor",
-                            "均值方差 (Mean-Variance)": "mv",
-                            "风险平价 (Risk Parity)":   "rp",
-                            "等权 (Equal Weight)":      "equal",
-                        }
-                        weights = build_portfolio(
-                            composite, returns,
-                            method=method_map[port_method],
-                            top_n=port_top_n,
-                            max_weight=port_max_w,
+    # ════════════════════════════════════════
+    #  Tab3: 策略回测
+    # ════════════════════════════════════════
+    with tab3:
+        st.markdown('<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,0.3);padding:0 0 10px">Walk-Forward 策略回测</div>', unsafe_allow_html=True)
+
+        st.markdown(_card(
+            '<div style="font-size:12px;color:rgba(255,255,255,0.45);line-height:1.8">'
+            '<b style="color:#3b82f6">Walk-Forward</b>：滚动训练窗口，测试窗口严格在训练之后——杜绝未来数据泄漏。'
+            '</div>'
+        ), unsafe_allow_html=True)
+
+        st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+
+        bc1, bc2 = st.columns(2)
+        with bc1:
+            bt_codes_input = st.text_input("回测标的（逗号分隔）", value="159611,513160,515880,588200,512480", key="bt_codes")
+            bt_strategy    = st.selectbox("策略", ["factor_rank","momentum","mean_reversion"], key="bt_strat",
+                                          format_func={"factor_rank":"多因子排名","momentum":"动量","mean_reversion":"均值回归"}.get)
+            bt_capital     = st.number_input("初始资金（元）", value=100000, step=10000, key="bt_cap")
+        with bc2:
+            bt_days  = st.select_slider("历史天数", [180, 365, 500, 730], value=365, key="bt_days")
+            bt_rebal = st.selectbox("调仓频率", ["W","M","D"], key="bt_rebal",
+                                    format_func={"W":"每周","M":"每月","D":"每日"}.get)
+            train_w = st.slider("训练窗口（天）", 60, 252, 126, key="bt_train")
+
+        if st.button("▶  开始回测", key="run_bt", type="primary"):
+            bt_codes = [c.strip() for c in bt_codes_input.split(",") if c.strip()]
+            with st.spinner(f"回测 {len(bt_codes)} 只标的 · {bt_days} 天..."):
+                try:
+                    import quant.patch_requests  # noqa
+                    from quant.data import get_batch_ohlcv
+                    from quant.backtest import (Backtester, strategy_factor_rank,
+                                                strategy_momentum, strategy_mean_reversion)
+                    price_data = get_batch_ohlcv(bt_codes, days=bt_days)
+                    if not price_data:
+                        st.error("无法获取数据，请检查网络和代码")
+                    else:
+                        fn_map = {"factor_rank":strategy_factor_rank,
+                                  "momentum":strategy_momentum,
+                                  "mean_reversion":strategy_mean_reversion}
+                        bt = Backtester(initial_capital=bt_capital)
+                        r  = bt.run(price_data, fn_map[bt_strategy], rebalance_freq=bt_rebal)
+                        st.session_state["bt_result"] = r
+                except Exception as e:
+                    import traceback
+                    st.error(f"回测失败：{e}\n{traceback.format_exc()[-500:]}")
+
+        if "bt_result" in st.session_state:
+            r = st.session_state["bt_result"]
+            st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+
+            m1,m2,m3,m4,m5,m6 = st.columns(6)
+            metrics = [
+                ("总收益",   f"{r.total_return:.1%}",  "#22c55e" if r.total_return>0 else "#ef4444"),
+                ("年化收益", f"{r.annual_return:.1%}", "#22c55e" if r.annual_return>0 else "#ef4444"),
+                ("最大回撤", f"{r.max_drawdown:.1%}",  "#ef4444"),
+                ("夏普比率", f"{r.sharpe_ratio:.2f}",  "#22c55e" if r.sharpe_ratio>1 else "#f59e0b"),
+                ("胜率",     f"{r.win_rate:.1%}",      "#22c55e" if r.win_rate>0.5 else "#f59e0b"),
+                ("交易笔数", str(r.total_trades),      "#3b82f6"),
+            ]
+            for col,(lb,v,c) in zip([m1,m2,m3,m4,m5,m6], metrics):
+                with col:
+                    st.markdown(
+                        f'<div style="background:#111;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:12px;text-align:center">'
+                        f'<div style="font-size:18px;font-weight:700;color:{c};font-variant-numeric:tabular-nums">{v}</div>'
+                        f'<div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:3px;text-transform:uppercase;letter-spacing:.05em">{lb}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+            if not r.equity_curve.empty:
+                eq = r.equity_curve
+                st.line_chart(pd.DataFrame({"净值曲线": eq / eq.iloc[0]}),
+                              color=["#3b82f6"], height=220)
+
+            if r.sharpe_ratio < 0.5:
+                st.markdown(_card('<div style="font-size:12px;color:#ef4444">⚠️ 夏普比率低于 0.5，策略实盘表现存疑</div>', "#ef4444"), unsafe_allow_html=True)
+
+    # ════════════════════════════════════════
+    #  Tab4: 过拟合诊断
+    # ════════════════════════════════════════
+    with tab4:
+        st.markdown('<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,0.3);padding:0 0 10px">过拟合风险诊断</div>', unsafe_allow_html=True)
+        st.markdown(_card(
+            '<div style="font-size:12px;color:rgba(255,255,255,0.45);line-height:1.9">'
+            '四项检验：'
+            '<b style="color:#3b82f6">①</b> 样本外 Sharpe 衰减 &lt;50%&nbsp;'
+            '<b style="color:#3b82f6">②</b> 样本外回撤 &lt;样本内2倍&nbsp;'
+            '<b style="color:#3b82f6">③</b> 样本外年化收益 &gt;0%&nbsp;'
+            '<b style="color:#3b82f6">④</b> 参数扰动后 Sharpe 变化 &lt;40%'
+            '</div>'
+        ), unsafe_allow_html=True)
+
+        st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+
+        if "bt_result" not in st.session_state:
+            st.info("请先在「策略回测」Tab 运行一次回测")
+        else:
+            r  = st.session_state["bt_result"]
+            eq = r.equity_curve
+            if len(eq) < 60:
+                st.warning("数据不足（需至少 60 天净值数据）")
+            else:
+                split = int(len(eq) * 0.7)
+                def _m(e):
+                    rd = e.pct_change().dropna()
+                    t  = e.iloc[-1]/e.iloc[0] - 1
+                    a  = (1+t)**(252/len(e)) - 1
+                    s  = rd.mean()/(rd.std()+1e-9)*252**0.5
+                    d  = ((e - e.cummax())/e.cummax()).min()
+                    return {"annual_return":a,"sharpe_ratio":s,"max_drawdown":d}
+
+                is_m = _m(eq.iloc[:split])
+                os_m = _m(eq.iloc[split:])
+
+                from quant.anti_overfit import overfit_diagnosis
+                diag = overfit_diagnosis(is_m, os_m, "当前策略")
+                rc = {"低":"#22c55e","中":"#f59e0b","高⚠️":"#ef4444"}.get(diag["overfit_risk"],"#9ca3af")
+
+                # 风险总结
+                st.markdown(
+                    f'<div style="background:#111;border:1px solid {rc}40;border-left:2px solid {rc};'
+                    f'border-radius:6px;padding:14px 16px;margin-bottom:14px">'
+                    f'<div style="font-size:14px;font-weight:700;color:{rc};margin-bottom:6px">'
+                    f'过拟合风险：{diag["overfit_risk"]}  {diag["verdict"]}</div>'
+                    f'<div style="font-size:12px;color:rgba(255,255,255,0.45)">{diag["recommendation"]}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+                # 对比表
+                d1, d2 = st.columns(2)
+                for col, (lb, m) in zip([d1,d2],[("📚 样本内（前70%）",is_m),("🧪 样本外（后30%）",os_m)]):
+                    with col:
+                        rows_html = ""
+                        for metric_lb, key, good_fn in [
+                            ("年化收益","annual_return",lambda v:v>0),
+                            ("夏普比率","sharpe_ratio", lambda v:v>1),
+                            ("最大回撤","max_drawdown", lambda v:v>-0.2),
+                        ]:
+                            v   = m[key]
+                            mvc = "#22c55e" if good_fn(v) else "#ef4444"
+                            vs  = f"{v:.1%}" if key!="sharpe_ratio" else f"{v:.2f}"
+                            rows_html += (
+                                f'<div style="display:flex;justify-content:space-between;'
+                                f'padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.04)">'
+                                f'<span style="color:rgba(255,255,255,0.4);font-size:12px">{metric_lb}</span>'
+                                f'<span style="color:{mvc};font-weight:600;font-size:13px;font-variant-numeric:tabular-nums">{vs}</span>'
+                                f'</div>'
+                            )
+                        st.markdown(
+                            f'<div style="background:#111;border:1px solid rgba(255,255,255,0.06);'
+                            f'border-radius:6px;padding:14px 16px">'
+                            f'<div style="font-size:11px;color:rgba(255,255,255,0.3);'
+                            f'text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">{lb}</div>'
+                            f'{rows_html}</div>',
+                            unsafe_allow_html=True,
                         )
 
-                        if weights.empty:
-                            st.error("无法计算权重，数据不足")
-                        else:
-                            metrics = calc_portfolio_metrics(weights, returns)
+                decay = diag["sharpe_decay"]
+                dd_r  = diag["dd_ratio"]
+                da1, da2 = st.columns(2)
+                with da1:
+                    dc = "#ef4444" if decay > 0.5 else "#22c55e"
+                    st.markdown(
+                        f'<div style="background:#111;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:12px;text-align:center;margin-top:10px">'
+                        f'<div style="font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.05em">Sharpe 衰减</div>'
+                        f'<div style="font-size:22px;font-weight:700;color:{dc};margin:6px 0;font-variant-numeric:tabular-nums">{decay:.0%}</div>'
+                        f'<div style="font-size:11px;color:{dc}">{"⚠️ 过高" if decay>0.5 else "✓ 合格"}</div></div>',
+                        unsafe_allow_html=True,
+                    )
+                with da2:
+                    dc2 = "#ef4444" if dd_r > 2 else "#22c55e"
+                    st.markdown(
+                        f'<div style="background:#111;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:12px;text-align:center;margin-top:10px">'
+                        f'<div style="font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.05em">回撤恶化</div>'
+                        f'<div style="font-size:22px;font-weight:700;color:{dc2};margin:6px 0;font-variant-numeric:tabular-nums">{dd_r:.1f}x</div>'
+                        f'<div style="font-size:11px;color:{dc2}">{"⚠️ 超2倍" if dd_r>2 else "✓ 合格"}</div></div>',
+                        unsafe_allow_html=True,
+                    )
 
-                            # 获取实时价格
-                            realtime = get_realtime_quotes(list(weights.index))
+                if diag.get("issues"):
+                    st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+                    for issue in diag["issues"]:
+                        st.markdown(
+                            f'<div style="background:rgba(239,68,68,0.06);border-left:2px solid #ef4444;'
+                            f'border-radius:4px;padding:8px 12px;margin-bottom:6px;font-size:12px;color:#ef4444">{issue}</div>',
+                            unsafe_allow_html=True,
+                        )
 
-                            st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
-                            st.markdown('<div class="n-section-title">最优投资组合</div>', unsafe_allow_html=True)
 
-                            # 组合指标
-                            if metrics:
-                                pm1,pm2,pm3,pm4 = st.columns(4)
-                                for col,(k,lb) in zip([pm1,pm2,pm3,pm4],[
-                                    ("annual_return","年化收益"),("annual_volatility","年化波动"),
-                                    ("sharpe_ratio","夏普比率"),("max_drawdown","历史回撤")
-                                ]):
-                                    v = metrics.get(k,0)
-                                    fmt = f"{v:.2%}" if k in ("annual_return","annual_volatility","max_drawdown") else f"{v:.3f}"
-                                    color = "#4bae8a" if (k=="annual_return" and v>0) or (k=="sharpe_ratio" and v>1) else "#e16b6b" if k=="max_drawdown" else "#d4a843"
-                                    with col:
-                                        st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:18px;font-weight:700;color:{color}">{fmt}</div><div style="font-size:11px;color:#5b5b5b">{lb}</div></div>', unsafe_allow_html=True)
+# ══════════════════════════════════════════
+#  ETF50 结果展示
+# ══════════════════════════════════════════
+def _show_etf50_result(st, data: dict):
+    ts = data.get("datetime","")[:16]
+    total = data.get("total", 0)
+    success = data.get("success", 0)
+    bull = data.get("bullish", 0)
+    bear = data.get("bearish", 0)
+    neut = data.get("neutral", 0)
 
-                            # 权重分配
-                            st.markdown('<div class="n-section-title" style="margin-top:16px">仓位分配</div>', unsafe_allow_html=True)
-                            total_shares_info = []
-                            for code, w in weights.sort_values(ascending=False).items():
-                                alloc   = port_capital * w
-                                rt      = realtime.get(code, {})
-                                price   = rt.get("price", 0)
-                                chg     = rt.get("chg",0) or rt.get("change_pct",0)
-                                shares  = int(alloc / price / 100) * 100 if price > 0 else 0
-                                actual  = shares * price if price > 0 else alloc
-                                chg_c   = "#4bae8a" if chg>0 else "#e16b6b" if chg<0 else "#6b6b6b"
+    st.markdown(f'<div style="font-size:11px;color:rgba(255,255,255,0.3);margin:14px 0 10px">上次扫描：{ts} · {success}/{total} 只有效</div>', unsafe_allow_html=True)
 
-                                st.markdown(f"""
-                                <div class="n-card" style="margin-bottom:8px;padding:12px 16px">
-                                  <div style="display:flex;justify-content:space-between;align-items:center">
-                                    <div>
-                                      <span style="font-size:14px;font-weight:700;color:#fff">{code}</span>
-                                      <span style="font-size:11px;color:#5b5b5b;margin-left:10px">权重 {w:.1%}</span>
-                                    </div>
-                                    <div style="text-align:right">
-                                      <div style="font-size:14px;font-weight:700;color:#fff">¥{actual:,.0f}</div>
-                                      <div style="font-size:11px;color:#5b5b5b">{shares}股 × ¥{price:.3f} <span style="color:{chg_c}">{chg:+.2f}%</span></div>
-                                    </div>
-                                  </div>
-                                  <div class="bar-wrap" style="margin-top:8px">
-                                    <div class="bar-fill-green" style="width:{w/port_max_w*100:.0f}%"></div>
-                                  </div>
-                                </div>""", unsafe_allow_html=True)
-                                total_shares_info.append({"code":code,"weight":w,"amount":actual,"shares":shares})
+    # 统计行
+    s1,s2,s3,s4 = st.columns(4)
+    for col,(lb,v,c) in zip([s1,s2,s3,s4],[
+        ("📈 看多",bull,"#22c55e"),("→ 中性",neut,"#f59e0b"),
+        ("📉 看空",bear,"#ef4444"),("✅ 有效",success,"#3b82f6"),
+    ]):
+        with col:
+            st.markdown(
+                f'<div style="background:#111;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:10px;text-align:center">'
+                f'<div style="font-size:20px;font-weight:700;color:{c};font-variant-numeric:tabular-nums">{v}</div>'
+                f'<div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:2px">{lb}</div></div>',
+                unsafe_allow_html=True,
+            )
 
-                            total_used = sum(x["amount"] for x in total_shares_info)
-                            st.markdown(f"""
-                            <div class="n-card" style="padding:12px 16px;border-left:3px solid #5b8af0;margin-top:8px">
-                              <div style="display:flex;justify-content:space-between;font-size:13px">
-                                <span style="color:#9b9b9b">总资金: ¥{port_capital:,}</span>
-                                <span style="color:#4bae8a">计划投入: ¥{total_used:,.0f} ({total_used/port_capital:.1%})</span>
-                                <span style="color:#d4a843">留存: ¥{port_capital-total_used:,.0f}</span>
-                              </div>
-                            </div>""", unsafe_allow_html=True)
+    # 组合回测结果
+    bt = data.get("backtest", {})
+    if bt and bt.get("sharpe_ratio") is not None:
+        st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
+        top_n = data.get("top_n", 5)
+        st.markdown(
+            f'<div style="background:#111;border:1px solid rgba(59,130,246,0.2);border-left:2px solid #3b82f6;'
+            f'border-radius:6px;padding:12px 16px;margin-bottom:4px">'
+            f'<div style="font-size:11px;color:#3b82f6;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Top-{top_n} 等权组合回测结果</div>'
+            f'<div style="display:flex;gap:24px;flex-wrap:wrap">'
+            + "".join([
+                f'<div><div style="font-size:18px;font-weight:700;color:{c};font-variant-numeric:tabular-nums">{v}</div>'
+                f'<div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:2px">{lb}</div></div>'
+                for lb,v,c in [
+                    ("总收益",f"{bt.get('total_return',0):.1%}","#22c55e" if bt.get('total_return',0)>0 else "#ef4444"),
+                    ("年化收益",f"{bt.get('annual_return',0):.1%}","#22c55e" if bt.get('annual_return',0)>0 else "#ef4444"),
+                    ("夏普比率",f"{bt.get('sharpe_ratio',0):.2f}","#22c55e" if bt.get('sharpe_ratio',0)>1 else "#f59e0b"),
+                    ("最大回撤",f"{bt.get('max_drawdown',0):.1%}","#ef4444"),
+                    ("交易笔数",str(bt.get('total_trades',0)),"#9ca3af"),
+                ]
+            ]) + '</div></div>',
+            unsafe_allow_html=True,
+        )
 
-                except Exception as e:
-                    st.error(f"组合优化失败：{e}")
-                    import traceback; st.code(traceback.format_exc())
+        # 净值曲线
+        eq_list = bt.get("equity_curve", [])
+        if eq_list and len(eq_list) > 5:
+            eq = pd.Series(eq_list)
+            st.line_chart(pd.DataFrame({"净值": eq / eq.iloc[0]}), color=["#3b82f6"], height=160)
+
+    # 前三名
+    top3 = data.get("top3", [])
+    if top3:
+        st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:11px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">🏆 量化前三名</div>', unsafe_allow_html=True)
+        t1,t2,t3 = st.columns(3)
+        medals = ["🥇","🥈","🥉"]
+        accs   = ["#22c55e","#3b82f6","#f59e0b"]
+        for col, r, medal, acc in zip([t1,t2,t3], top3, medals, accs):
+            sc = r.get("quant_score", 0)
+            reasons = r.get("reasons",[])[:2]
+            rhtml = " · ".join(reasons) if reasons else ""
+            with col:
+                st.markdown(
+                    f'<div style="background:#111;border:1px solid rgba(255,255,255,0.06);border-top:1px solid {acc};border-radius:6px;padding:14px">'
+                    f'<div style="font-size:16px;margin-bottom:6px">{medal}</div>'
+                    f'<div style="font-size:11px;color:rgba(255,255,255,0.35)">{r.get("code","")}</div>'
+                    f'<div style="font-size:14px;font-weight:600;color:#fff;margin:3px 0">{r.get("name","")}</div>'
+                    f'<div style="font-size:22px;font-weight:700;color:{acc};font-variant-numeric:tabular-nums;margin:6px 0">{sc:.0f}<span style="font-size:12px;color:rgba(255,255,255,0.3)"> 分</span></div>'
+                    f'{_bar(sc)}'
+                    f'<div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:6px">{rhtml}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+    # 完整排行榜
+    results = [r for r in data.get("results",[]) if r.get("has_data")]
+    if not results:
+        return
+
+    st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+
+    # 筛选
+    fc1, fc2 = st.columns([1,2])
+    with fc1:
+        sig_f = st.selectbox("", ["全部","看多","中性","看空"], key="etfq_sig", label_visibility="collapsed")
+    with fc2:
+        cats = ["全部类别"] + sorted(set(r.get("category","") for r in results if r.get("category")))
+        cat_f = st.selectbox("", cats, key="etfq_cat", label_visibility="collapsed")
+
+    sm = {"全部":None,"看多":"bullish","中性":"neutral","看空":"bearish"}
+    filtered = [r for r in results if
+                (not sm[sig_f] or r.get("signal")==sm[sig_f]) and
+                (cat_f=="全部类别" or r.get("category","")==cat_f)]
+
+    # 表头
+    st.markdown(
+        '<div style="display:grid;grid-template-columns:40px 70px 1fr 100px 60px 80px 100px 80px;'
+        'gap:8px;padding:6px 12px;font-size:10px;color:rgba(255,255,255,0.3);'
+        'text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid rgba(255,255,255,0.06);margin-top:6px">'
+        '<div>#</div><div>代码</div><div>名称</div><div>类别</div>'
+        '<div style="text-align:right">量化分</div><div style="text-align:center">信号</div>'
+        '<div>关键因子</div><div style="text-align:right">进度</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    for i, r in enumerate(filtered, 1):
+        sc   = r.get("quant_score", 0)
+        sig  = r.get("signal","neutral")
+        sc_c = _sc(sc)
+        reasons = r.get("reasons",[])[:2]
+        rstr = " · ".join(reasons)
+        medal = {1:"🥇",2:"🥈",3:"🥉"}.get(i,"")
+        row_bg = "rgba(255,255,255,0.02)" if i % 2 == 0 else "transparent"
+        sig_html = _sig_html(sig)
+
+        st.markdown(
+            f'<div style="display:grid;grid-template-columns:40px 70px 1fr 100px 60px 80px 100px 80px;'
+            f'gap:8px;padding:8px 12px;align-items:center;background:{row_bg};'
+            f'border-radius:4px;border-bottom:1px solid rgba(255,255,255,0.03)">'
+            f'<div style="font-size:12px;color:rgba(255,255,255,0.25)">{medal}{i}</div>'
+            f'<div style="font-size:12px;color:rgba(255,255,255,0.5);font-family:monospace">{r.get("code","")}</div>'
+            f'<div style="font-size:13px;font-weight:500;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{r.get("name","")}</div>'
+            f'<div style="font-size:10px;color:rgba(255,255,255,0.3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{r.get("category","")}</div>'
+            f'<div style="text-align:right;font-size:14px;font-weight:700;color:{sc_c};font-variant-numeric:tabular-nums">{sc:.0f}</div>'
+            f'<div style="text-align:center">{sig_html}</div>'
+            f'<div style="font-size:11px;color:rgba(255,255,255,0.35);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{rstr}</div>'
+            f'<div>{_bar(sc)}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
