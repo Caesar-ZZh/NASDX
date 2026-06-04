@@ -116,6 +116,16 @@ def render_position_advisor(st):
             {"code": "513160", "name": "港股科技ETF", "cost": 1.10, "shares": 5000,  "type": "etf"},
         ]
 
+    # ★ 启动时预填充：name 为空但 code 有值的行，立即查名
+    for i, row in enumerate(st.session_state.pos_rows):
+        code = row.get("code", "").strip()
+        if code and len(code) == 6 and not row.get("name", ""):
+            auto = _lookup_name(code)
+            if auto:
+                row["name"] = auto
+                # 同步到 widget state，确保输入框显示正确值
+                st.session_state[f"pn_{i}"] = auto
+
     # 表头
     hdr = st.columns([2, 3, 2, 2, 2, 1])
     for col, h in zip(hdr, ["代码", "名称（选填）", "成本价", "持有股数", "类型", ""]):
@@ -132,26 +142,36 @@ def render_position_advisor(st):
             new_code = st.text_input("", value=old_code,
                                       key=f"pc_{i}", label_visibility="collapsed", max_chars=6)
             new_code_padded = new_code.strip().zfill(6) if len(new_code.strip()) == 6 else new_code.strip()
-            # 代码改变了 → 自动查名、自动判断类型
+
+            # 代码变了（且达到6位）→ 自动查名、自动判断类型
             if new_code_padded != old_code and len(new_code_padded) == 6:
                 row["code"] = new_code_padded
-                # 自动识别名称
                 auto_name = _lookup_name(new_code_padded)
                 if auto_name:
                     row["name"] = auto_name
-                # 自动识别类型
+                    # ★ 关键：直接写入 session_state，强制覆盖 Streamlit 的 widget 缓存
+                    st.session_state[f"pn_{i}"] = auto_name
                 etf_prefix = ("50","51","15","16","55","56","58","59")
                 row["type"] = "etf" if new_code_padded[:2] in etf_prefix else "stock"
+                st.session_state[f"pt_{i}"] = row["type"]
                 need_rerun = True
             elif new_code_padded != old_code:
                 row["code"] = new_code_padded
+
+            # 名称尚为空但代码已6位 → 补查一次
+            if not row.get("name","") and len(row.get("code","")) == 6:
+                auto_name = _lookup_name(row["code"])
+                if auto_name:
+                    row["name"] = auto_name
+                    st.session_state[f"pn_{i}"] = auto_name
+                    need_rerun = True
+
         with c2:
-            # 名称：如果已自动识别则只读展示，否则可手动填
-            auto_name = _lookup_name(row.get("code","")) if row.get("code","") else ""
-            display_name = row.get("name","") or auto_name
-            row["name"] = st.text_input("", value=display_name,
+            # 直接用 session_state 中的值（已被上面强制写入）
+            cur_name = st.session_state.get(f"pn_{i}", row.get("name", ""))
+            row["name"] = st.text_input("", value=cur_name,
                                          key=f"pn_{i}", label_visibility="collapsed",
-                                         placeholder="自动识别中..." if row.get("code","") else "输入代码后自动识别")
+                                         placeholder="输入6位代码后自动识别")
         with c3:
             row["cost"] = st.number_input("", value=float(row.get("cost", 1.0)),
                                            key=f"pco_{i}", label_visibility="collapsed",
