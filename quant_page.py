@@ -89,8 +89,9 @@ def render_quant_page(st):
             unsafe_allow_html=True,
         )
 
-    tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "💼 持仓顾问", "🚀 ETF50 全量", "📐 因子分析", "📈 VnPy 回测", "⚙️ 参数优化", "🛡️ 过拟合诊断"
+    tab0, tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "💼 持仓顾问", "🚀 ETF50 全量", "📐 因子分析",
+        "📈 VnPy 回测", "⚙️ 参数优化", "🛡️ 过拟合诊断", "🧬 置信度训练"
     ])
 
     # ════════════════════════════════════════
@@ -660,3 +661,16 @@ def _render_etf50_result(st, data: dict):
             f'</div>',
             unsafe_allow_html=True,
         )
+
+
+    # ════════════════════════════════════════
+    #  Tab6: 置信度训练
+    # ════════════════════════════════════════
+    with tab6:
+        try:
+            from confidence_page import render_confidence_page
+            render_confidence_page(st)
+        except Exception as _e:
+            import traceback
+            st.error(f'置信度训练加载失败：{_e}')
+            st.code(traceback.format_exc())

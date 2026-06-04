@@ -96,9 +96,18 @@ class SignalEngine:
     输出：综合评分、信号、置信度、操作建议
     """
 
-    def __init__(self, capital: float = 100_000):
-        from quant.anti_overfit import SignalVoter
-        self.voter   = SignalVoter()
+    def __init__(self, capital: float = 100_000, use_calibrated: bool = True):
+        # 优先使用校准权重，无校准文件时回退到默认权重
+        try:
+            if use_calibrated:
+                from quant.confidence_trainer import get_calibrated_voter
+                self.voter = get_calibrated_voter()
+            else:
+                from quant.anti_overfit import SignalVoter
+                self.voter = SignalVoter()
+        except Exception:
+            from quant.anti_overfit import SignalVoter
+            self.voter = SignalVoter()
         self.capital = capital
 
     def run(

@@ -214,8 +214,12 @@ class PositionAdvisor:
                       price_data: dict, verbose: bool):
         """Alpha158 因子计算 + SignalVoter 集成"""
         from quant.factors import compute_alpha158
-        from quant.anti_overfit import SignalVoter
-        voter = SignalVoter()
+        try:
+            from quant.confidence_trainer import get_calibrated_voter
+            voter = get_calibrated_voter()
+        except Exception:
+            from quant.anti_overfit import SignalVoter
+            voter = SignalVoter()
 
         factor_signals = {}
         trend_signals  = {}
