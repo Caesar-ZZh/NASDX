@@ -41,55 +41,49 @@ st.set_page_config(
 )
 
 # ══════════════════════════════════════════════════════
-#  Apple 设计语言 CSS
+#  Linear.app / Vercel 设计系统 CSS
 # ══════════════════════════════════════════════════════
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,200;0,300;0,400;0,500;0,600;0,700;0,800&display=swap');
+/* 系统字体栈：避免网络延迟，极简无衬线 */
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Apple 设计令牌
+   Linear/Vercel 设计令牌
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 :root {
-  /* 背景层级（Apple 深色模式） */
-  --bg-base:       #000000;
-  --bg-elevated:   #1c1c1e;
-  --bg-elevated2:  #2c2c2e;
-  --bg-elevated3:  #3a3a3c;
-
-  /* 毛玻璃 */
-  --glass-bg:      rgba(28,28,30,0.72);
-  --glass-border:  rgba(255,255,255,0.08);
-  --glass-blur:    20px;
+  /* 背景层级（纯黑 + 微灰） */
+  --bg-base:       #0a0a0a;
+  --bg-elevated:   #111111;
+  --bg-elevated2:  #161616;
+  --bg-elevated3:  #1a1a1a;
 
   /* 文字层级 */
-  --text-primary:    rgba(255,255,255,0.92);
-  --text-secondary:  rgba(255,255,255,0.55);
-  --text-tertiary:   rgba(255,255,255,0.30);
+  --text-primary:    #ffffff;
+  --text-secondary:  rgba(255,255,255,0.65);
+  --text-tertiary:   rgba(255,255,255,0.40);
+  --text-muted:      rgba(255,255,255,0.25);
 
-  /* Apple 系统色 */
-  --apple-blue:    #0a84ff;
-  --apple-green:   #30d158;
-  --apple-red:     #ff453a;
-  --apple-orange:  #ff9f0a;
-  --apple-purple:  #bf5af2;
-  --apple-teal:    #5ac8fa;
-  --apple-indigo:  #5e5ce6;
+  /* Tailwind 色系 */
+  --green:         #22c55e;
+  --red:           #ef4444;
+  --yellow:        #f59e0b;
+  --blue:          #3b82f6;
+  --purple:        #a855f7;
+  --cyan:          #06b6d4;
 
-  /* 分隔线 */
-  --separator:     rgba(255,255,255,0.10);
-  --separator-thin:rgba(255,255,255,0.06);
+  /* 边界颜色 */
+  --border:        rgba(255,255,255,0.06);
+  --border-hover:  rgba(255,255,255,0.10);
+  --border-active: rgba(255,255,255,0.15);
 
   /* 圆角 */
-  --radius-sm:  8px;
-  --radius-md:  12px;
-  --radius-lg:  18px;
-  --radius-xl:  24px;
+  --radius-sm:  4px;
+  --radius-md:  6px;
+  --radius-lg:  8px;
 
-  /* 阴影 */
-  --shadow-sm:  0 1px 3px rgba(0,0,0,0.45), 0 1px 2px rgba(0,0,0,0.3);
-  --shadow-md:  0 4px 16px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.3);
-  --shadow-lg:  0 12px 40px rgba(0,0,0,0.7), 0 4px 12px rgba(0,0,0,0.4);
+  /* 无阴影或极轻阴影 */
+  --shadow-none: none;
+  --shadow-sm:   0 1px 2px rgba(0,0,0,0.05);
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -103,77 +97,119 @@ st.markdown("""
 [data-testid="stAppViewContainer"] {
     background: var(--bg-base);
     color: var(--text-primary);
-    font-family: 'Inter', -apple-system, 'SF Pro Display', 'SF Pro Text', BlinkMacSystemFont, sans-serif;
-    font-size: 14px;
+    font-family: -apple-system, 'Segoe UI', system-ui, 'Helvetica Neue', sans-serif;
+    font-size: 13px;
     line-height: 1.5;
+    font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   侧边栏 — 毛玻璃效果
+   侧边栏 — 深灰
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 [data-testid="stSidebar"] {
-    background: var(--glass-bg) !important;
-    backdrop-filter: blur(var(--glass-blur)) saturate(180%);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
-    border-right: 0.5px solid var(--glass-border);
+    background: var(--bg-elevated) !important;
+    border-right: 1px solid var(--border);
 }
-[data-testid="stSidebar"] > div:first-child { padding: 20px 14px; }
+[data-testid="stSidebar"] > div:first-child { padding: 16px 12px; }
 [data-testid="stHeader"] { background: transparent !important; }
 #MainMenu, footer, [data-testid="stToolbar"] { visibility: hidden; }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   滚动条 — Apple 极简风
+   滚动条 — 极简灰
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   按钮 — Apple 蓝色主按钮
+   按钮 — Linear 极简风
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-.stButton > button {
-    background: var(--apple-blue) !important;
+
+/* 主按钮（action 用：蓝色实心） */
+.stButton > button[kind="primary"] {
+    background: var(--blue) !important;
     color: #ffffff !important;
     border: none !important;
-    border-radius: 980px !important;       /* Apple 胶囊按钮 */
-    font-weight: 590 !important;
+    border-radius: var(--radius-md) !important;
+    font-weight: 500 !important;
     font-size: 13px !important;
-    padding: 8px 20px !important;
-    letter-spacing: -0.01em !important;
-    transition: all 0.2s cubic-bezier(0.25,0.46,0.45,0.94) !important;
-    box-shadow: 0 1px 3px rgba(10,132,255,0.4) !important;
+    padding: 8px 16px !important;
+    letter-spacing: 0 !important;
+    transition: background 150ms !important;
+    box-shadow: none !important;
 }
-.stButton > button:hover {
-    background: #3395ff !important;
-    transform: translateY(-1px) !important;
-    box-shadow: 0 4px 12px rgba(10,132,255,0.5) !important;
+.stButton > button[kind="primary"]:hover {
+    background: #2563eb !important;
+    transform: none !important;
+    box-shadow: none !important;
 }
-.stButton > button:active {
-    transform: translateY(0) scale(0.97) !important;
-    box-shadow: 0 1px 4px rgba(10,132,255,0.3) !important;
+.stButton > button[kind="primary"]:active {
+    background: #1d4ed8 !important;
+    transform: none !important;
+}
+
+/* 次级按钮（侧边栏导航用：透明 + 左竖线） */
+.stButton > button[kind="secondary"] {
+    background: transparent !important;
+    color: var(--text-secondary) !important;
+    border: none !important;
+    border-left: 2px solid transparent !important;
+    border-radius: 0 !important;
+    font-weight: 400 !important;
+    font-size: 13px !important;
+    padding: 8px 12px !important;
+    letter-spacing: 0 !important;
+    transition: background 150ms, color 150ms, border-left-color 150ms !important;
+    box-shadow: none !important;
+    text-align: left !important;
+    justify-content: flex-start !important;
+}
+.stButton > button[kind="secondary"]:hover {
+    background: rgba(255,255,255,0.04) !important;
+    color: var(--text-primary) !important;
+    transform: none !important;
+}
+.stButton > button[kind="secondary"]:active {
+    background: rgba(255,255,255,0.06) !important;
+    border-left-color: var(--blue) !important;
+    transform: none !important;
+}
+
+/* active 侧边栏导航按钮 */
+.stButton > button[kind="secondary"]:focus {
+    border-left-color: var(--blue) !important;
+}
+
+/* 普通 stButton 兜底 */
+.stButton > button {
+    border-radius: var(--radius-md) !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    letter-spacing: 0 !important;
+    transition: all 150ms !important;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   输入框 — Apple 毛玻璃
+   输入框 — Linear 深灰
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .stTextInput > div > div > input,
 .stNumberInput > div > div > input {
-    background: var(--bg-elevated) !important;
-    border: 0.5px solid var(--separator) !important;
-    border-radius: var(--radius-sm) !important;
+    background: var(--bg-elevated2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
     color: var(--text-primary) !important;
-    font-size: 14px !important;
+    font-size: 13px !important;
     font-family: inherit !important;
-    padding: 10px 14px !important;
-    transition: border-color 0.2s, box-shadow 0.2s !important;
+    padding: 8px 12px !important;
+    transition: border-color 150ms !important;
 }
 .stTextInput > div > div > input:focus,
 .stNumberInput > div > div > input:focus {
-    border-color: var(--apple-blue) !important;
-    box-shadow: 0 0 0 3px rgba(10,132,255,0.2) !important;
+    border-color: var(--blue) !important;
+    box-shadow: none !important;
     outline: none !important;
 }
 
@@ -182,47 +218,44 @@ st.markdown("""
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .stSelectbox > div > div,
 [data-baseweb="select"] {
-    background: var(--bg-elevated) !important;
-    border: 0.5px solid var(--separator) !important;
-    border-radius: var(--radius-sm) !important;
+    background: var(--bg-elevated2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
     color: var(--text-primary) !important;
 }
-[data-baseweb="popover"] { background: var(--bg-elevated) !important; border-radius: var(--radius-md) !important; border: 0.5px solid var(--separator) !important; box-shadow: var(--shadow-lg) !important; }
+[data-baseweb="popover"] { background: var(--bg-elevated2) !important; border-radius: var(--radius-md) !important; border: 1px solid var(--border) !important; box-shadow: var(--shadow-sm) !important; }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   卡片 — Apple 分层毛玻璃
+   卡片 — Linear 极简无阴影
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .n-card {
     background: var(--bg-elevated);
-    border: 0.5px solid var(--separator);
+    border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    padding: 20px 22px;
-    box-shadow: var(--shadow-sm);
-    transition: transform 0.2s cubic-bezier(0.25,0.46,0.45,0.94),
-                box-shadow 0.2s, border-color 0.2s;
+    padding: 16px;
+    box-shadow: none;
+    transition: border-color 150ms;
     position: relative;
     overflow: hidden;
 }
 .n-card:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
-    border-color: rgba(255,255,255,0.14);
+    border-color: var(--border-hover);
+    transform: none;
+    box-shadow: none;
 }
 
-/* 渐变光晕顶边 — Apple 彩色产品页风格 */
-.n-card-accent-green::before  { content:""; position:absolute; top:0; left:0; right:0; height:1px; background:linear-gradient(90deg,transparent,var(--apple-green),transparent); }
-.n-card-accent-red::before    { content:""; position:absolute; top:0; left:0; right:0; height:1px; background:linear-gradient(90deg,transparent,var(--apple-red),transparent); }
-.n-card-accent-yellow::before { content:""; position:absolute; top:0; left:0; right:0; height:1px; background:linear-gradient(90deg,transparent,var(--apple-orange),transparent); }
-.n-card-accent-blue::before   { content:""; position:absolute; top:0; left:0; right:0; height:1px; background:linear-gradient(90deg,transparent,var(--apple-blue),transparent); }
+/* 彩色顶边条 — Linear 风格（细线，无渐变） */
+.n-card-accent-green::before  { content:""; position:absolute; top:0; left:0; right:0; height:2px; background: var(--green); }
+.n-card-accent-red::before    { content:""; position:absolute; top:0; left:0; right:0; height:2px; background: var(--red); }
+.n-card-accent-yellow::before { content:""; position:absolute; top:0; left:0; right:0; height:2px; background: var(--yellow); }
+.n-card-accent-blue::before   { content:""; position:absolute; top:0; left:0; right:0; height:2px; background: var(--blue); }
 
-/* 毛玻璃卡片变体 */
+/* 卡片变体（无玻璃毛效果） */
 .n-card-glass {
-    background: rgba(28,28,30,0.5);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border: 0.5px solid rgba(255,255,255,0.1);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    padding: 20px 22px;
+    padding: 16px;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -230,203 +263,205 @@ st.markdown("""
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .n-label {
     font-size: 11px; font-weight: 600;
-    letter-spacing: 0.06em; text-transform: uppercase;
-    color: var(--text-tertiary); margin-bottom: 6px;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 6px;
 }
 .n-title {
-    font-size: 28px; font-weight: 700; color: var(--text-primary);
-    letter-spacing: -0.04em; line-height: 1.15;
+    font-size: 32px; font-weight: 600; color: var(--text-primary);
+    letter-spacing: -0.02em; line-height: 1.2;
 }
-.n-sub { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+.n-sub { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Section 标题 — Apple 小标题
+   Section 标题 — Linear 小标题
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .n-section-title {
-    font-size: 11px; font-weight: 700;
-    letter-spacing: 0.07em; text-transform: uppercase;
-    color: var(--text-tertiary);
-    padding: 20px 0 10px 0; margin-bottom: 2px;
-    border-bottom: 0.5px solid var(--separator-thin);
+    font-size: 12px; font-weight: 600;
+    letter-spacing: 0.02em; text-transform: none;
+    color: var(--text-primary);
+    padding: 16px 0 8px 0; margin-bottom: 0;
+    border-bottom: 1px solid var(--border);
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   信号徽章 — Apple 胶囊标签
+   信号徽章 — Linear 标签
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .sig-bull {
     display: inline-flex; align-items: center; gap: 5px;
-    background: rgba(48,209,88,0.15);
-    color: var(--apple-green);
-    border: 0.5px solid rgba(48,209,88,0.3);
-    border-radius: 980px; padding: 4px 12px;
-    font-size: 12px; font-weight: 600; letter-spacing: -0.01em;
+    background: rgba(34,197,94,0.10);
+    color: var(--green);
+    border: 1px solid rgba(34,197,94,0.25);
+    border-radius: var(--radius-sm); padding: 4px 10px;
+    font-size: 12px; font-weight: 500;
 }
 .sig-bear {
     display: inline-flex; align-items: center; gap: 5px;
-    background: rgba(255,69,58,0.15);
-    color: var(--apple-red);
-    border: 0.5px solid rgba(255,69,58,0.3);
-    border-radius: 980px; padding: 4px 12px;
-    font-size: 12px; font-weight: 600;
+    background: rgba(239,68,68,0.10);
+    color: var(--red);
+    border: 1px solid rgba(239,68,68,0.25);
+    border-radius: var(--radius-sm); padding: 4px 10px;
+    font-size: 12px; font-weight: 500;
 }
 .sig-neut {
     display: inline-flex; align-items: center; gap: 5px;
-    background: rgba(255,159,10,0.12);
-    color: var(--apple-orange);
-    border: 0.5px solid rgba(255,159,10,0.3);
-    border-radius: 980px; padding: 4px 12px;
-    font-size: 12px; font-weight: 600;
+    background: rgba(245,158,11,0.10);
+    color: var(--yellow);
+    border: 1px solid rgba(245,158,11,0.25);
+    border-radius: var(--radius-sm); padding: 4px 10px;
+    font-size: 12px; font-weight: 500;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   进度条 — Apple 条
+   进度条 — Linear 纯色
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .bar-wrap {
-    background: rgba(255,255,255,0.08);
-    border-radius: 100px; height: 4px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 2px; height: 3px;
     overflow: hidden; margin: 8px 0;
 }
-.bar-fill-green  { height:100%; background:linear-gradient(90deg,#30d158,#34c759); border-radius:100px; transition:width 0.5s cubic-bezier(0.25,0.46,0.45,0.94); }
-.bar-fill-red    { height:100%; background:linear-gradient(90deg,#ff453a,#ff3b30); border-radius:100px; }
-.bar-fill-yellow { height:100%; background:linear-gradient(90deg,#ff9f0a,#ff9500); border-radius:100px; }
+.bar-fill-green  { height:100%; background: var(--green); border-radius: 2px; transition: width 150ms; }
+.bar-fill-red    { height:100%; background: var(--red); border-radius: 2px; }
+.bar-fill-yellow { height:100%; background: var(--yellow); border-radius: 2px; }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Pill 标签 — Apple 填充标签
+   Pill 标签 — Linear 标签
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .n-pill {
     display: inline-block;
-    background: rgba(255,255,255,0.07);
+    background: rgba(255,255,255,0.05);
     color: var(--text-secondary);
-    border-radius: 980px; padding: 3px 10px;
-    font-size: 11px; font-weight: 500;
-    margin: 2px; border: 0.5px solid var(--separator);
-    letter-spacing: 0.01em;
-    transition: background 0.15s;
+    border-radius: var(--radius-sm); padding: 4px 8px;
+    font-size: 12px; font-weight: 400;
+    margin: 2px; border: 1px solid var(--border);
+    letter-spacing: 0;
+    transition: background 150ms;
 }
-.n-pill:hover { background: rgba(255,255,255,0.12); }
+.n-pill:hover { background: rgba(255,255,255,0.08); }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   气泡 — 圆润对话框
+   气泡 — Linear 消息框
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .bubble {
-    padding: 12px 16px;
-    border-radius: 14px; border-bottom-left-radius: 4px;
+    padding: 12px 14px;
+    border-radius: var(--radius-lg);
     font-size: 13px; line-height: 1.6;
-    margin: 6px 0; color: var(--text-primary);
+    margin: 8px 0; color: var(--text-primary);
     position: relative;
 }
-.bubble-bull  { background: rgba(48,209,88,0.1);  border: 0.5px solid rgba(48,209,88,0.2); }
-.bubble-bear  { background: rgba(255,69,58,0.1);  border: 0.5px solid rgba(255,69,58,0.2); border-bottom-left-radius: 14px; border-bottom-right-radius: 4px; }
-.bubble-judge { background: rgba(94,92,230,0.1);  border: 0.5px solid rgba(94,92,230,0.25); }
+.bubble-bull  { background: rgba(34,197,94,0.08);  border: 1px solid rgba(34,197,94,0.20); }
+.bubble-bear  { background: rgba(239,68,68,0.08);  border: 1px solid rgba(239,68,68,0.20); }
+.bubble-judge { background: rgba(168,85,247,0.08); border: 1px solid rgba(168,85,247,0.20); }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    分割线
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-hr.n-divider { border: none; border-top: 0.5px solid var(--separator-thin); margin: 20px 0; }
+hr.n-divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Expander — Apple 折叠面板
+   Expander — Linear 折叠面板
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .streamlit-expanderHeader {
     background: var(--bg-elevated) !important;
-    border: 0.5px solid var(--separator) !important;
-    border-radius: var(--radius-md) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) !important;
     font-size: 13px !important;
     color: var(--text-primary) !important;
     font-weight: 500 !important;
-    letter-spacing: -0.01em !important;
-    transition: background 0.15s !important;
+    letter-spacing: 0 !important;
+    transition: background 150ms, border-color 150ms !important;
 }
-.streamlit-expanderHeader:hover { background: var(--bg-elevated2) !important; }
+.streamlit-expanderHeader:hover { background: var(--bg-elevated2) !important; border-color: var(--border-hover) !important; }
 .streamlit-expanderContent {
     background: var(--bg-base) !important;
-    border: 0.5px solid var(--separator) !important;
+    border: 1px solid var(--border) !important;
     border-top: none !important;
-    border-radius: 0 0 var(--radius-md) var(--radius-md) !important;
-    padding: 4px 0 !important;
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg) !important;
+    padding: 12px 0 !important;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Metric — Apple 数字展示
+   Metric — Linear 数字展示
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 [data-testid="stMetric"] {
     background: var(--bg-elevated);
-    border: 0.5px solid var(--separator);
-    border-radius: var(--radius-md);
-    padding: 14px 16px;
-    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 12px 14px;
+    box-shadow: none;
 }
 [data-testid="stMetricLabel"] {
     font-size: 11px !important;
-    color: var(--text-tertiary) !important;
-    font-weight: 600 !important;
+    color: var(--text-muted) !important;
+    font-weight: 500 !important;
     letter-spacing: 0.05em !important;
     text-transform: uppercase !important;
 }
 [data-testid="stMetricValue"] {
-    font-size: 22px !important;
-    font-weight: 700 !important;
+    font-size: 20px !important;
+    font-weight: 600 !important;
     color: var(--text-primary) !important;
-    letter-spacing: -0.03em !important;
+    letter-spacing: -0.02em !important;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Progress — Apple 蓝
+   Progress — Linear 蓝
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 [data-testid="stProgress"] > div {
-    background: rgba(255,255,255,0.08) !important;
-    border-radius: 100px !important;
-    height: 4px !important;
+    background: rgba(255,255,255,0.06) !important;
+    border-radius: 2px !important;
+    height: 3px !important;
 }
 [data-testid="stProgress"] > div > div {
-    background: linear-gradient(90deg, var(--apple-blue), #5ac8fa) !important;
-    border-radius: 100px !important;
+    background: var(--blue) !important;
+    border-radius: 2px !important;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Slider — Apple 风格
+   Slider — Linear 风格
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .stSlider > div > div > div > div {
-    background: var(--apple-blue) !important;
+    background: var(--blue) !important;
 }
 .stSlider > div > div > div[data-baseweb="slider"] {
     padding: 0 !important;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Tab — Apple 分段控件
+   Tab — Linear 下划线风格
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .stTabs [data-baseweb="tab-list"] {
-    background: var(--bg-elevated) !important;
-    border-radius: var(--radius-md) !important;
-    padding: 3px !important;
-    gap: 2px !important;
-    border: 0.5px solid var(--separator) !important;
+    background: transparent !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    border: 1px solid var(--border) !important;
+    border-bottom: 2px solid var(--border) !important;
 }
 .stTabs [data-baseweb="tab"] {
     background: transparent !important;
-    border-radius: 9px !important;
+    border-radius: 0 !important;
     color: var(--text-secondary) !important;
     font-size: 13px !important;
     font-weight: 500 !important;
-    letter-spacing: -0.01em !important;
-    padding: 6px 16px !important;
-    transition: all 0.2s cubic-bezier(0.25,0.46,0.45,0.94) !important;
+    letter-spacing: 0 !important;
+    padding: 12px 16px !important;
+    transition: color 150ms !important;
     border: none !important;
 }
 .stTabs [aria-selected="true"] {
-    background: rgba(255,255,255,0.1) !important;
+    background: transparent !important;
     color: var(--text-primary) !important;
-    font-weight: 600 !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3) !important;
+    font-weight: 500 !important;
+    box-shadow: none !important;
+    border-bottom: 2px solid var(--blue) !important;
 }
 .stTabs [data-baseweb="tab-panel"] {
-    padding-top: 20px !important;
+    padding-top: 16px !important;
 }
 .stTabs [data-baseweb="tab-border"] { display: none !important; }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Checkbox — Apple 开关风格
+   Checkbox — Linear 开关风格
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .stCheckbox > label > div[data-testid="stMarkdownContainer"] {
     color: var(--text-secondary) !important;
@@ -434,13 +469,13 @@ hr.n-divider { border: none; border-top: 0.5px solid var(--separator-thin); marg
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Multiselect — Apple 填充标签
+   Multiselect — Linear 标签
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 [data-baseweb="tag"] {
-    background: rgba(10,132,255,0.2) !important;
-    border-color: rgba(10,132,255,0.35) !important;
-    border-radius: 980px !important;
-    color: var(--apple-blue) !important;
+    background: rgba(59,130,246,0.15) !important;
+    border-color: rgba(59,130,246,0.30) !important;
+    border-radius: var(--radius-sm) !important;
+    color: var(--blue) !important;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -448,27 +483,26 @@ hr.n-divider { border: none; border-top: 0.5px solid var(--separator-thin); marg
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 [data-testid="stArrowVegaLiteChart"] canvas,
 [data-testid="stVegaLiteChart"] canvas {
-    border-radius: var(--radius-md) !important;
+    border-radius: var(--radius-lg) !important;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    Toast 通知
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 [data-testid="stNotification"] {
-    background: var(--glass-bg) !important;
-    backdrop-filter: blur(20px) !important;
-    border: 0.5px solid var(--separator) !important;
-    border-radius: var(--radius-md) !important;
-    box-shadow: var(--shadow-lg) !important;
+    background: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) !important;
+    box-shadow: var(--shadow-sm) !important;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    Code block
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .stCode, pre, code {
-    background: var(--bg-elevated) !important;
-    border: 0.5px solid var(--separator) !important;
-    border-radius: var(--radius-sm) !important;
+    background: var(--bg-elevated2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
     font-size: 12px !important;
     color: var(--text-secondary) !important;
 }
@@ -477,22 +511,21 @@ hr.n-divider { border: none; border-top: 0.5px solid var(--separator-thin); marg
    Info / Warning / Error boxes
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 [data-testid="stAlert"] {
-    border-radius: var(--radius-md) !important;
-    border: 0.5px solid var(--separator) !important;
-    backdrop-filter: blur(12px) !important;
+    border-radius: var(--radius-lg) !important;
+    border: 1px solid var(--border) !important;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    Spinner
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-[data-testid="stSpinner"] { color: var(--apple-blue) !important; }
+[data-testid="stSpinner"] { color: var(--blue) !important; }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   全局动画缓动
+   全局过渡 — Linear 150ms 线性
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 * { -webkit-tap-highlight-color: transparent; }
 .stButton > button, .n-card, [data-testid="stMetric"] {
-    transition-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    transition-timing-function: linear;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -522,36 +555,56 @@ PRESETS = {
 }
 
 # ══════════════════════════════════════════════════════
-#  工具函数
+#  工具函数（全部加 cache_data 缓存，60s TTL）
 # ══════════════════════════════════════════════════════
+@st.cache_data(ttl=60, show_spinner=False)
 def load_report(code):
     files = sorted(ROOT.glob(f"reports/report_{code}_*.json"))
     if not files: return None
     with open(files[-1], encoding="utf-8") as f: return json.load(f)
 
+@st.cache_data(ttl=60, show_spinner=False)
 def load_etf50():
     files = sorted(ROOT.glob("reports/etf50_*.json"))
     if not files: return None
     with open(files[-1], encoding="utf-8") as f: return json.load(f)
 
+@st.cache_data(ttl=60, show_spinner=False)
 def load_stocks60():
     files = sorted(ROOT.glob("reports/stocks60_*.json"))
     if not files: return None
     with open(files[-1], encoding="utf-8") as f: return json.load(f)
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_pool():
+    with open(ROOT / "etf50_pool.json", encoding="utf-8") as f:
+        return json.load(f)["etfs"]
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_recent_reports(n=6):
+    files = sorted(ROOT.glob("reports/report_*.json"), key=os.path.getmtime, reverse=True)[:n]
+    results = []
+    for rp in files:
+        try:
+            with open(rp, encoding="utf-8") as f:
+                results.append((rp, json.load(f)))
+        except Exception:
+            pass
+    return results
 
 def clean(text):
     if not text: return ""
     if "</thinking>" in text: text = text.split("</thinking>")[-1].strip()
     return text.replace("<thinking>","").strip()
 
-def sig_color(s): return {"bullish":"#30d158","bearish":"#ff453a","neutral":"#ff9f0a"}.get(s,"#636366")
-def sig_bg(s):    return {"bullish":"rgba(48,209,88,0.12)","bearish":"rgba(255,69,58,0.12)","neutral":"rgba(255,159,10,0.10)"}.get(s,"#2a2a2a")
+def sig_color(s): return {"bullish":"#22c55e","bearish":"#ef4444","neutral":"#f59e0b"}.get(s,"rgba(255,255,255,0.40)")
+def sig_bg(s):    return {"bullish":"rgba(34,197,94,0.10)","bearish":"rgba(239,68,68,0.10)","neutral":"rgba(245,158,11,0.10)"}.get(s,"rgba(255,255,255,0.05)")
 def sig_label(s): return {"bullish":"↑ 看多","bearish":"↓ 看空","neutral":"→ 中性"}.get(s,s)
 def sig_cls(s):   return {"bullish":"sig-bull","bearish":"sig-bear","neutral":"sig-neut"}.get(s,"sig-neut")
-def sc_color(v):  return "#30d158" if v>=65 else "#ff453a" if v<=40 else "#ff9f0a"
+def sc_color(v):  return "#22c55e" if v>=65 else "#ef4444" if v<=40 else "#f59e0b"
 def bar(v, color=None):
     c = color or sc_color(v)
-    cls = "bar-fill-green" if c=="#30d158" else "bar-fill-red" if c=="#ff453a" else "bar-fill-yellow"
+    cls = "bar-fill-green" if c=="#22c55e" else "bar-fill-red" if c=="#ef4444" else "bar-fill-yellow"
     return f'<div class="bar-wrap"><div class="{cls}" style="width:{min(v,100):.0f}%"></div></div>'
 
 def run_analysis_bg(code, rounds, log_path):
@@ -560,13 +613,25 @@ def run_analysis_bg(code, rounds, log_path):
         subprocess.run(cmd, stdout=f, stderr=f)
 
 # ══════════════════════════════════════════════════════
-#  Session State
+#  Session State  +  URL query_params 驱动导航
+#  用 query_params 而非 st.rerun() 切换页面 → 更快
 # ══════════════════════════════════════════════════════
-DEFAULTS = {"running":False,"current_code":"","log_path":None,"thread":None,"done":False,"page":"home",
+DEFAULTS = {"running":False,"current_code":"","log_path":None,"thread":None,"done":False,
             "api_preset":"DeepSeek","api_key":"sk-bc93edf010d6424985374c9f858fa336",
             "api_base":"https://api.deepseek.com","api_model":"deepseek-v4-pro","api_ok":None}
 for k, v in DEFAULTS.items():
     if k not in st.session_state: st.session_state[k] = v
+
+# 从 URL 读当前页面（首次加载 / 刷新时恢复）
+_qp = st.query_params
+_valid_pages = {"home","etf50","stocks60","deep","quant","ths"}
+if "page" not in st.session_state:
+    st.session_state.page = _qp.get("page","home") if _qp.get("page","home") in _valid_pages else "home"
+
+def _nav_to(page: str):
+    """切换页面：写 session + query_params，不 rerun（更快）"""
+    st.session_state.page = page
+    st.query_params["page"] = page
 
 # ══════════════════════════════════════════════════════
 #  侧边栏
@@ -585,14 +650,24 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    # 导航
-    NAV = [("🏠","首页","home"),("📊","ETF 50 扫描","etf50"),("📈","个股扫描","stocks60"),("🤖","深度分析","deep"),("⚗️","量化引擎","quant"),("🔗","同花顺","ths")]
+    # 导航 — 用 on_change 回调代替 st.rerun()，减少一次渲染循环
+    NAV = [("🏠","首页","home"),("📊","ETF 50","etf50"),("📈","个股扫描","stocks60"),
+           ("🤖","深度分析","deep"),("⚗️","量化引擎","quant"),("🔗","同花顺","ths")]
+
+    pg = st.session_state.page
     for icon, label, key in NAV:
-        active = "active" if st.session_state.page == key else ""
-        if st.button(f"{icon}  {label}", key=f"nav_{key}",
-                     help=label, use_container_width=True):
-            st.session_state.page = key
-            st.rerun()
+        is_active = pg == key
+        # active 页面用不同样式
+        btn_style = "margin:1px 0;" + ("background:rgba(10,132,255,0.15);border-radius:10px;" if is_active else "")
+        st.markdown(f'<div style="{btn_style}">', unsafe_allow_html=True)
+        if st.button(
+            f"{icon}  {label}",
+            key=f"nav_{key}",
+            use_container_width=True,
+            type="primary" if is_active else "secondary",
+        ):
+            _nav_to(key)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
 
@@ -689,95 +764,92 @@ pg = st.session_state.page
 #  首页
 # ══════════════════════════════════════════════════════
 if pg == "home":
-    st.markdown("""
-    <div style="padding:32px 0 28px">
-      <div style="font-size:32px;font-weight:700;color:#ffffff;letter-spacing:-0.03em;line-height:1.2;margin-bottom:10px">
-        A股多智能体<br>量化分析平台
-      </div>
-      <div style="font-size:14px;color:#636366;max-width:480px;line-height:1.7">
-        DeepSeek V4 Pro 驱动 · AkShare 实时数据 · 工作日早 10:00 / 下午 14:30 自动扫描
-      </div>
+    # 顶部标题 + 副标题 + 日期
+    st.markdown(f"""
+    <div style="padding:28px 0 20px 0">
+      <div class="n-title">NASDX</div>
+      <div class="n-sub">A股多智能体量化分析平台 · DeepSeek V4 Pro · 今日 {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
     </div>
     """, unsafe_allow_html=True)
 
-    # 三个功能入口
+    # 三个功能入口卡片
     c1, c2, c3 = st.columns(3, gap="medium")
     with c1:
         st.markdown("""
-        <div class="n-card n-card-accent-green" style="height:140px">
-          <div style="font-size:22px;margin-bottom:10px">📊</div>
-          <div style="font-size:15px;font-weight:600;color:#fff;margin-bottom:6px">ETF 50 扫描</div>
-          <div style="font-size:12px;color:#636366;line-height:1.6">50只主流ETF技术评分排行<br>实时溢价率 · 自动报告</div>
+        <div class="n-card n-card-accent-green">
+          <div style="font-size:20px;margin-bottom:12px">📊</div>
+          <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">ETF 50 扫描</div>
+          <div class="n-sub" style="margin-bottom:12px">50只主流ETF技术面评分 · 实时溢价率</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("查看排行 →", key="g_etf", use_container_width=True):
-            st.session_state.page = "etf50"; st.rerun()
+        if st.button("进入 →", key="g_etf", use_container_width=True):
+            _nav_to("etf50")
 
     with c2:
         st.markdown("""
-        <div class="n-card n-card-accent-yellow" style="height:140px">
-          <div style="font-size:22px;margin-bottom:10px">📈</div>
-          <div style="font-size:15px;font-weight:600;color:#fff;margin-bottom:6px">60 只个股扫描</div>
-          <div style="font-size:12px;color:#636366;line-height:1.6">10大热门板块龙头<br>均线 / MACD / RSI / 换手</div>
+        <div class="n-card n-card-accent-yellow">
+          <div style="font-size:20px;margin-bottom:12px">📈</div>
+          <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">60只个股扫描</div>
+          <div class="n-sub" style="margin-bottom:12px">10大热门板块龙头 · 技术面综合评分</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("查看排行 →", key="g_st", use_container_width=True):
-            st.session_state.page = "stocks60"; st.rerun()
+        if st.button("进入 →", key="g_st", use_container_width=True):
+            _nav_to("stocks60")
 
     with c3:
         st.markdown("""
-        <div class="n-card n-card-accent-blue" style="height:140px">
-          <div style="font-size:22px;margin-bottom:10px">🤖</div>
-          <div style="font-size:15px;font-weight:600;color:#fff;margin-bottom:6px">多智能体深度分析</div>
-          <div style="font-size:12px;color:#636366;line-height:1.6">4 Agent 并行研究<br>Battle 辩论 · DeepSeek 推理</div>
+        <div class="n-card n-card-accent-blue">
+          <div style="font-size:20px;margin-bottom:12px">🤖</div>
+          <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">深度分析</div>
+          <div class="n-sub" style="margin-bottom:12px">4 Agent 并行研究 · Battle 辩论</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("开始分析 →", key="g_deep", use_container_width=True):
-            st.session_state.page = "deep"; st.rerun()
+        if st.button("进入 →", key="g_deep", use_container_width=True):
+            _nav_to("deep")
 
-    st.markdown('<hr class="n-divider" style="margin:28px 0">', unsafe_allow_html=True)
+    st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
 
     # ETF50 最新结果
     d = load_etf50()
     if d:
-        st.markdown(f'<div class="n-section-title">ETF50 最新扫描 &nbsp; <span style="color:#4a4a4a;font-weight:400;text-transform:none">{d["datetime"][:16]}</span></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="n-section-title">ETF50 最新扫描 · {d["datetime"][:16]}</div>', unsafe_allow_html=True)
 
         sc1,sc2,sc3,sc4 = st.columns(4, gap="small")
         for col,(label,val,color) in zip([sc1,sc2,sc3,sc4],[
-            ("看多",d["bullish"],"#30d158"),("中性",d["neutral"],"#ff9f0a"),
-            ("看空",d["bearish"],"#ff453a"),("总计",d["total"],"#0a84ff")]):
+            ("看多",d["bullish"],"#22c55e"),("中性",d["neutral"],"#f59e0b"),
+            ("看空",d["bearish"],"#ef4444"),("总计",d["total"],"#3b82f6")]):
             with col:
                 st.markdown(f"""
-                <div class="n-card" style="text-align:center;padding:14px 10px">
-                  <div style="font-size:26px;font-weight:700;color:{color}">{val}</div>
-                  <div style="font-size:11px;color:#48484a;margin-top:2px">{label}</div>
+                <div class="n-card" style="text-align:center;padding:12px 8px">
+                  <div style="font-size:24px;font-weight:600;color:{color}">{val}</div>
+                  <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-top:4px">{label}</div>
                 </div>""", unsafe_allow_html=True)
 
         top3 = d.get("top3", [])
         if top3:
-            st.markdown('<div style="margin-top:16px"></div>', unsafe_allow_html=True)
+            st.markdown('<div style="margin-top:12px"></div>', unsafe_allow_html=True)
             t1,t2,t3 = st.columns(3, gap="medium")
             medals = [("🥇","n-card-accent-green"),("🥈","n-card-accent-blue"),("🥉","n-card-accent-yellow")]
             for col, r, (medal, accent) in zip([t1,t2,t3], top3, medals):
                 sc = r.get("score",0); color = sc_color(sc)
                 prem = r.get("premium"); prem_s = f'溢价 {prem:+.2f}%' if prem is not None else ""
-                prem_c = "#ff453a" if prem and prem>2 else "#30d158" if prem and prem<-0.5 else "#636366"
+                prem_c = "#ef4444" if prem and prem>2 else "#22c55e" if prem and prem<-0.5 else "rgba(255,255,255,0.40)"
                 with col:
                     st.markdown(f"""
                     <div class="n-card {accent}">
-                      <div style="font-size:18px;margin-bottom:8px">{medal}</div>
-                      <div style="font-size:12px;color:#636366;margin-bottom:2px">{r['code']}</div>
-                      <div style="font-size:15px;font-weight:600;color:#fff;margin-bottom:8px">{r['name']}</div>
-                      <div style="font-size:28px;font-weight:700;color:{color};letter-spacing:-0.03em">{sc}</div>
-                      <div style="font-size:11px;color:#48484a;margin-top:2px">评分</div>
-                      <div style="margin-top:10px">{bar(sc)}</div>
+                      <div style="font-size:16px;margin-bottom:8px">{medal}</div>
+                      <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:2px">{r['code']}</div>
+                      <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">{r['name']}</div>
+                      <div style="font-size:26px;font-weight:600;color:{color};letter-spacing:-0.02em">{sc}</div>
+                      <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-top:2px">评分</div>
+                      <div style="margin-top:8px">{bar(sc)}</div>
                       <div style="font-size:11px;color:{prem_c};margin-top:6px">{prem_s}</div>
                     </div>""", unsafe_allow_html=True)
 
     # 历史报告
     all_r = sorted(ROOT.glob("reports/report_*.json"), key=os.path.getmtime, reverse=True)[:6]
     if all_r:
-        st.markdown('<hr class="n-divider" style="margin:28px 0">', unsafe_allow_html=True)
+        st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
         st.markdown('<div class="n-section-title">最近深度分析</div>', unsafe_allow_html=True)
         rc = st.columns(3, gap="medium")
         for col, rp in zip(rc * 2, all_r):
@@ -786,17 +858,17 @@ if pg == "home":
             color = sig_color(sig); sl = sig_label(sig); bp = rd.get("bullish_pct",50)
             with col:
                 st.markdown(f"""
-                <div class="n-card" style="cursor:pointer;padding:14px 16px">
+                <div class="n-card" style="cursor:pointer;padding:12px 14px">
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
                     <span style="font-size:13px;font-weight:600;color:#fff">{rd.get('stock_code','')} {rd.get('stock_name','')}</span>
                     <span class="{sig_cls(sig)}">{sl}</span>
                   </div>
-                  <div style="font-size:11px;color:#48484a">{rd.get('date','')} &nbsp; 看多 {bp:.0f}%</div>
+                  <div style="font-size:11px;color:rgba(255,255,255,0.40)">{rd.get('date','')} · 看多 {bp:.0f}%</div>
                   {bar(bp)}
                 </div>""", unsafe_allow_html=True)
-                if st.button("查看报告", key=f"h_{rp.stem}", use_container_width=True):
+                if st.button("查看", key=f"h_{rp.stem}", use_container_width=True):
                     st.session_state["_quick"] = rd.get("stock_code","")
-                    st.session_state.page = "deep"; st.rerun()
+                    _nav_to("deep")
 
 # ══════════════════════════════════════════════════════
 #  ETF50 页
@@ -818,29 +890,29 @@ elif pg == "etf50":
         st.markdown(f'<div style="font-size:12px;color:#4a4a4a;margin:12px 0">{d["datetime"][:16]} · {d["total"]} 只有效</div>', unsafe_allow_html=True)
 
         s1,s2,s3,s4 = st.columns(4, gap="small")
-        for col,(lb,v,c) in zip([s1,s2,s3,s4],[("看多",d["bullish"],"#30d158"),("中性",d["neutral"],"#ff9f0a"),("看空",d["bearish"],"#ff453a"),("总计",d["total"],"#0a84ff")]):
+        for col,(lb,v,c) in zip([s1,s2,s3,s4],[("看多",d["bullish"],"#22c55e"),("中性",d["neutral"],"#f59e0b"),("看空",d["bearish"],"#ef4444"),("总计",d["total"],"#3b82f6")]):
             with col:
-                st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:24px;font-weight:700;color:{c}">{v}</div><div style="font-size:11px;color:#48484a">{lb}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:24px;font-weight:600;color:{c}">{v}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
 
         top3 = d.get("top3",[])
         if top3:
-            st.markdown('<hr class="n-divider" style="margin:20px 0 16px">', unsafe_allow_html=True)
+            st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
             t1,t2,t3 = st.columns(3, gap="medium")
             for col,r,m in zip([t1,t2,t3],top3,["🥇","🥈","🥉"]):
                 sc=r.get("score",0); color=sc_color(sc)
                 prem=r.get("premium"); prem_s=f'{prem:+.2f}%' if prem is not None else "-"
-                prem_c="#ff453a" if prem and prem>2 else "#30d158" if prem and prem<-0.5 else "#636366"
+                prem_c="#ef4444" if prem and prem>2 else "#22c55e" if prem and prem<-0.5 else "rgba(255,255,255,0.40)"
                 with col:
                     st.markdown(f"""
                     <div class="n-card">
                       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
                         <div>
-                          <div style="font-size:11px;color:#48484a">{r['code']}</div>
-                          <div style="font-size:15px;font-weight:600;color:#fff">{r['name']}</div>
+                          <div style="font-size:11px;color:rgba(255,255,255,0.40)">{r['code']}</div>
+                          <div style="font-size:14px;font-weight:600;color:#fff">{r['name']}</div>
                         </div>
-                        <div style="font-size:18px">{m}</div>
+                        <div style="font-size:16px">{m}</div>
                       </div>
-                      <div style="font-size:32px;font-weight:700;color:{color};letter-spacing:-0.03em">{sc}<span style="font-size:14px;color:#48484a"> 分</span></div>
+                      <div style="font-size:28px;font-weight:600;color:{color};letter-spacing:-0.02em">{sc}<span style="font-size:12px;color:rgba(255,255,255,0.40)"> 分</span></div>
                       {bar(sc)}
                       <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px">
                         <span class="{sig_cls(r.get('signal',''))}">{sig_label(r.get('signal',''))}</span>
@@ -848,7 +920,7 @@ elif pg == "etf50":
                       </div>
                     </div>""", unsafe_allow_html=True)
 
-        st.markdown('<hr class="n-divider" style="margin:20px 0 8px">', unsafe_allow_html=True)
+        st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
         fc1, fc2 = st.columns([1,4])
         with fc1:
             sig_f = st.selectbox("", ["全部","看多","中性","看空"], key="etf_sig", label_visibility="collapsed")
@@ -858,9 +930,9 @@ elif pg == "etf50":
         for i,r in enumerate(filtered,1):
             sc=r.get("score",0); sig=r.get("signal","neutral"); color=sc_color(sc)
             today_chg=r.get("spot_chg"); chg_s=f"{today_chg:+.2f}%" if today_chg is not None else "-"
-            chg_c="#30d158" if today_chg and today_chg>0 else "#ff453a" if today_chg and today_chg<0 else "#636366"
+            chg_c="#22c55e" if today_chg and today_chg>0 else "#ef4444" if today_chg and today_chg<0 else "rgba(255,255,255,0.40)"
             prem=r.get("premium"); prem_s=f"{prem:+.2f}%" if prem is not None else "-"
-            prem_c="#ff453a" if prem and prem>2 else "#30d158" if prem and prem<-0.5 else "#636366"
+            prem_c="#ef4444" if prem and prem>2 else "#22c55e" if prem and prem<-0.5 else "rgba(255,255,255,0.40)"
             medal={1:"🥇",2:"🥈",3:"🥉"}.get(i,"")
             reasons=r.get("reasons",[])
             pills="".join(f'<span class="n-pill">{x}</span>' for x in reasons[:3])
@@ -893,33 +965,33 @@ elif pg == "stocks60":
         st.markdown(f'<div style="font-size:12px;color:#4a4a4a;margin:12px 0">{d["datetime"][:16]} · {d["total"]} 只有效</div>', unsafe_allow_html=True)
 
         s1,s2,s3 = st.columns(3, gap="small")
-        for col,(lb,v,c) in zip([s1,s2,s3],[("看多",d["bullish"],"#30d158"),("中性",d["neutral"],"#ff9f0a"),("看空",d["bearish"],"#ff453a")]):
+        for col,(lb,v,c) in zip([s1,s2,s3],[("看多",d["bullish"],"#22c55e"),("中性",d["neutral"],"#f59e0b"),("看空",d["bearish"],"#ef4444")]):
             with col:
-                st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:24px;font-weight:700;color:{c}">{v}</div><div style="font-size:11px;color:#48484a">{lb}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:24px;font-weight:600;color:{c}">{v}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
 
         top3 = d.get("top3",[])
         if top3:
-            st.markdown('<hr class="n-divider" style="margin:20px 0 16px">', unsafe_allow_html=True)
+            st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
             t1,t2,t3 = st.columns(3, gap="medium")
             for col,r,m in zip([t1,t2,t3],top3,["🥇","🥈","🥉"]):
                 sc=r.get("score",0); color=sc_color(sc)
-                chg=r.get("chg",0); chg_c="#30d158" if chg>0 else "#ff453a"
+                chg=r.get("chg",0); chg_c="#22c55e" if chg>0 else "#ef4444"
                 with col:
                     st.markdown(f"""
                     <div class="n-card">
                       <div style="display:flex;justify-content:space-between;margin-bottom:10px">
                         <div>
-                          <div style="font-size:11px;color:#48484a">{r['code']}</div>
-                          <div style="font-size:15px;font-weight:600;color:#fff">{r['name']}</div>
+                          <div style="font-size:11px;color:rgba(255,255,255,0.40)">{r['code']}</div>
+                          <div style="font-size:14px;font-weight:600;color:#fff">{r['name']}</div>
                         </div>
-                        <div style="font-size:18px">{m}</div>
+                        <div style="font-size:16px">{m}</div>
                       </div>
-                      <div style="font-size:30px;font-weight:700;color:{color};letter-spacing:-0.03em">{sc}<span style="font-size:13px;color:#48484a"> 分</span></div>
+                      <div style="font-size:28px;font-weight:600;color:{color};letter-spacing:-0.02em">{sc}<span style="font-size:12px;color:rgba(255,255,255,0.40)"> 分</span></div>
                       {bar(sc)}
                       <div style="font-size:14px;font-weight:600;color:{chg_c};margin-top:8px">{chg:+.2f}%</div>
                     </div>""", unsafe_allow_html=True)
 
-        st.markdown('<hr class="n-divider" style="margin:20px 0 8px">', unsafe_allow_html=True)
+        st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
         fc1, fc2 = st.columns([1,2])
         with fc1: sig_f = st.selectbox("", ["全部","看多","中性","看空"], key="st_sig", label_visibility="collapsed")
         with fc2:
@@ -931,7 +1003,7 @@ elif pg == "stocks60":
 
         for i,r in enumerate(filtered2,1):
             sc=r.get("score",0); sig=r.get("signal","neutral"); color=sc_color(sc)
-            chg=r.get("chg",0); chg_c="#30d158" if chg>0 else "#ff453a"
+            chg=r.get("chg",0); chg_c="#22c55e" if chg>0 else "#ef4444"
             medal={1:"🥇",2:"🥈",3:"🥉"}.get(i,"")
             with st.expander(f"{medal}  {r['code']}  {r['name']}  [{r.get('sector','')}]  ·  {sc} 分  ·  {chg:+.2f}%"):
                 dc1,dc2,dc3,dc4,dc5 = st.columns(5)
@@ -972,9 +1044,9 @@ elif pg == "deep":
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
             <div>
               <div class="n-label">分析中</div>
-              <div style="font-size:20px;font-weight:700;color:#fff">{code}</div>
+              <div style="font-size:20px;font-weight:600;color:#fff">{code}</div>
             </div>
-            <div style="font-size:13px;color:#48484a">{st.session_state.api_model}</div>
+            <div style="font-size:13px;color:rgba(255,255,255,0.40)">{st.session_state.api_model}</div>
           </div>
         </div>
         """, unsafe_allow_html=True)
@@ -1002,22 +1074,22 @@ elif pg == "deep":
         st.markdown(f"""
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:12px">
           <div>
-            <div style="font-size:11px;color:#48484a;margin-bottom:4px">{code} · {date_s}</div>
-            <div style="font-size:28px;font-weight:700;color:#fff;letter-spacing:-0.03em">{name}</div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:4px">{code} · {date_s}</div>
+            <div style="font-size:28px;font-weight:600;color:#fff;letter-spacing:-0.02em">{name}</div>
           </div>
           <div style="text-align:right">
-            <div class="{sig_cls(sig)}" style="font-size:15px;padding:8px 18px;margin-bottom:6px">{sig_label(sig)}</div>
-            <div style="font-size:11px;color:#48484a">看多占比 {bpct:.1f}%</div>
+            <div class="{sig_cls(sig)}" style="font-size:14px;padding:6px 12px;margin-bottom:6px">{sig_label(sig)}</div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.40)">看多占比 {bpct:.1f}%</div>
           </div>
         </div>
         """, unsafe_allow_html=True)
 
         # 看多进度
         st.markdown(f"""
-        <div class="n-card" style="margin-bottom:16px;padding:14px 18px">
+        <div class="n-card" style="margin-bottom:16px;padding:12px 14px">
           <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:8px">
-            <span style="color:#30d158;font-weight:600">看多 {bpct:.1f}%</span>
-            <span style="color:#ff453a;font-weight:600">看空 {100-bpct:.1f}%</span>
+            <span style="color:#22c55e;font-weight:600">看多 {bpct:.1f}%</span>
+            <span style="color:#ef4444;font-weight:600">看空 {100-bpct:.1f}%</span>
           </div>
           {bar(bpct)}
         </div>
@@ -1039,20 +1111,20 @@ elif pg == "deep":
             conf=r.get("confidence",0.5)
             with col:
                 st.markdown(f"""
-                <div class="n-card" style="padding:14px">
+                <div class="n-card" style="padding:12px">
                   <div style="font-size:16px;margin-bottom:8px">{icon}</div>
-                  <div style="font-size:11px;color:#48484a;margin-bottom:2px">{title}</div>
-                  <div style="font-size:15px;font-weight:700;color:{rcolor}">{sig_label(rs)}</div>
-                  <div style="font-size:11px;color:#4a4a4a;margin-top:4px">{conf:.0%} · {sub}</div>
+                  <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:2px">{title}</div>
+                  <div style="font-size:14px;font-weight:600;color:{rcolor}">{sig_label(rs)}</div>
+                  <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-top:4px">{conf:.0%} · {sub}</div>
                 </div>""", unsafe_allow_html=True)
 
-        st.markdown('<hr class="n-divider" style="margin:20px 0">', unsafe_allow_html=True)
+        st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
 
         # 综合研判 + 要点
         col_l, col_r = st.columns([3,2], gap="medium")
         with col_l:
             st.markdown('<div class="n-section-title">综合研判</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="n-card" style="font-size:13px;line-height:1.8;color:rgba(255,255,255,0.85)">{summary.replace(chr(10),"<br>") if summary else "暂无"}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="n-card" style="font-size:13px;line-height:1.8;color:rgba(255,255,255,0.75)">{summary.replace(chr(10),"<br>") if summary else "暂无"}</div>', unsafe_allow_html=True)
         with col_r:
             st.markdown('<div class="n-section-title">各维度要点</div>', unsafe_allow_html=True)
             for dim,r in research.items():
@@ -1065,17 +1137,17 @@ elif pg == "deep":
                 for pt in pts:
                     st.markdown(f'<span class="n-pill">{pt}</span>', unsafe_allow_html=True)
 
-        st.markdown('<hr class="n-divider" style="margin:20px 0">', unsafe_allow_html=True)
+        st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
 
         # Battle 辩论
-        st.markdown('<div class="n-section-title">Battle 辩论记录</div>', unsafe_allow_html=True)
+        st.markdown('<div class="n-section-title">Battle 辩论</div>', unsafe_allow_html=True)
         for msg in transcript:
             css = "bubble-bull" if msg.startswith("🟢") else "bubble-bear" if msg.startswith("🔴") else "bubble-judge"
             clean_msg = msg.replace("<","&lt;").replace(">","&gt;").replace("\n","<br>")
             st.markdown(f'<div class="bubble {css}">{clean_msg}</div>', unsafe_allow_html=True)
 
         # 投票
-        st.markdown('<div class="n-section-title" style="margin-top:20px">专家投票</div>', unsafe_allow_html=True)
+        st.markdown('<div class="n-section-title">专家投票</div>', unsafe_allow_html=True)
         if votes:
             vcols = st.columns(len(votes), gap="small")
             for col,v in zip(vcols,votes):
@@ -1083,14 +1155,14 @@ elif pg == "deep":
                 vlabel=sig_label(v.get("vote","neutral"))
                 with col:
                     st.markdown(f"""
-                    <div class="n-card" style="text-align:center;padding:14px">
-                      <div style="font-size:11px;color:#48484a;margin-bottom:6px">{v.get('agent_name',v.get('agent',''))}</div>
-                      <div style="font-size:15px;font-weight:700;color:{vcolor}">{vlabel}</div>
-                      <div style="font-size:10px;color:#4a4a4a;margin-top:6px;line-height:1.5">{v.get('reasoning','')[:40]}</div>
+                    <div class="n-card" style="text-align:center;padding:12px">
+                      <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:6px">{v.get('agent_name',v.get('agent',''))}</div>
+                      <div style="font-size:14px;font-weight:600;color:{vcolor}">{vlabel}</div>
+                      <div style="font-size:10px;color:rgba(255,255,255,0.40);margin-top:6px;line-height:1.5">{v.get('reasoning','')[:40]}</div>
                     </div>""", unsafe_allow_html=True)
 
-        st.markdown('<hr class="n-divider" style="margin:28px 0 8px">', unsafe_allow_html=True)
-        st.markdown('<div style="text-align:center;font-size:11px;color:#3a3a3a">⚠️ 仅供学习研究，不构成投资建议 · NASDX</div>', unsafe_allow_html=True)
+        st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
+        st.markdown('<div style="text-align:center;font-size:11px;color:rgba(255,255,255,0.25)">⚠️ 仅供学习研究，不构成投资建议 · NASDX</div>', unsafe_allow_html=True)
 
     if st.session_state.done and st.session_state.current_code:
         data = load_report(st.session_state.current_code)

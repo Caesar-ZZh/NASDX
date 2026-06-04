@@ -152,7 +152,7 @@ def fetch_and_calc(code, name, sector):
             'boll_lower':round(float(bl),2) if bl else None,
             'vol_ratio':round(float(vr),2),'up_days_20':up20,'kline_days':n,
         }
-    except:
+    except Exception as e:
         return None
 
 # ── 评分 ─────────────────────────────────────────────
@@ -287,7 +287,7 @@ for i,r in enumerate(valid,1):
 top3=valid[:3]
 top3_html=''
 for i,r in enumerate(top3,1):
-    medal={1:'🥇',2:'🥈',3:'🥉'}[i]
+    medal={1:'🥇',2:'🥈',3:'🥉'}.get(i,'')
     sc_c=sc_color(r['score'])
     chg_c='#00C853' if r['chg']>0 else '#FF1744'
     ma_s='MA多头' if r.get('ma5') and r.get('ma20') and r['ma5']>r['ma20'] else 'MA空头'

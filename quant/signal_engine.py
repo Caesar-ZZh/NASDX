@@ -238,12 +238,21 @@ class SignalEngine:
             factor_data = {}
             for code in codes:
                 if code in price_data and len(price_data[code]) >= 60:
-                    factor_data[code] = compute_alpha158(price_data[code])
+                    try:
+                        factors = compute_alpha158(price_data[code])
+                        if not factors.empty:
+                            factor_data[code] = factors
+                    except Exception:
+                        # 因子计算失败，跳过此股票
+                        continue
 
             if factor_data:
-                ranking = multi_factor_score(factor_data)
-                for _, row in ranking.iterrows():
-                    signals[row["code"]] = normalize_factor_score(row["factor_score"])
+                try:
+                    ranking = multi_factor_score(factor_data)
+                    for _, row in ranking.iterrows():
+                        signals[row["code"]] = normalize_factor_score(row["factor_score"])
+                except Exception:
+                    pass
         except Exception as e:
             pass
 
@@ -262,14 +271,29 @@ class SignalEngine:
                 continue
             try:
                 c   = df["close"].astype(float)
+                if c.empty or c.isna().all():
+                    signals[code] = 0.5
+                    continue
+
                 ma5 = c.rolling(5).mean().iloc[-1]
                 ma20= c.rolling(20).mean().iloc[-1]
                 ma60= c.rolling(60).mean().iloc[-1] if len(c) >= 60 else ma20
+
+                # 检查 NaN
+                if pd.isna(ma5) or pd.isna(ma20) or pd.isna(ma60):
+                    signals[code] = 0.5
+                    continue
+
                 e12 = c.ewm(span=12, adjust=False).mean()
                 e26 = c.ewm(span=26, adjust=False).mean()
                 dif = e12 - e26
                 dea = dif.ewm(span=9, adjust=False).mean()
                 macd= (dif - dea).iloc[-1]
+
+                if pd.isna(macd):
+                    signals[code] = 0.5
+                    continue
+
                 signals[code] = normalize_trend(ma5, ma20, ma60, macd, c.iloc[-1])
             except Exception:
                 signals[code] = 0.5
@@ -284,7 +308,10 @@ class SignalEngine:
             if df is not None and not df.empty and len(df) > 5:
                 try:
                     v = df["volume"].astype(float)
-                    vol_ratio = v.iloc[-1] / (v.rolling(5).mean().iloc[-2] + 1e-9)
+                    if not v.empty and not v.isna().all() and len(v) > 5:
+                        avg_vol = v.rolling(5).mean().iloc[-2]
+                        if not pd.isna(avg_vol) and avg_vol > 1e-9:  # 避免除零
+                            vol_ratio = v.iloc[-1] / avg_vol
                 except Exception:
                     pass
             flow_pct = None
