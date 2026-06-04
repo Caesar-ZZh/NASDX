@@ -89,9 +89,21 @@ def render_quant_page(st):
             unsafe_allow_html=True,
         )
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "🚀 ETF50 全量", "📐 因子分析", "📈 VnPy 回测", "⚙️ 参数优化", "🛡️ 过拟合诊断"
+    tab0, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "💼 持仓顾问", "🚀 ETF50 全量", "📐 因子分析", "📈 VnPy 回测", "⚙️ 参数优化", "🛡️ 过拟合诊断"
     ])
+
+    # ════════════════════════════════════════
+    #  Tab0: 持仓调仓顾问
+    # ════════════════════════════════════════
+    with tab0:
+        try:
+            from position_page import render_position_advisor
+            render_position_advisor(st)
+        except Exception as _e:
+            import traceback
+            st.error(f"持仓顾问加载失败：{_e}")
+            st.code(traceback.format_exc())
 
     # ════════════════════════════════════════
     #  Tab1: ETF50 全量量化
