@@ -9,9 +9,9 @@ from typing import Any, Dict, List, Optional
 from openai import OpenAI
 
 # 从环境变量读取，也可在 config.toml 中配置
-API_KEY    = os.environ.get("NASDX_API_KEY", "sk-auVdJleHad3fqilXphK8U3c6QvdKWPWIUcWz2Ygc2MWeYaUT")
-BASE_URL   = os.environ.get("NASDX_BASE_URL", "https://newapi.ecdigit.cn/v1")
-MODEL_NAME = os.environ.get("NASDX_MODEL", "claude-opus-4-6-thinking")
+API_KEY    = os.environ.get("NASDX_API_KEY", "sk-bc93edf010d6424985374c9f858fa336")
+BASE_URL   = os.environ.get("NASDX_BASE_URL", "https://api.deepseek.com")
+MODEL_NAME = os.environ.get("NASDX_MODEL", "deepseek-v4-pro")
 MAX_TOKENS = int(os.environ.get("NASDX_MAX_TOKENS", "4096"))
 TEMPERATURE = float(os.environ.get("NASDX_TEMPERATURE", "0.3"))
 
@@ -33,7 +33,7 @@ class LLMClient:
         self.temperature = TEMPERATURE
 
     # 主模型失败时的备用模型列表
-    FALLBACK_MODELS = ["glm-4.7", "kimi-k2.5", "claude-sonnet-4-6"]
+    FALLBACK_MODELS = ["deepseek-reasoner", "deepseek-chat"]
 
     def ask(
         self,
@@ -53,13 +53,21 @@ class LLMClient:
         for model in models_to_try:
             for attempt in range(max_retries):
                 try:
-                    resp = self.client.chat.completions.create(
+                    # 推理模型（deepseek-v4-pro / deepseek-reasoner）temperature 必须为 1
+                    is_reasoner = any(x in model for x in ("reasoner", "v4-pro", "v4-flash", "thinking", "r1"))
+                    call_kwargs = dict(
                         model=model,
                         messages=full_messages,
                         max_tokens=self.max_tokens,
-                        temperature=temperature if temperature is not None else self.temperature,
                     )
-                    content = resp.choices[0].message.content or ""
+                    if not is_reasoner:
+                        call_kwargs["temperature"] = temperature if temperature is not None else self.temperature
+                    resp = self.client.chat.completions.create(**call_kwargs)
+                    msg = resp.choices[0].message
+                    # 优先取 content，推理模型 content 为空时取 reasoning_content
+                    content = msg.content or ""
+                    if not content:
+                        content = getattr(msg, "reasoning_content", "") or ""
                     if model != self.model:
                         print(f"[LLM] 已降级使用 {model}")
                     return content
