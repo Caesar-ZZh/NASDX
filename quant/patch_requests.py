@@ -9,24 +9,27 @@ import requests as _req
 _original_get = _req.get
 _patched = False
 
+
 def _smart_get(url, **kw):
     """eastmoney/sina 等国内数据源走代理，其余直连"""
     PROXIED = ('eastmoney.com', 'sina.com', 'qq.com', 'gtimg.com',
                '10jqka.com', 'xueqiu.com', 'jisilu.cn')
     if any(d in url for d in PROXIED):
         s = _req.Session()
-        s.trust_env = True          # 使用系统代理（Clash Global 模式）
+        s.trust_env = True
         try:
             return s.get(url, **kw)
         except Exception:
             pass
     return _original_get(url, **kw)
 
-# 只 patch 一次
-global _patched
-if not _patched:
+
+def _do_patch():
+    """执行 patch，只运行一次"""
+    global _patched
+    if _patched:
+        return
     _req.get = _smart_get
-    # 同时 patch akshare 内部直接引用的模块
     try:
         import akshare.stock_feature.stock_hist_em as _em
         _em.requests.get = _smart_get
@@ -43,3 +46,6 @@ if not _patched:
     except Exception:
         pass
     _patched = True
+
+
+_do_patch()
