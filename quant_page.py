@@ -32,12 +32,11 @@ def _card(body,accent=None):
            f'<div style="position:absolute;top:0;left:0;right:0;height:1px;{top}"></div>'
            f'{body}</div>')
 def _metric(label,value,color="#fff",sub=""):
-    return(f'<div style="background:#111;border:1px solid rgba(255,255,255,0.06);border-radius:6px;'
-           f'padding:12px;text-align:center">'
+    sub_html = f'<div style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:2px">{sub}</div>' if sub else ''
+    return(f'<div style="background:#111;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:12px;text-align:center">'
            f'<div style="font-size:18px;font-weight:700;color:{color};font-variant-numeric:tabular-nums">{value}</div>'
            f'<div style="font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.05em;margin-top:3px">{label}</div>'
-           f'{f"<div style=\\"font-size:11px;color:rgba(255,255,255,0.3);margin-top:2px\\">{sub}</div>" if sub else ""}'
-           f'</div>')
+           f'{sub_html}</div>')
 
 # ── 后台线程运行 ETF50 量化 ──────────────────────────────
 def _run_etf50_bg(days, top_n, freq, log_path):
