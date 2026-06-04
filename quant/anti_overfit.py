@@ -27,7 +27,12 @@ class WalkForwardConfig:
     train_days: int = 252     # 训练窗口（1年）
     test_days:  int = 63      # 测试窗口（1季度）
     step_days:  int = 63      # 步进（每季度前进一次）
-    min_train:  int = 126     # 最小训练样本
+    min_train:  int = 60      # 最小训练样本（必须 <= train_days）
+
+    def __post_init__(self):
+        # 自动修正：min_train 不能超过 train_days
+        if self.min_train > self.train_days:
+            self.min_train = self.train_days // 2
 
 
 def walk_forward_split(
@@ -47,9 +52,12 @@ def walk_forward_split(
         train_end = start + cfg.train_days
         test_end  = train_end + cfg.test_days
 
+        # 数据不够就停止
         if test_end > n:
             break
-        if train_end - start < cfg.min_train:
+        # 实际训练样本太少就停止（用窗口内样本数判断，而非train_end绝对值）
+        actual_train = train_end - start
+        if actual_train < cfg.min_train:
             break
 
         train_idx = index[start:train_end]

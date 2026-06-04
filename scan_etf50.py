@@ -231,9 +231,14 @@ for i,r in enumerate(valid[:20],1):
     star    = '⭐' if i<=3 else '  '
     print(f'  {star}{i:<3} {r["code"]:<8}{r["name"]:<22}{r["category"]:<14}{nav_s:>7}{chg_s:>8}{spot_s:>8}{prem_s:>7}  {r["score"]:>3}  {emoji}{r["signal"]}')
 
-print(f'\n  🥇 #1 推荐: {valid[0]["code"]} {valid[0]["name"]} ({valid[0]["score"]}分)')
-print(f'  🥈 #2 推荐: {valid[1]["code"]} {valid[1]["name"]} ({valid[1]["score"]}分)')
-print(f'  🥉 #3 推荐: {valid[2]["code"]} {valid[2]["name"]} ({valid[2]["score"]}分)')
+if len(valid) >= 1:
+    print(f'  🥇 #1 推荐: {valid[0]["code"]} {valid[0]["name"]} ({valid[0]["score"]}分)')
+if len(valid) >= 2:
+    print(f'  🥈 #2 推荐: {valid[1]["code"]} {valid[1]["name"]} ({valid[1]["score"]}分)')
+if len(valid) >= 3:
+    print(f'  🥉 #3 推荐: {valid[2]["code"]} {valid[2]["name"]} ({valid[2]["score"]}分)')
+if len(valid) == 0:
+    print(f'  ⚠️ 无有效扫描结果')
 
 # ── 生成HTML报告 ─────────────────────────────────────
 def sc_color(sc):
@@ -290,11 +295,12 @@ top3 = valid[:3]
 top3_html = ''
 for i,r in enumerate(top3,1):
     ind=r['ind']
-    medal={1:'🥇',2:'🥈',3:'🥉'}[i]
+    medal={1:'🥇',2:'🥈',3:'🥉'}.get(i,'')
     sc_c=sc_color(r['score'])
     prem_tip=''
-    if r['premium'] is not None:
-        prem_tip=f'溢价 <span style="color:{"#FF1744" if r["premium"]>1 else "#00C853"}">{r["premium"]:+.2f}%</span>'
+    if r.get('premium') is not None:
+        prem_c = "#FF1744" if r["premium"]>1 else "#00C853"
+        prem_tip=f'溢价 <span style="color:{prem_c}">{r["premium"]:+.2f}%</span>'
     top3_html += f'''
 <div style="background:#161b22;border:2px solid {sc_c};border-radius:10px;padding:16px;flex:1;min-width:200px;">
   <div style="font-size:22px;">{medal}</div>
