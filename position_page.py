@@ -2,11 +2,67 @@
 持仓调仓顾问 — 独立渲染模块，由 quant_page.py 调用
 """
 from __future__ import annotations
-import sys
+import sys, json
 from pathlib import Path
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
+
+# ── 名称查询缓存 ──────────────────────────────────────
+_NAME_CACHE: dict[str, str] = {}
+
+def _lookup_name(code: str) -> str:
+    """查询代码对应的名称，优先本地缓存，其次 ETF 池，最后 akshare"""
+    if not code or len(code) < 6:
+        return ""
+    if code in _NAME_CACHE:
+        return _NAME_CACHE[code]
+
+    # 1. 查 ETF50 池
+    try:
+        with open(ROOT / "etf50_pool.json", encoding="utf-8") as f:
+            pool = json.load(f)["etfs"]
+        for e in pool:
+            if e["code"] == code:
+                _NAME_CACHE[code] = e["name"]
+                return e["name"]
+    except Exception:
+        pass
+
+    # 2. 查 stocks.json
+    try:
+        with open(ROOT / "stocks.json", encoding="utf-8") as f:
+            cfg = json.load(f)
+        for sector in cfg.get("sectors", []):
+            for item in sector.get("stocks", []) + sector.get("etfs", []):
+                if item["code"] == code:
+                    _NAME_CACHE[code] = item["name"]
+                    return item["name"]
+    except Exception:
+        pass
+
+    # 3. akshare 实时查询（最慢，作为兜底）
+    try:
+        import akshare as ak
+        etf_prefix = ("50", "51", "15", "16", "55", "56", "58", "59")
+        if code[:2] in etf_prefix:
+            df = ak.fund_etf_spot_em()
+            row = df[df["代码"] == code]
+            if not row.empty:
+                name = str(row.iloc[0]["名称"])
+                _NAME_CACHE[code] = name
+                return name
+        else:
+            df = ak.stock_zh_a_spot_em()
+            row = df[df["代码"] == code]
+            if not row.empty:
+                name = str(row.iloc[0]["名称"])
+                _NAME_CACHE[code] = name
+                return name
+    except Exception:
+        pass
+
+    return ""
 
 
 def _sc(v):
@@ -67,15 +123,35 @@ def render_position_advisor(st):
                      f'text-transform:uppercase;letter-spacing:.05em;padding:4px 0">{h}</div>',
                      unsafe_allow_html=True)
 
+    need_rerun = False
     to_del = []
     for i, row in enumerate(st.session_state.pos_rows):
         c1, c2, c3, c4, c5, c6 = st.columns([2, 3, 2, 2, 2, 1])
         with c1:
-            row["code"] = st.text_input("", value=row.get("code", ""),
-                                         key=f"pc_{i}", label_visibility="collapsed", max_chars=6)
+            old_code = row.get("code", "")
+            new_code = st.text_input("", value=old_code,
+                                      key=f"pc_{i}", label_visibility="collapsed", max_chars=6)
+            new_code_padded = new_code.strip().zfill(6) if len(new_code.strip()) == 6 else new_code.strip()
+            # 代码改变了 → 自动查名、自动判断类型
+            if new_code_padded != old_code and len(new_code_padded) == 6:
+                row["code"] = new_code_padded
+                # 自动识别名称
+                auto_name = _lookup_name(new_code_padded)
+                if auto_name:
+                    row["name"] = auto_name
+                # 自动识别类型
+                etf_prefix = ("50","51","15","16","55","56","58","59")
+                row["type"] = "etf" if new_code_padded[:2] in etf_prefix else "stock"
+                need_rerun = True
+            elif new_code_padded != old_code:
+                row["code"] = new_code_padded
         with c2:
-            row["name"] = st.text_input("", value=row.get("name", ""),
-                                         key=f"pn_{i}", label_visibility="collapsed", placeholder="自动识别")
+            # 名称：如果已自动识别则只读展示，否则可手动填
+            auto_name = _lookup_name(row.get("code","")) if row.get("code","") else ""
+            display_name = row.get("name","") or auto_name
+            row["name"] = st.text_input("", value=display_name,
+                                         key=f"pn_{i}", label_visibility="collapsed",
+                                         placeholder="自动识别中..." if row.get("code","") else "输入代码后自动识别")
         with c3:
             row["cost"] = st.number_input("", value=float(row.get("cost", 1.0)),
                                            key=f"pco_{i}", label_visibility="collapsed",
@@ -95,7 +171,7 @@ def render_position_advisor(st):
 
     for i in reversed(to_del):
         st.session_state.pos_rows.pop(i)
-    if to_del:
+    if to_del or need_rerun:
         st.rerun()
 
     # 操作按钮
@@ -121,9 +197,10 @@ def render_position_advisor(st):
                     try:
                         code = parts[0].strip()
                         etf_prefix = ("51", "50", "15", "16", "58", "56", "55", "59")
+                        code6 = code.zfill(6)
                         new.append({
-                            "code":   code.zfill(6),
-                            "name":   "",
+                            "code":   code6,
+                            "name":   _lookup_name(code6),   # 批量导入时也自动查名
                             "cost":   float(parts[1]),
                             "shares": int(parts[2]),
                             "type":   "etf" if code[:2] in etf_prefix else "stock",
