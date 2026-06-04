@@ -1201,7 +1201,7 @@ elif pg == "ths":
 elif pg == "quant":
     try:
         from quant_page import render_quant_page
-        render_quant_page(st, ROOT)
+        render_quant_page(st)
     except Exception as _e:
         st.error(f"量化引擎加载失败：{_e}")
         import traceback; st.code(traceback.format_exc())
