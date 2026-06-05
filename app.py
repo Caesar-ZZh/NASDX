@@ -407,31 +407,47 @@ if pg == "home":
 elif pg == "etf50":
     st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">ETF 50 扫描</div><div style="font-size:13px;color:#636366;margin-top:4px">50只主流ETF技术面评分 · 实时溢价率</div></div>', unsafe_allow_html=True)
 
-    c_btn, c_status, _ = st.columns([1,2,3])
+    scan_running = st.session_state.get("etf50_scan_running", False)
+    c_btn, c_status, _ = st.columns([1, 2, 3])
     with c_btn:
-        scan_running = st.session_state.get("etf50_scan_running", False)
         if st.button("↻  立即扫描", use_container_width=True,
                      disabled=scan_running, key="etf50_scan_btn"):
             import threading as _th
+            _scan_done = {"done": False}
             def _run_scan():
                 subprocess.run([sys.executable, str(ROOT/"scan_etf50.py")],
                                capture_output=True)
                 st.session_state["etf50_scan_running"] = False
-                load_etf50.clear()  # 清缓存，强制重新读
-            t = _th.Thread(target=_run_scan, daemon=True)
-            t.start()
+                st.session_state["etf50_scan_thread"] = None
+                try: load_etf50.clear()
+                except Exception: pass
+            _t = _th.Thread(target=_run_scan, daemon=True)
+            _t.start()
             st.session_state["etf50_scan_running"] = True
+            st.session_state["etf50_scan_thread"] = _t
+            st.session_state["etf50_scan_start"] = time.time()
             st.rerun()
+
     with c_status:
         if scan_running:
-            st.markdown('<div style="padding-top:8px;font-size:12px;color:#f59e0b">⏳ 扫描中，约3分钟...</div>', unsafe_allow_html=True)
-            # 检查是否完成
-            t = st.session_state.get("etf50_scan_thread")
-            if t and not t.is_alive():
+            _scan_t   = st.session_state.get("etf50_scan_thread")
+            _elapsed  = int(time.time() - st.session_state.get("etf50_scan_start", time.time()))
+            _done     = _scan_t is None or not _scan_t.is_alive()
+            if _done:
                 st.session_state["etf50_scan_running"] = False
+                try: load_etf50.clear()
+                except Exception: pass
                 st.rerun()
             else:
-                time.sleep(3); st.rerun()
+                _estr = f"{_elapsed//60}分{_elapsed%60}秒" if _elapsed >= 60 else f"{_elapsed}秒"
+                st.markdown(
+                    f'<div style="padding-top:8px;font-size:12px;color:#f59e0b">'
+                    f'⏳ 扫描中... 已用时 {_estr}</div>',
+                    unsafe_allow_html=True,
+                )
+                # JS 自动刷新
+                import streamlit.components.v1 as _cv1
+                _cv1.html('<script>setTimeout(()=>window.parent.location.reload(),3000);</script>', height=0)
 
     d = load_etf50()
     if not d:
@@ -738,24 +754,23 @@ elif pg == "deep":
 #  同花顺接入页（路由到独立模块）
 # ══════════════════════════════════════════════════════
 elif pg == "ths":
-    if "ths_page_mod" not in st.session_state:
-        import ths_page as _ths_mod
-        st.session_state["ths_page_mod"] = _ths_mod
     try:
-        st.session_state["ths_page_mod"].render_ths_page(st, ROOT)
+        import ths_page as _ths_mod
+        _ths_mod.render_ths_page(st, ROOT)
     except Exception as _e:
+        import traceback
         st.error(f"同花顺页面加载失败：{_e}")
+        st.code(traceback.format_exc())
 
 
 # ══════════════════════════════════════════════════════
 #  量化引擎页（路由到独立模块）
 # ══════════════════════════════════════════════════════
 elif pg == "quant":
-    if "quant_page_mod" not in st.session_state:
-        import quant_page as _qpm
-        st.session_state["quant_page_mod"] = _qpm
     try:
-        st.session_state["quant_page_mod"].render_quant_page(st)
+        import quant_page as _qpm  # Python sys.modules 缓存，不重复执行
+        _qpm.render_quant_page(st)
     except Exception as _e:
+        import traceback
         st.error(f"量化引擎加载失败：{_e}")
-        import traceback; st.code(traceback.format_exc())
+        st.code(traceback.format_exc())
