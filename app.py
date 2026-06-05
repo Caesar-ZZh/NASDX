@@ -332,7 +332,7 @@ if pg == "home":
         <div class="n-card n-card-accent-blue">
           <div style="font-size:20px;margin-bottom:12px">🤖</div>
           <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">深度分析</div>
-          <div class="n-sub" style="margin-bottom:12px">4 Agent 并行研究 · Battle 辩论</div>
+          <div class="n-sub" style="margin-bottom:12px">5 Agent 并行研究 · Battle 辩论</div>
         </div>
         """, unsafe_allow_html=True)
         if st.button("进入 →", key="g_deep", use_container_width=True):
@@ -583,7 +583,7 @@ elif pg == "stocks60":
 #  深度分析页
 # ══════════════════════════════════════════════════════
 elif pg == "deep":
-    st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">多智能体深度分析</div><div style="font-size:13px;color:#636366;margin-top:4px">4 Agent 并行研究 · Battle 多空辩论 · DeepSeek V4 Pro</div></div>', unsafe_allow_html=True)
+    st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">多智能体深度分析</div><div style="font-size:13px;color:#636366;margin-top:4px">5 Agent 并行研究 · Battle 多空辩论 · DeepSeek V4 Pro</div></div>', unsafe_allow_html=True)
 
     # 触发分析
     if run_btn and stock_input and not st.session_state.running:
@@ -601,7 +601,7 @@ elif pg == "deep":
         log_path = Path(st.session_state.log_path)
         log_text = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
         lines = [l for l in log_text.splitlines() if l.strip() and "[LLM]" not in l]
-        STEPS = ["技术面","资金流","风险","板块","辩论","综合","完成"]
+        STEPS = ["技术面","资金流","风险","板块","瓶颈","辩论","综合","完成"]
         done_n = sum(1 for s in STEPS if any(s in l for l in lines))
         pct = min(done_n/len(STEPS), 0.95)
 
@@ -661,12 +661,13 @@ elif pg == "deep":
         </div>
         """, unsafe_allow_html=True)
 
-        # 4维度卡片
+        # 多维度卡片
         dim_meta = {
             "technical": ("📈","技术面","MA · MACD · RSI · 布林"),
             "fund_flow":  ("💰","资金流","主力 · 超大单 · 大单"),
             "risk":       ("🛡️","风险","超买 · 背离 · 波动"),
             "sector":     ("🏭","板块","轮动 · 相对强弱"),
+            "chokepoint": ("🧭","瓶颈","需求 · 卡点 · 贝叶斯"),
             "synthesis":  ("🎯","综合","多维整合"),
         }
         dim_cols = st.columns(len(research), gap="small")

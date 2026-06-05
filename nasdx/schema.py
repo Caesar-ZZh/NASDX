@@ -55,7 +55,7 @@ class Memory(BaseModel):
 class AnalysisResult(BaseModel):
     """单个 Agent 的分析结果"""
     agent_name: str
-    dimension: str  # technical / fund_flow / sentiment / risk / chip / sector
+    dimension: str  # technical / fund_flow / risk / sector / chokepoint / synthesis
     conclusion: str
     signal: str  # bullish / bearish / neutral
     confidence: float = Field(ge=0.0, le=1.0)

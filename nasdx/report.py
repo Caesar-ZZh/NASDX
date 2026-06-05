@@ -266,6 +266,7 @@ def _build_dim_cards(research_results: Dict[str, Any]) -> str:
         "fund_flow": ("💰 资金流向", "主力/超大单/大单"),
         "risk":      ("🛡️ 风险评估", "超买超卖/波动/背离"),
         "sector":    ("🏭 板块分析", "板块轮动/相对强弱"),
+        "chokepoint": ("🧭 供应链瓶颈", "需求冲击/产业链卡点/贝叶斯"),
         "synthesis": ("🎯 综合研判", "多维度整合"),
     }
 

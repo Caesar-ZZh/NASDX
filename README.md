@@ -9,7 +9,7 @@
 
 - 📊 **ETF50 全量扫描** — 50只主流ETF每日技术面评分排行，自动打开浏览器报告
 - 📈 **60只个股扫描** — 10大热门板块龙头，均线/MACD/RSI/布林带综合评分
-- 🤖 **多智能体分析** — 4个专家Agent（技术面/资金流/风险/板块）+ Battle多空辩论
+- 🤖 **多智能体分析** — 5个专家Agent（技术面/资金流/风险/板块/供应链瓶颈）+ Battle多空辩论
 - ⏰ **工作日定时** — 早10:00 + 下午14:30 自动扫描，浏览器实时查看
 - 🌐 **Streamlit 网页** — 输入股票代码一键分析，暗色专业UI
 
@@ -20,14 +20,15 @@
 ```
 NASDX
 ├── nasdx/                   # 核心包（多智能体框架）
-│   ├── agents/              # 4个专家 Agent
+│   ├── agents/              # 5个专家 Agent
 │   │   ├── technical.py     # 技术面（MA/MACD/RSI/布林带）
 │   │   ├── fund_flow.py     # 资金流向（主力/超大单）
 │   │   ├── risk.py          # 风险评估（超买/背离）
 │   │   ├── sector.py        # 板块轮动
+│   │   ├── chokepoint.py    # Serenity供应链瓶颈/需求冲击/贝叶斯更新
 │   │   └── synthesis.py     # 综合研判
 │   ├── environments/
-│   │   ├── research.py      # 研究环境（4 Agent 顺序分析）
+│   │   ├── research.py      # 研究环境（5 Agent 顺序分析）
 │   │   └── battle.py        # 辩论环境（多空博弈 + 投票）
 │   ├── llm.py               # LLM 客户端（支持 DeepSeek/Claude/Qwen）
 │   ├── data_loader.py       # 数据加载与格式化
@@ -116,6 +117,7 @@ python run_analysis.py 603501
   │  Phase 1: Research 研究阶段     │
   │   技术面Agent → 资金流Agent     │
   │   风险Agent  → 板块Agent        │
+  │   供应链瓶颈Agent               │
   ├─────────────────────────────────┤
   │  Phase 2: Battle 辩论阶段       │
   │   多头辩手 ←→ 空头辩手          │
@@ -156,3 +158,7 @@ MIT License — 自由使用，欢迎 Star ⭐ 和 PR
 ---
 
 *基于 [FinGenius](https://github.com/HuaYaoAI/FinGenius) 开源架构 · 数据来自 [AkShare](https://github.com/akfamily/akshare)*
+
+## 参考来源
+
+- Serenity Chokepoint Investing Skill：用于新增供应链瓶颈、需求冲击、贝叶斯更新研究维度，项目内只作为研究框架，不作为投资建议。
