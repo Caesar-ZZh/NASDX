@@ -183,32 +183,32 @@ def render_quant_page(st):
             thread = st.session_state.get("etf50q_thread")
             finished = thread is None or not thread.is_alive()
 
-            # 完成判断：优先看 __DONE__ 标志，其次看线程是否死亡
+            # 完成/失败/继续轮询
             if "__DONE__" in log_text:
                 st.session_state["etf50q_running"] = False
                 st.session_state.pop("etf50q_thread", None)
                 st.success(f"✅ 分析完成！共 {done_n} 只 ETF")
-                time.sleep(1)
+                time.sleep(0.5)
                 st.rerun()
             elif "__ERROR__" in log_text:
                 st.session_state["etf50q_running"] = False
                 st.session_state.pop("etf50q_thread", None)
                 err = [l for l in lines if "ERROR" in l or "Traceback" in l]
                 st.error("分析失败：" + "\n".join(err[:4]))
-            elif finished:
-                # 线程死亡但没有 __DONE__ → 检查是否有结果文件
-                if "load_latest_quant" not in st.session_state:
-                    from quant.etf50_quant import load_latest_quant as _llq
-                    st.session_state["load_latest_quant"] = _llq
-                if st.session_state["load_latest_quant"]():
-                    st.session_state["etf50q_running"] = False
-                    st.session_state.pop("etf50q_thread", None)
-                    st.rerun()
-                else:
-                    st.session_state["etf50q_running"] = False
-                    st.error("分析异常终止，请查看日志")
+            elif finished and done_n >= pool_n:
+                # 线程死亡且进度满 → 视为完成
+                st.session_state["etf50q_running"] = False
+                st.session_state.pop("etf50q_thread", None)
+                st.rerun()
             else:
-                time.sleep(2); st.rerun()
+                # 持续轮询：用按钮让用户手动刷新，同时自动尝试 rerun
+                st.caption("⏳ 分析中，每3秒自动刷新一次...")
+                import streamlit.components.v1 as components
+                # 注入 JS 3秒后自动刷新
+                components.html(
+                    '<script>setTimeout(function(){window.parent.location.reload();}, 3000);</script>',
+                    height=0,
+                )
 
         # ── 只有不在运行时才展示结果 ──────────────────────────
         if not st.session_state.get("etf50q_running", False):
