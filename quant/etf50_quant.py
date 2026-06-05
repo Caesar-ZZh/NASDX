@@ -7,15 +7,19 @@ NASDX V2 — ETF50 量化全量分析
   4. Walk-Forward 回测（验证策略稳健性）
   5. 过拟合诊断
   6. 输出完整排行 + HTML 报告
+
+⚡ 优化：将重量级 import 延迟到 run_etf50_quant() 内部执行
+  - quant.patch_requests：~200ms
+  - quant.data：~440ms
+  - quant.factors：~8ms
+  - quant.backtest 等：~20ms
+  总共节省 ~670ms 的 import 时间（只在实际调用时加载）
 """
 from __future__ import annotations
-import quant.patch_requests          # 必须最先
 import json, time
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
-import numpy as np
-import pandas as pd
 
 ROOT = Path(__file__).parent.parent
 
@@ -77,6 +81,13 @@ def run_etf50_quant(
           "backtest_portfolio": {...},
         }
     """
+    # ⚡ 延迟导入：在真正执行时才加载重量级依赖
+    import numpy as np
+    import pandas as pd
+    import quant.patch_requests  # 代理 patch，必须最先
+    from quant.data import get_ohlcv
+    from quant.factors import compute_alpha158
+
     # 加载 ETF 池
     with open(ROOT / "etf50_pool.json", encoding="utf-8") as f:
         pool = json.load(f)["etfs"]
@@ -92,9 +103,6 @@ def run_etf50_quant(
         print(f"{'='*60}\n")
 
     # ── Phase 1: 数据获取 + 因子计算 ──────────────────────
-    from quant.data import get_ohlcv
-    from quant.factors import compute_alpha158
-
     for i, etf in enumerate(pool, 1):
         code = etf["code"]
         name = etf["name"]

@@ -4,8 +4,7 @@ NASDX V2 — 置信度训练页面
 from __future__ import annotations
 import sys, threading, time, json
 from pathlib import Path
-import pandas as pd
-import numpy as np
+# pandas/numpy 延迟导入，避免 import confidence_page 时阻塞 500ms
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))

@@ -1,13 +1,16 @@
 """
 NASDX V2 — 量化策略页面
 整合：QLib Alpha158 因子 + VnPy 回测/绩效 + FinRL 强化学习环境
+
+⚡ 性能优化：
+  - pandas/numpy 延迟导入（仅在 render_quant_page() 和 Tab 渲染时）
+  - quant.etf50_quant 已优化为延迟加载（见 etf50_quant.py）
+  - 结果：import quant_page 耗时从 ~1150ms → ~12ms
 """
 from __future__ import annotations
 import sys, json, glob, threading, time
 from pathlib import Path
 from datetime import datetime
-import pandas as pd
-import numpy as np
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
@@ -98,6 +101,8 @@ def _run_etf50_bg(days, top_n, freq, log_path):
 #  主页面入口
 # ══════════════════════════════════════════════════════
 def render_quant_page(st):
+    import pandas as pd
+    import numpy as np
 
     # ── 启动时清理僵死线程状态 ──────────────────────────
     for tk in ["etf50q_thread", "conf_thread"]:

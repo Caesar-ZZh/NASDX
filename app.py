@@ -41,17 +41,18 @@ st.set_page_config(
 )
 
 # ══════════════════════════════════════════════════════
-#  CSS 注入 — 用 cache_resource 只在首次加载时执行
+#  CSS 注入 — cache_resource 缓存 CSS 文本，每次 rerun 都注入
 # ══════════════════════════════════════════════════════
 @st.cache_resource(show_spinner=False)
-def _inject_css():
-    """从文件加载 CSS，使用 cache_resource 避免每次 rerun 都注入"""
+def _load_css() -> str:
+    """从文件加载 CSS 字符串（只读一次），返回值被缓存"""
     css_path = ROOT / "static" / "style.css"
-    if css_path.exists():
-        css = css_path.read_text(encoding="utf-8")
-        st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+    return css_path.read_text(encoding="utf-8") if css_path.exists() else ""
 
-_inject_css()
+# 每次 rerun 都调用 st.markdown（必须），但读文件只有一次（缓存）
+_css = _load_css()
+if _css:
+    st.markdown(f"<style>{_css}</style>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════
 #  股票池
@@ -219,9 +220,8 @@ with st.sidebar:
         with st.expander(sector, expanded=False):
             for code, name in stocks:
                 if st.button(f"{code}  {name}", key=f"q_{sector}_{code}", use_container_width=True):
-                    st.session_state.page = "deep"
                     st.session_state["_quick"] = code
-                    st.rerun()
+                    _nav_to("deep")  # _nav_to 已包含 st.rerun()
 
     st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
 
@@ -267,9 +267,10 @@ with st.sidebar:
                     c.chat.completions.create(model=st.session_state.api_model, messages=[{"role":"user","content":"hi"}], max_tokens=5)
                     st.session_state.api_ok = True
                     _update_llm_config(st.session_state.api_key, st.session_state.api_base, st.session_state.api_model)
+                    st.toast("✅ 连接成功", icon="✅")
                 except Exception as e:
                     st.session_state.api_ok = False
-            st.rerun()
+                    st.toast(f"❌ 连接失败: {str(e)[:40]}", icon="❌")
     with c2:
         if st.button("应用", key="apply_cfg", use_container_width=True):
             _update_llm_config(st.session_state.api_key, st.session_state.api_base, st.session_state.api_model)
@@ -522,7 +523,9 @@ elif pg == "stocks60":
         if st.button("↻  立即扫描", use_container_width=True, key="scan_st"):
             with st.spinner("扫描中，约 5 分钟..."):
                 subprocess.run([sys.executable, str(ROOT/"scan_stocks_full.py")], capture_output=True, timeout=600)
-            st.rerun()
+                try: load_stocks60.clear()
+                except Exception: pass
+            # spinner 结束后 Streamlit 自动重算依赖，不需要 st.rerun()
 
     d = load_stocks60()
     if not d:
