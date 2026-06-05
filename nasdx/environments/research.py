@@ -10,11 +10,12 @@ from nasdx.agents.technical import TechnicalAgent
 from nasdx.agents.fund_flow import FundFlowAgent
 from nasdx.agents.risk import RiskAgent
 from nasdx.agents.sector import SectorAgent
+from nasdx.agents.chokepoint import ChokepointAgent
 
 
 class ResearchEnvironment:
     """
-    研究环境：协调4个专家 Agent 顺序分析一只股票
+    研究环境：协调5个专家 Agent 顺序分析一只股票
     返回 Dict[dimension, AnalysisResult]
     """
 
@@ -23,6 +24,7 @@ class ResearchEnvironment:
         ("fund_flow",  "资金流"),
         ("risk",       "风险"),
         ("sector",     "板块"),
+        ("chokepoint", "瓶颈"),
     ]
 
     def __init__(self, max_steps: int = 3, delay: float = 1.0):
@@ -34,6 +36,7 @@ class ResearchEnvironment:
             "fund_flow": FundFlowAgent(max_steps=max_steps),
             "risk":      RiskAgent(max_steps=max_steps),
             "sector":    SectorAgent(max_steps=max_steps),
+            "chokepoint": ChokepointAgent(max_steps=max_steps),
         }
 
     def run(

@@ -23,7 +23,7 @@ class NasdxAnalyzer:
     NASDX 核心分析器
 
     三阶段管道：
-    1. Research Phase — 4个专家 Agent 各维度分析
+    1. Research Phase — 5个专家 Agent 各维度分析
     2. Battle Phase   — 多空辩论 + 投票
     3. Synthesis & Report — 综合研判 + HTML 报告
     """
