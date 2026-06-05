@@ -37,7 +37,7 @@ st.set_page_config(
     page_title="NASDX · A股量化分析",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded",   # 初始展开
 )
 
 # ══════════════════════════════════════════════════════
@@ -177,29 +177,30 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    # 导航 — 用 radio 代替 6 个 button，性能提升 3-5 倍（单次渲染 vs 6 次）
-    NAV_LABELS = {
-        "home":"🏠  首页",
-        "etf50":"📊  ETF 50",
-        "stocks60":"📈  个股扫描",
-        "deep":"🤖  深度分析",
-        "quant":"⚗️  量化引擎",
-        "ths":"🔗  同花顺"
-    }
-    NAV_KEYS = list(NAV_LABELS.keys())
-
+    # 导航按钮列表 — button 比 radio 更可靠（无 index 竞态问题）
+    NAV = [
+        ("home",     "🏠", "首页"),
+        ("etf50",    "📊", "ETF 50"),
+        ("stocks60", "📈", "个股扫描"),
+        ("deep",     "🤖", "深度分析"),
+        ("quant",    "⚗️", "量化引擎"),
+        ("ths",      "🔗", "同花顺"),
+    ]
     pg = st.session_state.page
-    cur_idx = NAV_KEYS.index(pg) if pg in NAV_KEYS else 0
-    selected = st.radio(
-        "导航",
-        options=NAV_KEYS,
-        format_func=lambda k: NAV_LABELS[k],
-        index=cur_idx,
-        key="nav_radio",
-        label_visibility="collapsed",
-    )
-    if selected != st.session_state.page:
-        _nav_to(selected)
+    for key, icon, label in NAV:
+        is_active = pg == key
+        # active 时用蓝色背景区分
+        if is_active:
+            st.markdown(
+                f'<div style="background:rgba(59,130,246,0.12);border-left:2px solid #3b82f6;'
+                f'border-radius:4px;padding:8px 12px;margin:1px 0;font-size:13px;'
+                f'color:#fff;font-weight:600">{icon}  {label}</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            if st.button(f"{icon}  {label}", key=f"nav_{key}",
+                         use_container_width=True, type="secondary"):
+                _nav_to(key)
 
     st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
 
