@@ -480,3 +480,44 @@ hr.n-divider { border: none; border-top: 1px solid var(--border); margin: 16px 0
 .stButton > button, .n-card, [data-testid="stMetric"] {
     transition-timing-function: linear;
 }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   侧边栏 toggle 始终可见 + 导航按钮
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"] {
+    visibility: visible !important;
+    opacity: 1 !important;
+    display: flex !important;
+    background: #1c1c1e !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    border-radius: 0 6px 6px 0 !important;
+    color: rgba(255,255,255,0.8) !important;
+    z-index: 999 !important;
+}
+[data-testid="collapsedControl"]:hover,
+[data-testid="stSidebarCollapsedControl"]:hover {
+    background: #2c2c2e !important;
+    border-color: rgba(255,255,255,0.2) !important;
+}
+
+/* 侧边栏内的 secondary 导航按钮 */
+[data-testid="stSidebar"] .stButton > button[kind="secondary"] {
+    background: transparent !important;
+    color: rgba(255,255,255,0.55) !important;
+    border: none !important;
+    border-radius: 4px !important;
+    font-size: 13px !important;
+    font-weight: 400 !important;
+    padding: 8px 12px !important;
+    text-align: left !important;
+    justify-content: flex-start !important;
+    box-shadow: none !important;
+    margin: 1px 0 !important;
+    transition: background 120ms, color 120ms !important;
+}
+[data-testid="stSidebar"] .stButton > button[kind="secondary"]:hover {
+    background: rgba(255,255,255,0.06) !important;
+    color: rgba(255,255,255,0.9) !important;
+    transform: none !important;
+}
