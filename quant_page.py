@@ -718,7 +718,7 @@ def _render_etf50_result(st, data: dict):
             st.line_chart(pd.DataFrame({"净值":eq/eq.iloc[0]}),color=["#3b82f6"],height=150)
 
     # 前三名
-    top3 = [r for r in data.get("top3",[]) if r.get("has_data")]
+    top3 = [r for r in data.get("top3",[]) if r.get("has_data", True)]
     if top3:
         st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
         st.markdown('<div style="font-size:11px;color:rgba(255,255,255,0.3);'
@@ -745,7 +745,7 @@ def _render_etf50_result(st, data: dict):
                 )
 
     # 完整排行
-    results = [r for r in data.get("results",[]) if r.get("has_data")]
+    results = [r for r in data.get("results",[]) if r.get("has_data", True)]
     if not results:
         return
 

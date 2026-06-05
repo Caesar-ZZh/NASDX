@@ -382,9 +382,15 @@ with open(json_out,'w',encoding='utf-8') as f:
         'datetime': NOW.isoformat(),
         'total': len(valid),
         'bullish':len(bull),'neutral':len(neut),'bearish':len(bear),
-        'top3': [{'code':r['code'],'name':r['name'],'score':r['score'],
-                  'signal':r['signal'],'premium':r['premium']} for r in top3],
-        'results': [{k:v for k,v in r.items() if k!='ind'} for r in valid],
+        'top3': [{'code':r['code'],'name':r['name'],
+                  'score':r['score'], 'quant_score':r['score'],  # quant_page 兼容
+                  'signal':r['signal'],'premium':r['premium'],
+                  'category':r.get('category',''),
+                  'reasons':r.get('reasons',[]),
+                  'has_data':True} for r in top3],
+        'results': [{**{k:v for k,v in r.items() if k!='ind'},
+                     'has_data': True,
+                     'quant_score': r.get('score', 0)} for r in valid],
     }, f, ensure_ascii=False, indent=2)
 
 print(f'\n📁 HTML: {out}')
