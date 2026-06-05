@@ -285,4 +285,4 @@ with open(json_path, "w", encoding="utf-8") as f:
 print(f"\n📁 HTML: {html_path}")
 print(f"📁 JSON: {json_path}")
 import subprocess
-subprocess.Popen(["cmd","/c","start",str(html_path)])
+# [已移除自动弹窗] subprocess.Popen(["cmd","/c","start",str(html_path)])

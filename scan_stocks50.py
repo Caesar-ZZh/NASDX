@@ -429,4 +429,4 @@ with open(jout,'w',encoding='utf-8') as f:
 print(f'\n📁 HTML: {out}')
 print(f'📁 最新: {latest}')
 import subprocess
-subprocess.Popen(['cmd','/c','start',str(out)])
+# [已移除自动弹窗] subprocess.Popen(['cmd','/c','start',str(out)])

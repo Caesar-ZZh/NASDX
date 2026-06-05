@@ -398,4 +398,4 @@ print(f'📁 JSON: {json_out}')
 print(f'📁 最新报告: {latest}')
 
 import subprocess
-subprocess.Popen(['cmd','/c','start',str(out)])
+# [已移除自动弹窗] subprocess.Popen(['cmd','/c','start',str(out)])
