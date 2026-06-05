@@ -11,58 +11,61 @@ sys.path.insert(0, str(ROOT))
 # ── 名称查询缓存 ──────────────────────────────────────
 _NAME_CACHE: dict[str, str] = {}
 
-def _lookup_name(code: str) -> str:
-    """查询代码对应的名称，优先本地缓存，其次 ETF 池，最后 akshare"""
-    if not code or len(code) < 6:
-        return ""
-    if code in _NAME_CACHE:
-        return _NAME_CACHE[code]
 
-    # 1. 查 ETF50 池
+def _build_name_map() -> dict[str, str]:
+    """一次性构建 code -> name 映射表，缓存在函数级（Streamlit 对此无感知）"""
+    name_map = {}
+
+    # 1. 加载 etf50_pool.json
     try:
         with open(ROOT / "etf50_pool.json", encoding="utf-8") as f:
-            pool = json.load(f)["etfs"]
-        for e in pool:
-            if e["code"] == code:
-                _NAME_CACHE[code] = e["name"]
-                return e["name"]
+            for e in json.load(f).get("etfs", []):
+                name_map[e.get("code", "")] = e.get("name", "")
     except Exception:
         pass
 
-    # 2. 查 stocks.json
+    # 2. 加载 stocks.json
     try:
         with open(ROOT / "stocks.json", encoding="utf-8") as f:
             cfg = json.load(f)
-        for sector in cfg.get("sectors", []):
-            for item in sector.get("stocks", []) + sector.get("etfs", []):
-                if item["code"] == code:
-                    _NAME_CACHE[code] = item["name"]
-                    return item["name"]
+            for sector in cfg.get("sectors", []):
+                for item in sector.get("stocks", []) + sector.get("etfs", []):
+                    code = item.get("code", "")
+                    if code:
+                        name_map[code] = item.get("name", "")
     except Exception:
         pass
 
-    # 3. akshare 实时查询（最慢，作为兜底）
-    try:
-        import akshare as ak
-        etf_prefix = ("50", "51", "15", "16", "55", "56", "58", "59")
-        if code[:2] in etf_prefix:
-            df = ak.fund_etf_spot_em()
-            row = df[df["代码"] == code]
-            if not row.empty:
-                name = str(row.iloc[0]["名称"])
-                _NAME_CACHE[code] = name
-                return name
-        else:
-            df = ak.stock_zh_a_spot_em()
-            row = df[df["代码"] == code]
-            if not row.empty:
-                name = str(row.iloc[0]["名称"])
-                _NAME_CACHE[code] = name
-                return name
-    except Exception:
-        pass
+    return name_map
 
-    return ""
+
+# 全局映射表，在第一次调用后缓存
+_GLOBAL_NAME_MAP = None
+
+
+def _get_name_map() -> dict[str, str]:
+    """延迟初始化全局名称映射表（单例模式）"""
+    global _GLOBAL_NAME_MAP
+    if _GLOBAL_NAME_MAP is None:
+        _GLOBAL_NAME_MAP = _build_name_map()
+    return _GLOBAL_NAME_MAP
+
+
+def _lookup_name(code: str) -> str:
+    """查询代码对应的名称，仅使用本地 JSON 数据"""
+    if not code or len(code) < 6:
+        return ""
+
+    # 优先查内存缓存（当前会话）
+    if code in _NAME_CACHE:
+        return _NAME_CACHE[code]
+
+    # 查全局映射表
+    name = _get_name_map().get(code, "")
+    if name:
+        _NAME_CACHE[code] = name
+
+    return name
 
 
 def _sc(v):

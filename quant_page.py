@@ -38,6 +38,16 @@ def _metric(label,value,color="#fff",sub=""):
            f'<div style="font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.05em;margin-top:3px">{label}</div>'
            f'{sub_html}</div>')
 
+# ── 缓存 etf50_pool.json 的 ETF 列表 ──────────────────────
+def _load_etf50_pool() -> list:
+    """懒加载 etf50_pool.json，避免重复读盘"""
+    try:
+        with open(ROOT / "etf50_pool.json", encoding="utf-8") as f:
+            return json.load(f).get("etfs", [])
+    except Exception:
+        return []
+
+
 # ── 后台线程运行 ETF50 量化 ──────────────────────────────
 def _run_etf50_bg(days, top_n, freq, log_path):
     import sys, builtins, io
@@ -136,7 +146,7 @@ def render_quant_page(st):
         with p2: top_n = st.slider("Top-N 组合",3,10,5)
         with p3: freq = st.selectbox("调仓频率",["W 每周","M 每月","D 每日"]).split()[0]
 
-        pool_n = len(json.load(open(ROOT/"etf50_pool.json",encoding="utf-8"))["etfs"])
+        pool_n = len(_load_etf50_pool())
         est = max(3, pool_n * days // 5000)
         st.caption(f"预计 {est}-{est*2} 分钟 · {pool_n} 只 ETF · {days} 天历史")
 
@@ -187,8 +197,10 @@ def render_quant_page(st):
                 st.error("分析失败：" + "\n".join(err[:4]))
             elif finished:
                 # 线程死亡但没有 __DONE__ → 检查是否有结果文件
-                from quant.etf50_quant import load_latest_quant
-                if load_latest_quant():
+                if "load_latest_quant" not in st.session_state:
+                    from quant.etf50_quant import load_latest_quant as _llq
+                    st.session_state["load_latest_quant"] = _llq
+                if st.session_state["load_latest_quant"]():
                     st.session_state["etf50q_running"] = False
                     st.session_state.pop("etf50q_thread", None)
                     st.rerun()
@@ -200,8 +212,10 @@ def render_quant_page(st):
 
         # ── 只有不在运行时才展示结果 ──────────────────────────
         if not st.session_state.get("etf50q_running", False):
-            from quant.etf50_quant import load_latest_quant
-            data = load_latest_quant()
+            if "load_latest_quant" not in st.session_state:
+                from quant.etf50_quant import load_latest_quant as _llq
+                st.session_state["load_latest_quant"] = _llq
+            data = st.session_state["load_latest_quant"]()
             if data:
                 _render_etf50_result(st, data)
 
@@ -358,7 +372,9 @@ def render_quant_page(st):
             if len(r.equity_curve) >= 60:
                 with st.expander("🔬 Walk-Forward 样本内外对比", expanded=False):
                     split = int(len(r.equity_curve)*0.7)
-                    from quant.anti_overfit import overfit_diagnosis
+                    if "overfit_diagnosis" not in st.session_state:
+                        from quant.anti_overfit import overfit_diagnosis as _od
+                        st.session_state["overfit_diagnosis"] = _od
                     def _m(e):
                         rd=e.pct_change().dropna(); t=e.iloc[-1]/e.iloc[0]-1
                         a=(1+t)**(252/len(e))-1; s=rd.mean()/(rd.std()+1e-9)*252**0.5
@@ -366,7 +382,7 @@ def render_quant_page(st):
                         return {"annual_return":a,"sharpe_ratio":s,"max_drawdown":d}
                     is_m=_m(r.equity_curve.iloc[:split])
                     os_m=_m(r.equity_curve.iloc[split:])
-                    diag=overfit_diagnosis(is_m,os_m,"当前策略")
+                    diag=st.session_state["overfit_diagnosis"](is_m,os_m,"当前策略")
                     rc={"低":"#22c55e","中":"#f59e0b","高⚠️":"#ef4444"}.get(diag["overfit_risk"],"#9ca3af")
                     st.markdown(
                         f'<div style="background:rgba(255,255,255,0.04);border-left:2px solid {rc};'
