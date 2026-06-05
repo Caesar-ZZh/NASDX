@@ -48,6 +48,31 @@ def _load_etf50_pool() -> list:
         return []
 
 
+# ── 进度芯片构建 ────────────────────────────────────────
+def _build_recent_chips(lines: list) -> str:
+    """把最近扫描的进度行渲染为小芯片"""
+    import re
+    chips = []
+    for line in lines:
+        m = re.search(r'\[(\d+)/(\d+)\]\s+(\S+)\s+(.*?)(?:\.\.\.|$)', line)
+        if not m:
+            continue
+        idx, total, code, name_raw = m.group(1), m.group(2), m.group(3), m.group(4)
+        name = name_raw.strip("...").strip()[:8]
+        if "📈" in line:
+            color, bg = "#22c55e", "rgba(34,197,94,0.10)"
+        elif "📉" in line:
+            color, bg = "#ef4444", "rgba(239,68,68,0.10)"
+        else:
+            color, bg = "#f59e0b", "rgba(245,158,11,0.08)"
+        chips.append(
+            f'<span style="background:{bg};border:1px solid {color}30;border-radius:4px;'
+            f'padding:3px 8px;font-size:11px;color:{color};white-space:nowrap">'
+            f'{idx} {name or code}</span>'
+        )
+    return "".join(chips) if chips else '<span style="color:rgba(255,255,255,0.2);font-size:11px">等待数据...</span>'
+
+
 # ── 后台线程运行 ETF50 量化 ──────────────────────────────
 def _run_etf50_bg(days, top_n, freq, log_path):
     import sys, builtins, io
@@ -161,52 +186,119 @@ def render_quant_page(st):
                                      args=(days,top_n,freq,str(lp)), daemon=True)
                 t.start()
                 st.session_state.update({"etf50q_running":True,"etf50q_thread":t,
-                                          "etf50q_log":str(lp)})
+                                          "etf50q_log":str(lp),
+                                          "etf50q_start_ts":time.time()})
                 st.rerun()
         else:
-            # ── 运行中：进度 + 日志 ───────────────────────────
+            # ── 运行中：精美进度面板 ──────────────────────────
+            import re as _re
             lp = Path(st.session_state.get("etf50q_log",""))
             log_text = lp.read_text(encoding="utf-8") if lp.exists() else ""
-            lines = [l for l in log_text.splitlines() if l.strip()]
+            all_lines = [l for l in log_text.splitlines() if l.strip()]
 
-            # 精确计数：找 [xx/50] 格式的进度行
-            import re
-            progress_lines = [l for l in lines if re.search(r'\[\d+/\d+\]', l)]
+            # 精确解析进度行 [xx/50]
+            progress_lines = [l for l in all_lines if _re.search(r'\[\d+/\d+\]', l)]
             done_n = len(progress_lines)
-            pct = min(done_n / max(pool_n, 1), 0.95)
+            pct    = done_n / max(pool_n, 1)
 
-            st.progress(pct, text=f"量化分析中... {done_n}/{pool_n} 只")
+            # 估算剩余时间（基于已用时间推算）
+            start_ts = st.session_state.get("etf50q_start_ts", time.time())
+            elapsed  = time.time() - start_ts
+            if done_n > 0:
+                eta_sec = elapsed / done_n * (pool_n - done_n)
+                if eta_sec < 60:
+                    eta_str = f"{int(eta_sec)}秒"
+                else:
+                    eta_str = f"{int(eta_sec/60)}分{int(eta_sec%60)}秒"
+            else:
+                eta_str = "计算中..."
 
-            with st.expander("📟 实时日志", expanded=True):
-                st.code("\n".join(lines[-15:]) if lines else "启动中...", language=None)
+            elapsed_str = f"{int(elapsed//60)}分{int(elapsed%60)}秒" if elapsed >= 60 else f"{int(elapsed)}秒"
 
-            thread = st.session_state.get("etf50q_thread")
+            # ── 状态卡片 ───────────────────────────────────────
+            pct_display = int(pct * 100)
+            bar_color   = "#22c55e" if pct > 0.7 else "#3b82f6" if pct > 0.3 else "#f59e0b"
+
+            st.markdown(f"""
+            <div style="background:#111;border:1px solid rgba(255,255,255,0.08);border-radius:10px;
+                        padding:20px 24px;margin-bottom:14px;position:relative;overflow:hidden">
+              <div style="position:absolute;top:0;left:0;right:0;height:2px;
+                          background:linear-gradient(90deg,transparent,{bar_color},transparent)"></div>
+
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:#fff">
+                    ⚗️ ETF50 量化分析进行中
+                  </div>
+                  <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-top:3px">
+                    {done_n} / {pool_n} 只完成 &nbsp;·&nbsp; 已用时 {elapsed_str} &nbsp;·&nbsp; 预计剩余 {eta_str}
+                  </div>
+                </div>
+                <div style="font-size:28px;font-weight:800;color:{bar_color};
+                            font-variant-numeric:tabular-nums;letter-spacing:-0.02em">
+                  {pct_display}<span style="font-size:14px;color:rgba(255,255,255,0.3)">%</span>
+                </div>
+              </div>
+
+              <!-- 进度条 -->
+              <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:8px;overflow:hidden;margin-bottom:16px">
+                <div style="width:{pct_display}%;height:100%;background:linear-gradient(90deg,{bar_color},{bar_color}99);
+                            border-radius:4px;transition:width 0.5s ease"></div>
+              </div>
+
+              <!-- 最近扫描的 ETF -->
+              <div style="font-size:10px;color:rgba(255,255,255,0.25);text-transform:uppercase;
+                          letter-spacing:.06em;margin-bottom:8px">最近扫描</div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px">
+                {_build_recent_chips(progress_lines[-8:])}
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # ── 实时信号统计（从日志解析）─────────────────────
+            bull_n = sum(1 for l in progress_lines if "📈" in l)
+            bear_n = sum(1 for l in progress_lines if "📉" in l)
+            neut_n = sum(1 for l in progress_lines if "➡️" in l)
+            if done_n > 0:
+                sc1, sc2, sc3 = st.columns(3)
+                with sc1:
+                    st.markdown(f'<div style="background:#111;border:1px solid rgba(34,197,94,0.2);border-radius:6px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:#22c55e">{bull_n}</div><div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:2px">📈 看多</div></div>', unsafe_allow_html=True)
+                with sc2:
+                    st.markdown(f'<div style="background:#111;border:1px solid rgba(245,158,11,0.2);border-radius:6px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:#f59e0b">{neut_n}</div><div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:2px">➡️ 中性</div></div>', unsafe_allow_html=True)
+                with sc3:
+                    st.markdown(f'<div style="background:#111;border:1px solid rgba(239,68,68,0.2);border-radius:6px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:700;color:#ef4444">{bear_n}</div><div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:2px">📉 看空</div></div>', unsafe_allow_html=True)
+
+            # ── 完整日志（折叠）───────────────────────────────
+            with st.expander("📋 详细日志", expanded=False):
+                st.code("\n".join(all_lines[-20:]) if all_lines else "启动中...", language=None)
+
+            # ── 完成/失败/轮询判断 ─────────────────────────────
+            thread   = st.session_state.get("etf50q_thread")
             finished = thread is None or not thread.is_alive()
 
-            # 完成/失败/继续轮询
             if "__DONE__" in log_text:
                 st.session_state["etf50q_running"] = False
                 st.session_state.pop("etf50q_thread", None)
-                st.success(f"✅ 分析完成！共 {done_n} 只 ETF")
+                st.session_state.pop("etf50q_start_ts", None)
+                st.success(f"✅ 全量分析完成！{done_n} 只 ETF · 耗时 {elapsed_str}")
                 time.sleep(0.5)
                 st.rerun()
             elif "__ERROR__" in log_text:
                 st.session_state["etf50q_running"] = False
                 st.session_state.pop("etf50q_thread", None)
-                err = [l for l in lines if "ERROR" in l or "Traceback" in l]
+                st.session_state.pop("etf50q_start_ts", None)
+                err = [l for l in all_lines if "ERROR" in l or "Traceback" in l]
                 st.error("分析失败：" + "\n".join(err[:4]))
             elif finished and done_n >= pool_n:
-                # 线程死亡且进度满 → 视为完成
                 st.session_state["etf50q_running"] = False
                 st.session_state.pop("etf50q_thread", None)
+                st.session_state.pop("etf50q_start_ts", None)
                 st.rerun()
             else:
-                # 持续轮询：用按钮让用户手动刷新，同时自动尝试 rerun
-                st.caption("⏳ 分析中，每3秒自动刷新一次...")
-                import streamlit.components.v1 as components
-                # 注入 JS 3秒后自动刷新
-                components.html(
-                    '<script>setTimeout(function(){window.parent.location.reload();}, 3000);</script>',
+                # JS 3秒自动刷新
+                import streamlit.components.v1 as _cv1
+                _cv1.html(
+                    '<script>setTimeout(function(){window.parent.location.reload();},3000);</script>',
                     height=0,
                 )
 
