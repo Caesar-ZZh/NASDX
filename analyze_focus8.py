@@ -363,4 +363,4 @@ with open(out,'w',encoding='utf-8') as f:
 print(f'\n📁 报告: {out}')
 
 import subprocess
-subprocess.Popen(['cmd','/c','start',str(out)])
+# [已移除自动弹窗] subprocess.Popen(['cmd','/c','start',str(out)])
