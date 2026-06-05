@@ -629,9 +629,10 @@ if "page" not in st.session_state:
     st.session_state.page = _qp.get("page","home") if _qp.get("page","home") in _valid_pages else "home"
 
 def _nav_to(page: str):
-    """切换页面：写 session + query_params，不 rerun（更快）"""
+    """切换页面：写 session + query_params + rerun 保证内容区立刻更新"""
     st.session_state.page = page
     st.query_params["page"] = page
+    st.rerun()  # 必须 rerun，否则主内容区 pg 变量不刷新
 
 # ══════════════════════════════════════════════════════
 #  侧边栏
@@ -876,12 +877,31 @@ if pg == "home":
 elif pg == "etf50":
     st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">ETF 50 扫描</div><div style="font-size:13px;color:#636366;margin-top:4px">50只主流ETF技术面评分 · 实时溢价率</div></div>', unsafe_allow_html=True)
 
-    c_btn, _ = st.columns([1,4])
+    c_btn, c_status, _ = st.columns([1,2,3])
     with c_btn:
-        if st.button("↻  立即扫描", use_container_width=True):
-            with st.spinner("扫描中，约 3 分钟..."):
-                subprocess.run([sys.executable, str(ROOT/"scan_etf50.py")], capture_output=True)
+        scan_running = st.session_state.get("etf50_scan_running", False)
+        if st.button("↻  立即扫描", use_container_width=True,
+                     disabled=scan_running, key="etf50_scan_btn"):
+            import threading as _th
+            def _run_scan():
+                subprocess.run([sys.executable, str(ROOT/"scan_etf50.py")],
+                               capture_output=True)
+                st.session_state["etf50_scan_running"] = False
+                load_etf50.clear()  # 清缓存，强制重新读
+            t = _th.Thread(target=_run_scan, daemon=True)
+            t.start()
+            st.session_state["etf50_scan_running"] = True
             st.rerun()
+    with c_status:
+        if scan_running:
+            st.markdown('<div style="padding-top:8px;font-size:12px;color:#f59e0b">⏳ 扫描中，约3分钟...</div>', unsafe_allow_html=True)
+            # 检查是否完成
+            t = st.session_state.get("etf50_scan_thread")
+            if t and not t.is_alive():
+                st.session_state["etf50_scan_running"] = False
+                st.rerun()
+            else:
+                time.sleep(3); st.rerun()
 
     d = load_etf50()
     if not d:

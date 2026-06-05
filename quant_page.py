@@ -63,7 +63,15 @@ def _run_etf50_bg(days, top_n, freq, log_path):
 #  主页面入口
 # ══════════════════════════════════════════════════════
 def render_quant_page(st):
-    import streamlit as _st
+
+    # ── 启动时清理僵死线程状态 ──────────────────────────
+    for tk in ["etf50q_thread", "conf_thread"]:
+        t = st.session_state.get(tk)
+        if t is not None and not t.is_alive():
+            st.session_state.pop(tk, None)
+            running_key = "etf50q_running" if "etf50" in tk else "conf_running"
+            if st.session_state.get(running_key):
+                st.session_state[running_key] = False
 
     st.markdown(
         '<div style="padding:20px 0 14px">'
@@ -74,17 +82,21 @@ def render_quant_page(st):
         unsafe_allow_html=True,
     )
 
-    # VnPy 状态条
-    from quant.vnpy_bridge import get_vnpy_info
-    vinfo = get_vnpy_info()
-    if vinfo["available"]:
-        gw_str = "、".join(vinfo["gateways"]) if vinfo["gateways"] else "无已安装 Gateway"
+    # ── VnPy 状态条（session 缓存，避免重复 import）───────
+    if "vnpy_info" not in st.session_state:
+        try:
+            from quant.vnpy_bridge import get_vnpy_info
+            st.session_state["vnpy_info"] = get_vnpy_info()
+        except Exception:
+            st.session_state["vnpy_info"] = {"available": False, "version": None}
+    vinfo = st.session_state["vnpy_info"]
+    if vinfo.get("available"):
+        gw_str = "、".join(vinfo.get("gateways",[])) or "无 Gateway"
         st.markdown(
             f'<div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);'
-            f'border-radius:6px;padding:8px 14px;margin-bottom:14px;font-size:12px;'
-            f'color:rgba(34,197,94,0.9)">'
-            f'✓ VnPy {vinfo["version"]} 已就绪 &nbsp;|&nbsp; '
-            f'功能：{" · ".join(vinfo["features"][:3])} &nbsp;|&nbsp; Gateway：{gw_str}'
+            f'border-radius:6px;padding:7px 14px;margin-bottom:12px;font-size:12px;'
+            f'color:rgba(34,197,94,0.85)">'
+            f'✓ VnPy {vinfo.get("version","")} &nbsp;·&nbsp; {gw_str}'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -146,28 +158,45 @@ def render_quant_page(st):
             lp = Path(st.session_state.get("etf50q_log",""))
             log_text = lp.read_text(encoding="utf-8") if lp.exists() else ""
             lines = [l for l in log_text.splitlines() if l.strip()]
-            done_n = sum(1 for l in lines if any(
-                x in l for x in ["📈","📉","➡️","❌","⚠️","[0","[1","[2","[3","[4","[5"]))
-            pct = min(done_n / pool_n, 0.95)
+
+            # 精确计数：找 [xx/50] 格式的进度行
+            import re
+            progress_lines = [l for l in lines if re.search(r'\[\d+/\d+\]', l)]
+            done_n = len(progress_lines)
+            pct = min(done_n / max(pool_n, 1), 0.95)
 
             st.progress(pct, text=f"量化分析中... {done_n}/{pool_n} 只")
 
             with st.expander("📟 实时日志", expanded=True):
-                st.code("\n".join(lines[-18:]) if lines else "启动中...", language=None)
+                st.code("\n".join(lines[-15:]) if lines else "启动中...", language=None)
 
             thread = st.session_state.get("etf50q_thread")
             finished = thread is None or not thread.is_alive()
 
-            if "__DONE__" in log_text or (finished and done_n >= 5):
+            # 完成判断：优先看 __DONE__ 标志，其次看线程是否死亡
+            if "__DONE__" in log_text:
                 st.session_state["etf50q_running"] = False
                 st.session_state.pop("etf50q_thread", None)
+                st.success(f"✅ 分析完成！共 {done_n} 只 ETF")
+                time.sleep(1)
                 st.rerun()
-            elif "__ERROR__" in log_text and finished:
+            elif "__ERROR__" in log_text:
                 st.session_state["etf50q_running"] = False
+                st.session_state.pop("etf50q_thread", None)
                 err = [l for l in lines if "ERROR" in l or "Traceback" in l]
                 st.error("分析失败：" + "\n".join(err[:4]))
+            elif finished:
+                # 线程死亡但没有 __DONE__ → 检查是否有结果文件
+                from quant.etf50_quant import load_latest_quant
+                if load_latest_quant():
+                    st.session_state["etf50q_running"] = False
+                    st.session_state.pop("etf50q_thread", None)
+                    st.rerun()
+                else:
+                    st.session_state["etf50q_running"] = False
+                    st.error("分析异常终止，请查看日志")
             else:
-                time.sleep(3); st.rerun()
+                time.sleep(2); st.rerun()
 
         # ── 只有不在运行时才展示结果 ──────────────────────────
         if not st.session_state.get("etf50q_running", False):
