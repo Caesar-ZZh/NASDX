@@ -40,3 +40,12 @@ config.toml
 scheduled_tasks.lock
 streamlit.log
 focus_ind.json
+
+# Streamlit secrets（含 API Key，绝不入库）
+.streamlit/secrets.toml
+
+# 本地专属文件（不需要部署）
+*.bat
+etf50_quant_log.txt
+confidence_train_log.txt
+nasdx_log_*.txt

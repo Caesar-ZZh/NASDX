@@ -20,6 +20,22 @@ import streamlit as st
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
+# ── 从 Streamlit Secrets 或环境变量读取 API 配置 ──────
+def _load_api_from_secrets():
+    """优先读 Streamlit Cloud secrets，其次环境变量，最后 llm.py 默认值"""
+    try:
+        key  = st.secrets.get("NASDX_API_KEY",  os.environ.get("NASDX_API_KEY",  ""))
+        url  = st.secrets.get("NASDX_BASE_URL", os.environ.get("NASDX_BASE_URL", "https://api.deepseek.com"))
+        mdl  = st.secrets.get("NASDX_MODEL",    os.environ.get("NASDX_MODEL",    "deepseek-v4-pro"))
+        if key:
+            os.environ["NASDX_API_KEY"]  = key
+            os.environ["NASDX_BASE_URL"] = url
+            os.environ["NASDX_MODEL"]    = mdl
+    except Exception:
+        pass
+
+_load_api_from_secrets()
+
 # ── 热更新 LLM 配置 ───────────────────────────────────
 def _update_llm_config(api_key, base_url, model):
     os.environ["NASDX_API_KEY"]  = api_key
