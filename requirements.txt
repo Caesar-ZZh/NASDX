@@ -1,0 +1,27 @@
+# NASDX Web 部署依赖（Streamlit Cloud 优化版）
+# 精简依赖包，减少冷启动时间
+
+# 核心框架
+streamlit>=1.28.0
+
+# 数据获取
+akshare>=1.16.87
+pandas>=2.0.0
+numpy>=1.24.0
+
+# AI 调用
+openai>=1.0.0
+
+# 数据结构
+pydantic>=2.0.0
+
+# 网络请求
+requests>=2.31.0
+
+# 注：移除以下重包以加速 Cloud 部署
+# mootdx（Cloud 网络通达信连接不稳定）
+# scipy（非实时必需）
+# lightgbm（量化因子模型，可按需启用）
+# vnpy（回测功能，部署时不需要）
+# stable-baselines3（强化学习，非常重）
+# gymnasium（强化学习依赖）
