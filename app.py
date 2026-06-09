@@ -597,47 +597,38 @@ elif pg == "plan":
 elif pg == "etf50":
     st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">ETF 50 扫描</div><div style="font-size:13px;color:#636366;margin-top:4px">50只主流ETF技术面评分 · 实时溢价率</div></div>', unsafe_allow_html=True)
 
-    scan_running = st.session_state.get("etf50_scan_running", False)
-    c_btn, c_status, _ = st.columns([1, 2, 3])
-    with c_btn:
-        if st.button("↻  立即扫描", use_container_width=True,
-                     disabled=scan_running, key="etf50_scan_btn"):
-            import threading as _th
-            _scan_done = {"done": False}
-            def _run_scan():
-                subprocess.run([sys.executable, str(ROOT/"scan_etf50.py")],
-                               capture_output=True)
-                st.session_state["etf50_scan_running"] = False
-                st.session_state["etf50_scan_thread"] = None
-                try: load_etf50.clear()
-                except Exception: pass
-            _t = _th.Thread(target=_run_scan, daemon=True)
-            _t.start()
-            st.session_state["etf50_scan_running"] = True
-            st.session_state["etf50_scan_thread"] = _t
-            st.session_state["etf50_scan_start"] = time.time()
-            st.rerun()
+    # Cloud 环境：直接在主线程执行扫描（不用subprocess，兼容 Streamlit Cloud）
+    if st.button("↻  立即扫描（约3分钟）", use_container_width=False, key="etf50_scan_btn"):
+        with st.spinner("扫描中，请稍候（约3分钟）..."):
+            try:
+                import sys as _sys
+                _sys.path.insert(0, str(ROOT))
+                # 直接 import 扫描模块并执行
+                import importlib, types, builtins, io
 
-    with c_status:
-        if scan_running:
-            _scan_t   = st.session_state.get("etf50_scan_thread")
-            _elapsed  = int(time.time() - st.session_state.get("etf50_scan_start", time.time()))
-            _done     = _scan_t is None or not _scan_t.is_alive()
-            if _done:
-                st.session_state["etf50_scan_running"] = False
+                # 捕获 scan_etf50.py 的 print 输出
+                _old_print = builtins.print
+                _log_buf = []
+                def _capture_print(*a, **k):
+                    buf = io.StringIO()
+                    _old_print(*a, file=buf, **k)
+                    _log_buf.append(buf.getvalue())
+                    _old_print(*a, **k)
+                builtins.print = _capture_print
+
+                # 动态执行 scan_etf50.py
+                scan_src = (ROOT / "scan_etf50.py").read_text(encoding="utf-8")
+                _ns = {"__name__": "__scan__", "__file__": str(ROOT/"scan_etf50.py")}
+                exec(compile(scan_src, "scan_etf50.py", "exec"), _ns)
+
+                builtins.print = _old_print
                 try: load_etf50.clear()
                 except Exception: pass
-                st.rerun()
-            else:
-                _estr = f"{_elapsed//60}分{_elapsed%60}秒" if _elapsed >= 60 else f"{_elapsed}秒"
-                st.markdown(
-                    f'<div style="padding-top:8px;font-size:12px;color:#f59e0b">'
-                    f'⏳ 扫描中... 已用时 {_estr}</div>',
-                    unsafe_allow_html=True,
-                )
-                # JS 自动刷新
-                import streamlit.components.v1 as _cv1
-                _cv1.html('<script>setTimeout(()=>window.parent.location.reload(),3000);</script>', height=0)
+                st.success(f"扫描完成！")
+            except Exception as _e:
+                builtins.print = _old_print
+                st.error(f"扫描失败：{_e}")
+        st.rerun()
 
     d = load_etf50()
     if not d:
@@ -709,12 +700,23 @@ elif pg == "stocks60":
 
     c_btn, _ = st.columns([1,4])
     with c_btn:
-        if st.button("↻  立即扫描", use_container_width=True, key="scan_st"):
+        if st.button("↻  立即扫描（约5分钟）", use_container_width=True, key="scan_st"):
             with st.spinner("扫描中，约 5 分钟..."):
-                subprocess.run([sys.executable, str(ROOT/"scan_stocks_full.py")], capture_output=True, timeout=600)
-                try: load_stocks60.clear()
-                except Exception: pass
-            # spinner 结束后 Streamlit 自动重算依赖，不需要 st.rerun()
+                try:
+                    import builtins as _bi, io as _io
+                    _op = _bi.print
+                    _bi.print = lambda *a,**k: None
+                    scan_src = (ROOT / "scan_stocks_full.py").read_text(encoding="utf-8")
+                    _ns = {"__name__":"__scan__","__file__":str(ROOT/"scan_stocks_full.py")}
+                    exec(compile(scan_src,"scan_stocks_full.py","exec"), _ns)
+                    _bi.print = _op
+                    try: load_stocks60.clear()
+                    except Exception: pass
+                    st.success("扫描完成！")
+                except Exception as _e:
+                    _bi.print = _op
+                    st.error(f"扫描失败：{_e}")
+            st.rerun()
 
     d = load_stocks60()
     if not d:
