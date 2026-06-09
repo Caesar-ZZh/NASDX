@@ -3,8 +3,8 @@ stock_data_*.json
 focus8_data.json
 stocks.json.bak
 
-# 报告输出（HTML/JSON，动态生成）
-reports/
+# 报告输出（HTML 不入库，JSON 数据入库供 Cloud 展示）
+reports/*.html
 
 # Python
 __pycache__/
