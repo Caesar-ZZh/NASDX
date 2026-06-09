@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from openai import OpenAI
 
 # 从环境变量读取，也可在 config.toml 中配置
-API_KEY    = os.environ.get("NASDX_API_KEY", "sk-bc93edf010d6424985374c9f858fa336")
+API_KEY    = os.environ.get("NASDX_API_KEY", "sk-6bbc7bf2bde64d68994f6a54e6f181f4")
 BASE_URL   = os.environ.get("NASDX_BASE_URL", "https://api.deepseek.com")
 MODEL_NAME = os.environ.get("NASDX_MODEL", "deepseek-v4-pro")
 MAX_TOKENS = int(os.environ.get("NASDX_MAX_TOKENS", "4096"))
@@ -27,7 +27,7 @@ class LLMClient:
         return cls._instance
 
     def _init(self):
-        self.client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+        self.client = OpenAI(api_key=API_KEY or "nasdx-local-placeholder", base_url=BASE_URL)
         self.model = MODEL_NAME
         self.max_tokens = MAX_TOKENS
         self.temperature = TEMPERATURE
@@ -53,6 +53,8 @@ class LLMClient:
         for model in models_to_try:
             for attempt in range(max_retries):
                 try:
+                    if not API_KEY and "localhost" not in BASE_URL and "127.0.0.1" not in BASE_URL:
+                        raise RuntimeError("请先设置 NASDX_API_KEY，或切换到 Ollama 本地模型")
                     # 推理模型（deepseek-v4-pro / deepseek-reasoner）temperature 必须为 1
                     is_reasoner = any(x in model for x in ("reasoner", "v4-pro", "v4-flash", "thinking", "r1"))
                     call_kwargs = dict(

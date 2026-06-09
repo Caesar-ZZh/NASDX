@@ -1,6 +1,6 @@
 # CONTEXT
 
-- 当前：把 Serenity Chokepoint Investing 部署进 NASDX，新增 `chokepoint` Agent。
-- 上次停在：已接入 Research、Battle、Synthesis、HTML/Streamlit 展示和 README。
-- 关键决定：不做全局 Codex skill 安装；按项目用途转成可运行的 NASDX 研究维度。
-- 原因：用户要求部署到当前项目，现有项目核心是多智能体股票分析链路。
+- 当前：最终版继续推进，已刷新 2026-06-09 行情、ETF50、60只个股扫描。
+- 上次停在：最新路线为 normal 闸门、结构性轮动、均衡画像总仓位 35%-60%。
+- 关键决定：过期深度报告不参与候选排序，只作为重跑提醒。
+- 原因：当天投资路线必须由新鲜行情和扫描驱动，避免旧 LLM 结论污染。

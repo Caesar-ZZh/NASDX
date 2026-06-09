@@ -16,9 +16,15 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("stock_code", nargs="?", default="603501")
 parser.add_argument("--rounds", type=int, default=1)
+parser.add_argument(
+    "--risk-profile",
+    choices=["conservative", "balanced", "aggressive"],
+    default=os.environ.get("NASDX_RISK_PROFILE", "balanced"),
+)
 args = parser.parse_args()
 stock_code = args.stock_code
 rounds = args.rounds
+risk_profile = args.risk_profile
 
 from nasdx.analyzer import NasdxAnalyzer
 
@@ -29,6 +35,7 @@ analyzer = NasdxAnalyzer(
     debate_rounds=rounds,
     agent_delay=0.2,
     battle_delay=0.2,
+    risk_profile=risk_profile,
 )
 
 try:

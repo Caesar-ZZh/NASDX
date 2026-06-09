@@ -11,7 +11,7 @@ def _patched_get(url, **kwargs):
     return _real_get(url, **kwargs)
 _req.get = _patched_get
 
-import sys, os, json, subprocess, threading, time, glob
+import sys, os, json, subprocess, threading, time, glob, html
 from pathlib import Path
 from datetime import datetime
 
@@ -37,7 +37,7 @@ st.set_page_config(
     page_title="NASDX · A股量化分析",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded",   # 初始展开
+    initial_sidebar_state="auto",
 )
 
 # ══════════════════════════════════════════════════════
@@ -89,15 +89,21 @@ def load_report(code):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_etf50():
-    files = sorted(ROOT.glob("reports/etf50_*.json"))
+    files = sorted(ROOT.glob("reports/etf50_[0-9]*_[0-9]*.json"), key=os.path.getmtime, reverse=True)
     if not files: return None
-    with open(files[-1], encoding="utf-8") as f: return json.load(f)
+    with open(files[0], encoding="utf-8") as f: return json.load(f)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_stocks60():
-    files = sorted(ROOT.glob("reports/stocks60_*.json"))
+    files = sorted(ROOT.glob("reports/stocks60_*.json"), key=os.path.getmtime, reverse=True)
     if not files: return None
-    with open(files[-1], encoding="utf-8") as f: return json.load(f)
+    with open(files[0], encoding="utf-8") as f: return json.load(f)
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_portfolio_latest():
+    path = ROOT / "reports" / "portfolio_plan_latest.json"
+    if not path.exists(): return None
+    with open(path, encoding="utf-8") as f: return json.load(f)
 
 @st.cache_resource(show_spinner=False)
 def load_pool():
@@ -133,8 +139,14 @@ def bar(v, color=None):
     cls = "bar-fill-green" if c=="#22c55e" else "bar-fill-red" if c=="#ef4444" else "bar-fill-yellow"
     return f'<div class="bar-wrap"><div class="{cls}" style="width:{min(v,100):.0f}%"></div></div>'
 
-def run_analysis_bg(code, rounds, log_path):
-    cmd = [sys.executable, "-u", str(ROOT/"run_analysis.py"), code, "--rounds", str(rounds)]
+def run_analysis_bg(code, rounds, risk_profile, workflow, log_path):
+    cmd = [
+        sys.executable, "-u", str(ROOT/"run_investment_workflow.py"),
+        code,
+        "--workflow", workflow,
+        "--rounds", str(rounds),
+        "--risk-profile", risk_profile,
+    ]
     with open(log_path, "w", encoding="utf-8", buffering=1) as f:
         subprocess.run(cmd, stdout=f, stderr=f)
 
@@ -143,14 +155,15 @@ def run_analysis_bg(code, rounds, log_path):
 #  用 query_params 而非 st.rerun() 切换页面 → 更快
 # ══════════════════════════════════════════════════════
 DEFAULTS = {"running":False,"current_code":"","log_path":None,"thread":None,"done":False,
-            "api_preset":"DeepSeek","api_key":"sk-bc93edf010d6424985374c9f858fa336",
-            "api_base":"https://api.deepseek.com","api_model":"deepseek-v4-pro","api_ok":None}
+            "api_preset":"DeepSeek","api_key":os.environ.get("NASDX_API_KEY",""),
+            "api_base":os.environ.get("NASDX_BASE_URL","https://api.deepseek.com"),
+            "api_model":os.environ.get("NASDX_MODEL","deepseek-v4-pro"),"api_ok":None}
 for k, v in DEFAULTS.items():
     if k not in st.session_state: st.session_state[k] = v
 
 # 从 URL 读当前页面（首次加载 / 刷新时恢复）
 _qp = st.query_params
-_valid_pages = {"home","etf50","stocks60","deep","quant","ths"}
+_valid_pages = {"home","plan","etf50","stocks60","deep","quant","ths"}
 if "page" not in st.session_state:
     st.session_state.page = _qp.get("page","home") if _qp.get("page","home") in _valid_pages else "home"
 
@@ -180,6 +193,7 @@ with st.sidebar:
     # 导航按钮列表 — button 比 radio 更可靠（无 index 竞态问题）
     NAV = [
         ("home",     "🏠", "首页"),
+        ("plan",     "🧭", "投资路线"),
         ("etf50",    "📊", "ETF 50"),
         ("stocks60", "📈", "个股扫描"),
         ("deep",     "🤖", "深度分析"),
@@ -208,12 +222,25 @@ with st.sidebar:
     if st.session_state.page == "deep":
         st.markdown('<div class="n-label" style="padding-left:4px">股票代码</div>', unsafe_allow_html=True)
         stock_input = st.text_input("", placeholder="如 603501、512480", label_visibility="collapsed", max_chars=6)
+        risk_profile = st.selectbox(
+            "风险画像",
+            ["均衡", "保守", "进取"],
+            index=0,
+            help="影响行动计划里的仓位上限，不改变研究事实。",
+        )
         rounds = st.slider("辩论轮数", 1, 3, 1, help="轮数越多分析越深入，耗时越长")
-        st.caption(f"预计耗时 {rounds*3+2} 分钟")
-        run_btn = st.button("▶  开始分析", disabled=st.session_state.running, use_container_width=True)
+        workflow_label = st.selectbox(
+            "工作流",
+            ["仅深度分析", "刷新行情 + ETF50扫描 + 深度分析", "刷新行情 + ETF/个股双扫描 + 深度分析"],
+            index=0,
+            help="默认只跑深度分析；需要最新行情和扫描榜单时再选择完整链路。",
+        )
+        est_extra = {"仅深度分析": 0, "刷新行情 + ETF50扫描 + 深度分析": 6, "刷新行情 + ETF/个股双扫描 + 深度分析": 12}
+        st.caption(f"预计耗时 {rounds*3+2+est_extra.get(workflow_label, 0)} 分钟")
+        run_btn = st.button("▶  开始执行", disabled=st.session_state.running, use_container_width=True)
         st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
     else:
-        stock_input, rounds, run_btn = "", 1, False
+        stock_input, risk_profile, rounds, workflow_label, run_btn = "", "均衡", 1, "仅深度分析", False
 
     # 股票快速选择
     st.markdown('<div class="n-label" style="padding-left:4px;margin-bottom:8px">快速选股</div>', unsafe_allow_html=True)
@@ -305,8 +332,19 @@ if pg == "home":
     </div>
     """, unsafe_allow_html=True)
 
-    # 三个功能入口卡片
-    c1, c2, c3 = st.columns(3, gap="medium")
+    # 功能入口卡片
+    c0, c1, c2, c3 = st.columns(4, gap="medium")
+    with c0:
+        st.markdown("""
+        <div class="n-card n-card-accent-blue">
+          <div style="font-size:20px;margin-bottom:12px">🧭</div>
+          <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">投资路线</div>
+          <div class="n-sub" style="margin-bottom:12px">组合仓位 · ETF主线 · 个股卫星</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("进入 →", key="g_plan", use_container_width=True):
+            _nav_to("plan")
+
     with c1:
         st.markdown("""
         <div class="n-card n-card-accent-green">
@@ -402,6 +440,140 @@ if pg == "home":
                 if st.button("查看", key=f"h_{rp.stem}", use_container_width=True):
                     st.session_state["_quick"] = rd.get("stock_code","")
                     _nav_to("deep")
+
+# ══════════════════════════════════════════════════════
+#  投资路线页
+# ══════════════════════════════════════════════════════
+elif pg == "plan":
+    st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">投资路线</div><div style="font-size:13px;color:#636366;margin-top:4px">组合仓位框架 · ETF 主线 · 个股卫星 · 复核节奏</div></div>', unsafe_allow_html=True)
+
+    pc1, pc2, pc3 = st.columns([1,1,4])
+    with pc1:
+        plan_profile = st.selectbox("风险画像", ["均衡", "保守", "进取"], index=0, key="plan_profile")
+    profile_map = {"保守": "conservative", "均衡": "balanced", "进取": "aggressive"}
+    with pc2:
+        if st.button("生成路线", use_container_width=True):
+            from nasdx.portfolio import build_portfolio_plan, save_portfolio_plan
+            plan = build_portfolio_plan(risk_profile=profile_map.get(plan_profile, "balanced"))
+            save_portfolio_plan(plan)
+            try: load_portfolio_latest.clear()
+            except Exception: pass
+            st.toast("投资路线已生成", icon="✅")
+
+    d = load_portfolio_latest()
+    if not d:
+        st.markdown('<div class="n-card" style="text-align:center;padding:48px;color:#48484a">暂无投资路线，点击「生成路线」或先运行一键投研工作流</div>', unsafe_allow_html=True)
+    else:
+        alloc = d.get("allocation", {})
+        st.markdown(f'<div style="font-size:12px;color:#4a4a4a;margin:12px 0">生成时间 {d.get("generated_at","")} · 风险画像 {d.get("risk_profile_label","")} · {d.get("posture","")}</div>', unsafe_allow_html=True)
+
+        a1,a2,a3,a4 = st.columns(4, gap="small")
+        for col,(lb,v,c) in zip([a1,a2,a3,a4],[
+            ("总仓位上限",alloc.get("max_total",""),"#3b82f6"),
+            ("ETF预算",alloc.get("etf_budget",""),"#22c55e"),
+            ("个股预算",alloc.get("stock_budget",""),"#f59e0b"),
+            ("现金缓冲",alloc.get("cash_buffer",""),"#8b949e"),
+        ]):
+            with col:
+                st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:22px;font-weight:600;color:{c}">{v}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
+
+        st.markdown(f'<div class="n-card" style="font-size:13px;color:rgba(255,255,255,0.75);line-height:1.7;margin-top:12px">{alloc.get("mode","")}</div>', unsafe_allow_html=True)
+
+        def _rows(items):
+            return [{
+                "代码": x.get("code",""),
+                "名称": x.get("name",""),
+                "类型": x.get("asset_type",""),
+                "分数": x.get("adjusted_score", x.get("score",0)),
+                "信号": x.get("signal",""),
+                "动作": x.get("action",""),
+                "理由": x.get("reason",""),
+            } for x in items]
+
+        def _table(items):
+            rows = _rows(items)
+            if not rows:
+                return '<div class="n-card" style="font-size:13px;color:rgba(255,255,255,0.45)">暂无候选</div>'
+            head = ''.join(f'<th>{html.escape(k)}</th>' for k in rows[0].keys())
+            body = ''
+            for row in rows:
+                body += '<tr>' + ''.join(f'<td>{html.escape(str(v))}</td>' for v in row.values()) + '</tr>'
+            return f'''
+            <div class="n-card plan-table" style="padding:0;overflow:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:12px">
+                <thead><tr>{head}</tr></thead>
+                <tbody>{body}</tbody>
+              </table>
+            </div>
+            <style>
+              .plan-table table th{{color:rgba(255,255,255,0.42);font-weight:600;text-align:left;padding:9px 10px;border-bottom:1px solid rgba(255,255,255,0.08);white-space:nowrap}}
+              .plan-table table td{{color:rgba(255,255,255,0.75);padding:9px 10px;border-bottom:1px solid rgba(255,255,255,0.06);vertical-align:top}}
+              .plan-table table tr:last-child td{{border-bottom:0}}
+            </style>'''
+
+        def _scenario_table(items):
+            if not items:
+                return '<div class="n-card" style="font-size:13px;color:rgba(255,255,255,0.45)">暂无情景</div>'
+            rows = []
+            for item in items:
+                rows.append({
+                    "情景": item.get("scenario",""),
+                    "触发条件": item.get("trigger",""),
+                    "动作": item.get("action",""),
+                    "仓位规则": item.get("position_rule",""),
+                })
+            head = ''.join(f'<th>{html.escape(k)}</th>' for k in rows[0].keys())
+            body = ''
+            for row in rows:
+                body += '<tr>' + ''.join(f'<td>{html.escape(str(v))}</td>' for v in row.values()) + '</tr>'
+            return f'''
+            <div class="n-card plan-table" style="padding:0;overflow:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:12px">
+                <thead><tr>{head}</tr></thead>
+                <tbody>{body}</tbody>
+              </table>
+            </div>'''
+
+        st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
+        left, right = st.columns(2, gap="medium")
+        with left:
+            st.markdown('<div class="n-section-title">ETF 主线候选</div>', unsafe_allow_html=True)
+            st.markdown(_table(d.get("core_candidates", [])), unsafe_allow_html=True)
+        with right:
+            st.markdown('<div class="n-section-title">个股卫星候选</div>', unsafe_allow_html=True)
+            st.markdown(_table(d.get("satellite_candidates", [])), unsafe_allow_html=True)
+
+        left2, right2 = st.columns(2, gap="medium")
+        with left2:
+            st.markdown('<div class="n-section-title">观察名单</div>', unsafe_allow_html=True)
+            st.markdown(_table(d.get("watchlist", [])[:8]), unsafe_allow_html=True)
+        with right2:
+            st.markdown('<div class="n-section-title">回避/减仓池</div>', unsafe_allow_html=True)
+            st.markdown(_table(d.get("trim_or_avoid", [])[:8]), unsafe_allow_html=True)
+
+        st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
+        n1, n2 = st.columns(2, gap="medium")
+        with n1:
+            st.markdown('<div class="n-section-title">下一步</div>', unsafe_allow_html=True)
+            st.markdown("".join(f'<div class="n-card" style="font-size:13px;margin-bottom:8px;color:rgba(255,255,255,0.75)">{x}</div>' for x in d.get("next_actions", [])), unsafe_allow_html=True)
+        with n2:
+            st.markdown('<div class="n-section-title">数据状态</div>', unsafe_allow_html=True)
+            q = d.get("data_quality", {})
+            for label, item in q.items():
+                color = {"ok":"#22c55e","warning":"#f59e0b","danger":"#ef4444"}.get(item.get("severity"), "#f59e0b")
+                st.markdown(f'<div style="background:{color}10;border:1px solid {color}40;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:{color}">{label}: {item.get("message","未评估")}</div>', unsafe_allow_html=True)
+
+        st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
+        st.markdown('<div class="n-section-title">未来情景推演</div>', unsafe_allow_html=True)
+        st.markdown(_scenario_table(d.get("future_scenarios", [])), unsafe_allow_html=True)
+
+        r1, r2 = st.columns(2, gap="medium")
+        with r1:
+            st.markdown('<div class="n-section-title">执行规则</div>', unsafe_allow_html=True)
+            st.markdown("".join(f'<div class="n-card" style="font-size:13px;margin-bottom:8px;color:rgba(255,255,255,0.75)">{html.escape(str(x))}</div>' for x in d.get("decision_rules", [])), unsafe_allow_html=True)
+        with r2:
+            st.markdown('<div class="n-section-title">监控清单</div>', unsafe_allow_html=True)
+            st.markdown("".join(f'<div class="n-card" style="font-size:13px;margin-bottom:8px;color:rgba(255,255,255,0.75)">{html.escape(str(x))}</div>' for x in d.get("monitoring_checklist", [])[:6]), unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════
 #  ETF50 页
@@ -594,18 +766,36 @@ elif pg == "deep":
         code = stock_input.strip().zfill(6)
         log_path = ROOT / f"nasdx_log_{code}.txt"
         log_path.write_text("", encoding="utf-8")
-        t = threading.Thread(target=run_analysis_bg, args=(code, rounds, log_path), daemon=True)
+        profile_map = {"保守": "conservative", "均衡": "balanced", "进取": "aggressive"}
+        profile_key = profile_map.get(risk_profile, "balanced")
+        workflow_map = {
+            "仅深度分析": "analysis-only",
+            "刷新行情 + ETF50扫描 + 深度分析": "quick",
+            "刷新行情 + ETF/个股双扫描 + 深度分析": "full",
+        }
+        workflow_key = workflow_map.get(workflow_label, "analysis-only")
+        t = threading.Thread(target=run_analysis_bg, args=(code, rounds, profile_key, workflow_key, log_path), daemon=True)
         t.start()
-        st.session_state.update({"running":True,"current_code":code,"log_path":str(log_path),"thread":t,"done":False})
+        st.session_state.update({
+            "running": True,
+            "current_code": code,
+            "log_path": str(log_path),
+            "thread": t,
+            "done": False,
+            "risk_profile": profile_key,
+            "workflow_mode": workflow_key,
+            "workflow_label": workflow_label,
+        })
         st.rerun()
 
     # 运行中
     if st.session_state.running:
         code = st.session_state.current_code
+        workflow_display = st.session_state.get("workflow_label", "仅深度分析")
         log_path = Path(st.session_state.log_path)
         log_text = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
         lines = [l for l in log_text.splitlines() if l.strip() and "[LLM]" not in l]
-        STEPS = ["技术面","资金流","风险","板块","瓶颈","辩论","综合","完成"]
+        STEPS = ["刷新行情","ETF50","60只个股","技术面","资金流","风险","板块","瓶颈","辩论","综合","完成"]
         done_n = sum(1 for s in STEPS if any(s in l for l in lines))
         pct = min(done_n/len(STEPS), 0.95)
 
@@ -615,6 +805,7 @@ elif pg == "deep":
             <div>
               <div class="n-label">分析中</div>
               <div style="font-size:20px;font-weight:600;color:#fff">{code}</div>
+              <div style="font-size:12px;color:rgba(255,255,255,0.40);margin-top:4px">{workflow_display}</div>
             </div>
             <div style="font-size:13px;color:rgba(255,255,255,0.40)">{st.session_state.api_model}</div>
           </div>
@@ -637,6 +828,8 @@ elif pg == "deep":
         code=data.get("stock_code",""); name=data.get("stock_name","")
         sig=data.get("final_signal","neutral"); bpct=data.get("bullish_pct",50)
         summary=clean(data.get("summary","")); research=data.get("research_results",{})
+        advice=clean(data.get("operation_advice","")); decision=data.get("decision_plan",{})
+        dq=data.get("data_quality") or decision.get("data_quality", {})
         votes=data.get("votes",[]); transcript=data.get("battle_transcript",[]); date_s=data.get("date","")
         color=sig_color(sig)
 
@@ -653,6 +846,14 @@ elif pg == "deep":
           </div>
         </div>
         """, unsafe_allow_html=True)
+        if dq:
+            dq_color = {"ok":"#22c55e","warning":"#f59e0b","danger":"#ef4444"}.get(dq.get("severity"), "#f59e0b")
+            st.markdown(
+                f'<div style="background:{dq_color}10;border:1px solid {dq_color}40;'
+                f'border-radius:6px;padding:9px 12px;margin-bottom:14px;'
+                f'font-size:12px;color:{dq_color}">{dq.get("message","数据状态未评估")}</div>',
+                unsafe_allow_html=True,
+            )
 
         # 看多进度
         st.markdown(f"""
@@ -696,7 +897,23 @@ elif pg == "deep":
         with col_l:
             st.markdown('<div class="n-section-title">综合研判</div>', unsafe_allow_html=True)
             st.markdown(f'<div class="n-card" style="font-size:13px;line-height:1.8;color:rgba(255,255,255,0.75)">{summary.replace(chr(10),"<br>") if summary else "暂无"}</div>', unsafe_allow_html=True)
+            st.markdown('<div class="n-section-title" style="margin-top:14px">行动计划</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="n-card n-card-accent-green" style="font-size:13px;line-height:1.8;color:rgba(255,255,255,0.75);white-space:pre-line">{advice if advice else "暂无"}</div>', unsafe_allow_html=True)
         with col_r:
+            if decision:
+                st.markdown('<div class="n-section-title">策略摘要</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="n-card" style="margin-bottom:12px">'
+                    f'<div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:6px">方向 / 动作</div>'
+                    f'<div style="font-size:18px;font-weight:700;color:{color};margin-bottom:8px">{decision.get("direction","")} · {decision.get("action","")}</div>'
+                    f'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+                    f'<span class="n-pill">仓位 {decision.get("position_band","")}</span>'
+                    f'<span class="n-pill">周期 {decision.get("horizon","")}</span>'
+                    f'<span class="n-pill">置信 {decision.get("confidence",0.5):.0%}</span>'
+                    f'<span class="n-pill">{decision.get("risk_profile_label","均衡")}</span>'
+                    f'</div></div>',
+                    unsafe_allow_html=True,
+                )
             st.markdown('<div class="n-section-title">各维度要点</div>', unsafe_allow_html=True)
             for dim,r in research.items():
                 if not r: continue
@@ -750,7 +967,7 @@ elif pg == "deep":
             <div style="text-align:center;padding:80px 20px">
               <div style="font-size:48px;margin-bottom:16px">🤖</div>
               <div style="font-size:18px;font-weight:600;color:#fff;margin-bottom:8px">在左侧输入股票代码</div>
-              <div style="font-size:13px;color:#48484a">支持 A股个股 · ETF · LOF<br>4个AI专家并行分析，Battle辩论，DeepSeek V4 Pro 推理</div>
+              <div style="font-size:13px;color:#48484a">支持 A股个股 · ETF · LOF<br>5个AI专家并行分析，Battle辩论，DeepSeek V4 Pro 推理</div>
             </div>
             """, unsafe_allow_html=True)
 

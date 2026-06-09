@@ -15,17 +15,28 @@ START = (datetime.now() - timedelta(days=90)).strftime('%Y%m%d')
 
 # 测试API
 print('=== 测试API ===')
-c = openai.OpenAI(api_key='sk-auVdJleHad3fqilXphK8U3c6QvdKWPWIUcWz2Ygc2MWeYaUT',
-                  base_url='https://newapi.ecdigit.cn/v1', timeout=12)
 api_ok = False
-for model in ['claude-opus-4-6-thinking','claude-sonnet-4-6','claude-haiku-4-5-20251001']:
-    try:
-        r = c.chat.completions.create(model=model,
-            messages=[{'role':'user','content':'hi'}], max_tokens=5)
-        print(f'OK {model}: {r.choices[0].message.content}')
-        api_ok = True; break
-    except Exception as e:
-        print(f'FAIL {model}: {str(e)[:70]}')
+api_key = os.environ.get('NASDX_FOCUS_API_KEY') or os.environ.get('NASDX_API_KEY', '')
+base_url = os.environ.get('NASDX_FOCUS_BASE_URL') or os.environ.get('NASDX_BASE_URL', 'https://newapi.ecdigit.cn/v1')
+models = [
+    m.strip() for m in os.environ.get(
+        'NASDX_FOCUS_MODELS',
+        'claude-opus-4-6-thinking,claude-sonnet-4-6,claude-haiku-4-5-20251001'
+    ).split(',')
+    if m.strip()
+]
+if not api_key:
+    print('SKIP API: 未设置 NASDX_FOCUS_API_KEY 或 NASDX_API_KEY')
+else:
+    c = openai.OpenAI(api_key=api_key, base_url=base_url, timeout=12)
+    for model in models:
+        try:
+            r = c.chat.completions.create(model=model,
+                messages=[{'role':'user','content':'hi'}], max_tokens=5)
+            print(f'OK {model}: {r.choices[0].message.content}')
+            api_ok = True; break
+        except Exception as e:
+            print(f'FAIL {model}: {str(e)[:70]}')
 
 # 抓数据
 print('\n=== 抓取数据 ===')
