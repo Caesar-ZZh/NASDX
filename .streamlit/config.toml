@@ -1,23 +1,13 @@
 [server]
-port = 8501
+maxUploadSize = 10
 headless = true
-address = "127.0.0.1"
-maxUploadSize = 50
-# 使用轮询模式（watchdog 不可用时的稳定方案）
-fileWatcherType = "poll"
 
 [browser]
 gatherUsageStats = false
-serverAddress = "localhost"
-serverPort = 8501
 
 [runner]
-# 快速重渲染
 fastReruns = true
-# 关闭魔法命令解析
 magicEnabled = false
-# 关闭 enumerate 显示
-enumCoercion = "off"
 
 [theme]
 base = "dark"
@@ -27,5 +17,4 @@ textColor = "#ffffff"
 font = "sans serif"
 
 [logger]
-# 减少日志输出
 level = "error"

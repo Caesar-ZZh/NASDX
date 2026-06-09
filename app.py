@@ -597,38 +597,23 @@ elif pg == "plan":
 elif pg == "etf50":
     st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">ETF 50 扫描</div><div style="font-size:13px;color:#636366;margin-top:4px">50只主流ETF技术面评分 · 实时溢价率</div></div>', unsafe_allow_html=True)
 
-    # Cloud 环境：直接在主线程执行扫描（不用subprocess，兼容 Streamlit Cloud）
-    if st.button("↻  立即扫描（约3分钟）", use_container_width=False, key="etf50_scan_btn"):
-        with st.spinner("扫描中，请稍候（约3分钟）..."):
+    # Cloud 版本：去掉超时扫描按钮，显示缓存数据 + 刷新
+    col_info, col_refresh = st.columns([5, 1])
+    with col_info:
+        st.markdown(
+            '<div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);'
+            'border-radius:6px;padding:10px 14px;font-size:12px;color:rgba(59,130,246,0.85)">'
+            '📡 数据由 GitHub Actions 定时任务每日更新（10:00 · 14:30） · 点击右侧刷新按钮重新加载'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    with col_refresh:
+        if st.button("🔄", key="etf50_refresh", use_container_width=True, help="清除缓存重新加载"):
             try:
-                import sys as _sys
-                _sys.path.insert(0, str(ROOT))
-                # 直接 import 扫描模块并执行
-                import importlib, types, builtins, io
-
-                # 捕获 scan_etf50.py 的 print 输出
-                _old_print = builtins.print
-                _log_buf = []
-                def _capture_print(*a, **k):
-                    buf = io.StringIO()
-                    _old_print(*a, file=buf, **k)
-                    _log_buf.append(buf.getvalue())
-                    _old_print(*a, **k)
-                builtins.print = _capture_print
-
-                # 动态执行 scan_etf50.py
-                scan_src = (ROOT / "scan_etf50.py").read_text(encoding="utf-8")
-                _ns = {"__name__": "__scan__", "__file__": str(ROOT/"scan_etf50.py")}
-                exec(compile(scan_src, "scan_etf50.py", "exec"), _ns)
-
-                builtins.print = _old_print
-                try: load_etf50.clear()
-                except Exception: pass
-                st.success(f"扫描完成！")
-            except Exception as _e:
-                builtins.print = _old_print
-                st.error(f"扫描失败：{_e}")
-        st.rerun()
+                load_etf50.clear()
+            except:
+                pass
+            st.rerun()
 
     d = load_etf50()
     if not d:
@@ -698,24 +683,21 @@ elif pg == "etf50":
 elif pg == "stocks60":
     st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">60 只个股扫描</div><div style="font-size:13px;color:#636366;margin-top:4px">10大热门板块龙头 · 技术面综合评分</div></div>', unsafe_allow_html=True)
 
-    c_btn, _ = st.columns([1,4])
-    with c_btn:
-        if st.button("↻  立即扫描（约5分钟）", use_container_width=True, key="scan_st"):
-            with st.spinner("扫描中，约 5 分钟..."):
-                try:
-                    import builtins as _bi, io as _io
-                    _op = _bi.print
-                    _bi.print = lambda *a,**k: None
-                    scan_src = (ROOT / "scan_stocks_full.py").read_text(encoding="utf-8")
-                    _ns = {"__name__":"__scan__","__file__":str(ROOT/"scan_stocks_full.py")}
-                    exec(compile(scan_src,"scan_stocks_full.py","exec"), _ns)
-                    _bi.print = _op
-                    try: load_stocks60.clear()
-                    except Exception: pass
-                    st.success("扫描完成！")
-                except Exception as _e:
-                    _bi.print = _op
-                    st.error(f"扫描失败：{_e}")
+    col_info2, col_refresh2 = st.columns([5, 1])
+    with col_info2:
+        st.markdown(
+            '<div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);'
+            'border-radius:6px;padding:10px 14px;font-size:12px;color:rgba(59,130,246,0.85)">'
+            '📡 数据由 GitHub Actions 定时任务每日更新（10:00 · 14:30） · 点击右侧刷新按钮重新加载'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    with col_refresh2:
+        if st.button("🔄", key="stocks60_refresh", use_container_width=True, help="清除缓存重新加载"):
+            try:
+                load_stocks60.clear()
+            except:
+                pass
             st.rerun()
 
     d = load_stocks60()
