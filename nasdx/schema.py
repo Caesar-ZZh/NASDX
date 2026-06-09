@@ -82,3 +82,5 @@ class FinalReport(BaseModel):
     bullish_pct: float = 0.0
     summary: str = ""
     operation_advice: str = ""
+    decision_plan: Dict[str, Any] = Field(default_factory=dict)
+    data_quality: Dict[str, Any] = Field(default_factory=dict)

@@ -12,6 +12,8 @@ from nasdx.data_loader import load_latest_data, get_stock_data, get_market_overv
 from nasdx.environments.research import ResearchEnvironment
 from nasdx.environments.battle import BattleEnvironment
 from nasdx.agents.synthesis import SynthesisAgent
+from nasdx.data_quality import assess_data_quality
+from nasdx.decision import build_decision_plan, format_decision_plan
 from nasdx.report import generate_html_report
 
 
@@ -35,9 +37,11 @@ class NasdxAnalyzer:
         agent_delay: float = 1.0,
         battle_delay: float = 0.5,
         output_dir: Optional[str] = None,
+        risk_profile: str = "balanced",
     ):
         self.max_steps = max_steps
         self.debate_rounds = debate_rounds
+        self.risk_profile = risk_profile
         self.output_dir = Path(output_dir) if output_dir else PROJECT_DIR / "reports"
         self.output_dir.mkdir(exist_ok=True)
 
@@ -69,6 +73,7 @@ class NasdxAnalyzer:
         # 1. 加载数据
         if data is None:
             data = load_latest_data()
+        data_quality = assess_data_quality(data)
 
         stock_data = get_stock_data(data, stock_code)
         if not stock_data:
@@ -117,6 +122,17 @@ class NasdxAnalyzer:
         else:
             final_signal = "neutral"
 
+        decision_plan = build_decision_plan(
+            stock_code=stock_code,
+            stock_name=stock_name,
+            final_signal=final_signal,
+            bullish_pct=bullish_pct,
+            research_results=research_results,
+            synthesis=synthesis,
+            risk_profile=self.risk_profile,
+            data_quality=data_quality,
+        )
+
         # 6. 组装报告
         report = FinalReport(
             stock_code=stock_code,
@@ -131,7 +147,9 @@ class NasdxAnalyzer:
             final_signal=final_signal,
             bullish_pct=bullish_pct,
             summary=synthesis.conclusion,
-            operation_advice="\n".join(synthesis.key_points) if synthesis.key_points else "",
+            operation_advice=format_decision_plan(decision_plan),
+            decision_plan=decision_plan,
+            data_quality=data_quality,
         )
 
         if verbose:
@@ -167,6 +185,8 @@ class NasdxAnalyzer:
                 "bullish_pct": report.bullish_pct,
                 "summary": report.summary,
                 "operation_advice": report.operation_advice,
+                "decision_plan": report.decision_plan,
+                "data_quality": report.data_quality,
                 "research_results": {
                     dim: {
                         "agent_name": r.agent_name,

@@ -31,6 +31,7 @@ def generate_html_report(report: FinalReport) -> str:
 
     # 投票结果
     vote_html = _build_vote_html(report.votes, report.bullish_pct)
+    data_quality_html = _build_data_quality_html(report.data_quality)
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -207,6 +208,8 @@ def generate_html_report(report: FinalReport) -> str:
   </div>
 
   <!-- 综合摘要 -->
+  {data_quality_html}
+
   <div class="summary-box">
     <h3>综合研判 · 看多占比 {report.bullish_pct:.1f}%</h3>
     <div class="summary-text">{_escape_html(report.summary)}</div>
@@ -296,6 +299,22 @@ def _build_dim_cards(research_results: Dict[str, Any]) -> str:
 </div>""")
 
     return "\n".join(cards)
+
+
+def _build_data_quality_html(data_quality: Dict[str, Any]) -> str:
+    if not data_quality:
+        return ""
+    color = {
+        "ok": "#00C853",
+        "warning": "#FFD600",
+        "danger": "#FF1744",
+    }.get(data_quality.get("severity"), "#FFD600")
+    message = _escape_html(data_quality.get("message", "数据状态未评估"))
+    return f"""
+<div class="summary-box" style="border-color:{color}66">
+  <h3 style="color:{color}">数据新鲜度</h3>
+  <div class="summary-text" style="color:{color}">{message}</div>
+</div>"""
 
 
 def _build_battle_html(transcript: List[str]) -> str:
