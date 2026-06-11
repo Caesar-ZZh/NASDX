@@ -1,0 +1,1048 @@
+{
+  "datetime": "2026-06-03T14:49:58.475576",
+  "total": 50,
+  "bullish": 21,
+  "neutral": 24,
+  "bearish": 5,
+  "top3": [
+    {
+      "code": "513160",
+      "name": "港股科技ETF银华",
+      "score": 95,
+      "signal": "bullish",
+      "premium": -3.0937215650591474,
+      "has_data": true,
+      "quant_score": 95,
+      "category": "",
+      "reasons": []
+    },
+    {
+      "code": "159611",
+      "name": "电力ETF广发",
+      "score": 94,
+      "signal": "bullish",
+      "premium": 0.6446414182111205,
+      "has_data": true,
+      "quant_score": 94,
+      "category": "",
+      "reasons": []
+    },
+    {
+      "code": "159131",
+      "name": "港股通信息技术ETF华宝",
+      "score": 88,
+      "signal": "bullish",
+      "premium": -0.8928571428571435,
+      "has_data": true,
+      "quant_score": 88,
+      "category": "",
+      "reasons": []
+    }
+  ],
+  "results": [
+    {
+      "code": "513160",
+      "name": "港股科技ETF银华",
+      "category": "港股·科技",
+      "score": 95,
+      "signal": "bullish",
+      "premium": -3.0937215650591474,
+      "spot_price": 1.065,
+      "spot_chg": -2.11,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD金叉+0.0089",
+        "RSI=59健康",
+        "布林上轨110%压力",
+        "折价-3.09%机会"
+      ],
+      "has_data": true,
+      "quant_score": 95
+    },
+    {
+      "code": "159611",
+      "name": "电力ETF广发",
+      "category": "电力",
+      "score": 94,
+      "signal": "bullish",
+      "premium": 0.6446414182111205,
+      "spot_price": 1.249,
+      "spot_chg": 0.64,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD金叉+0.0159",
+        "RSI=58健康",
+        "布林上轨95%压力",
+        "20日涨14天强势"
+      ],
+      "has_data": true,
+      "quant_score": 94
+    },
+    {
+      "code": "159131",
+      "name": "港股通信息技术ETF华宝",
+      "category": "港股·科技",
+      "score": 88,
+      "signal": "bullish",
+      "premium": -0.8928571428571435,
+      "spot_price": 1.11,
+      "spot_chg": -0.18,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD金叉+0.0199",
+        "RSI=73偏强",
+        "布林上轨100%压力",
+        "20日涨12天强势"
+      ],
+      "has_data": true,
+      "quant_score": 88
+    },
+    {
+      "code": "515220",
+      "name": "煤炭ETF国泰",
+      "category": "周期·煤炭",
+      "score": 81,
+      "signal": "bullish",
+      "premium": 3.55819125277984,
+      "spot_price": 1.397,
+      "spot_chg": 3.71,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD金叉+0.0280",
+        "RSI=67偏强",
+        "布林上轨102%压力",
+        "⚠️溢价+3.56%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 81
+    },
+    {
+      "code": "515880",
+      "name": "通信ETF国泰",
+      "category": "通信",
+      "score": 78,
+      "signal": "bullish",
+      "premium": 5.147058823529417,
+      "spot_price": 1.716,
+      "spot_chg": 4.95,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD蓄力-0.0024",
+        "RSI=57健康",
+        "布林上轨93%压力",
+        "20日涨12天强势",
+        "⚠️溢价+5.15%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 78
+    },
+    {
+      "code": "510880",
+      "name": "红利ETF华泰柏瑞",
+      "category": "红利",
+      "score": 77,
+      "signal": "bullish",
+      "premium": 0.39274924471298794,
+      "spot_price": 3.323,
+      "spot_chg": 0.45,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向下",
+        "MACD金叉+0.0223",
+        "RSI=61健康",
+        "布林上轨89%压力",
+        "20日仅涨6天偏弱",
+        "溢价+0.39%合理"
+      ],
+      "has_data": true,
+      "quant_score": 77
+    },
+    {
+      "code": "159967",
+      "name": "创业板成长ETF华夏",
+      "category": "创业板·成长",
+      "score": 76,
+      "signal": "bullish",
+      "premium": 3.4151547491995644,
+      "spot_price": 0.969,
+      "spot_chg": 3.42,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD蓄力-0.0015",
+        "RSI=56健康",
+        "布林上轨82%压力",
+        "⚠️溢价+3.42%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 76
+    },
+    {
+      "code": "513180",
+      "name": "恒生科技ETF华夏",
+      "category": "港股·科技",
+      "score": 75,
+      "signal": "bullish",
+      "premium": -3.4638554216867496,
+      "spot_price": 0.641,
+      "spot_chg": -1.69,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向上",
+        "MACD金叉+0.0039",
+        "RSI=55健康",
+        "布林上轨95%压力",
+        "折价-3.46%机会"
+      ],
+      "has_data": true,
+      "quant_score": 75
+    },
+    {
+      "code": "513130",
+      "name": "恒生科技ETF华泰柏瑞",
+      "category": "港股·科技",
+      "score": 75,
+      "signal": "bullish",
+      "premium": -3.975535168195722,
+      "spot_price": 0.628,
+      "spot_chg": -1.88,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向上",
+        "MACD金叉+0.0040",
+        "RSI=54健康",
+        "布林上轨95%压力",
+        "折价-3.98%机会"
+      ],
+      "has_data": true,
+      "quant_score": 75
+    },
+    {
+      "code": "588200",
+      "name": "科创芯片ETF嘉实",
+      "category": "半导体·科创",
+      "score": 73,
+      "signal": "bullish",
+      "premium": 3.3932714617169375,
+      "spot_price": 3.565,
+      "spot_chg": 3.48,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.1055",
+        "RSI=47健康",
+        "布林中轨37%",
+        "20日涨12天强势",
+        "⚠️溢价+3.39%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 73
+    },
+    {
+      "code": "588170",
+      "name": "科创半导体ETF华夏",
+      "category": "半导体·科创",
+      "score": 73,
+      "signal": "bullish",
+      "premium": 2.3962344886606592,
+      "spot_price": 2.393,
+      "spot_chg": 2.48,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0808",
+        "RSI=51健康",
+        "布林中轨44%",
+        "20日涨13天强势",
+        "⚠️溢价+2.40%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 73
+    },
+    {
+      "code": "512480",
+      "name": "半导体ETF国联安",
+      "category": "半导体",
+      "score": 73,
+      "signal": "bullish",
+      "premium": 3.1715521383949943,
+      "spot_price": 2.147,
+      "spot_chg": 3.22,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0511",
+        "RSI=50健康",
+        "布林中轨44%",
+        "20日涨12天强势",
+        "⚠️溢价+3.17%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 73
+    },
+    {
+      "code": "159995",
+      "name": "芯片ETF华夏",
+      "category": "半导体",
+      "score": 73,
+      "signal": "bullish",
+      "premium": 3.586321934945782,
+      "spot_price": 2.484,
+      "spot_chg": 3.67,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0572",
+        "RSI=51健康",
+        "布林中轨45%",
+        "20日涨12天强势",
+        "⚠️溢价+3.59%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 73
+    },
+    {
+      "code": "159558",
+      "name": "半导体设备ETF易方达",
+      "category": "半导体设备",
+      "score": 73,
+      "signal": "bullish",
+      "premium": 2.4497257769652716,
+      "spot_price": 2.802,
+      "spot_chg": 2.64,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0930",
+        "RSI=50健康",
+        "布林中轨43%",
+        "20日涨13天强势",
+        "⚠️溢价+2.45%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 73
+    },
+    {
+      "code": "501312",
+      "name": "海外科技LOF",
+      "category": "海外·全球科技",
+      "score": 73,
+      "signal": "bullish",
+      "premium": null,
+      "spot_price": null,
+      "spot_chg": null,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "MACD金叉+0.0180",
+        "RSI=71偏强",
+        "布林上轨97%压力",
+        "20日涨14天强势"
+      ],
+      "has_data": true,
+      "quant_score": 73
+    },
+    {
+      "code": "159915",
+      "name": "创业板ETF易方达",
+      "category": "创业板·宽基",
+      "score": 72,
+      "signal": "bullish",
+      "premium": 1.6707616707616613,
+      "spot_price": 4.138,
+      "spot_chg": 1.65,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0181",
+        "RSI=51健康",
+        "布林上轨79%压力",
+        "20日涨12天强势"
+      ],
+      "has_data": true,
+      "quant_score": 72
+    },
+    {
+      "code": "159687",
+      "name": "亚太精选ETF南方",
+      "category": "海外·亚太",
+      "score": 72,
+      "signal": "bullish",
+      "premium": 6.989247311827951,
+      "spot_price": 1.99,
+      "spot_chg": 0.35,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "MACD金叉+0.0035",
+        "RSI=60健康",
+        "布林上轨81%压力",
+        "⚠️溢价+6.99%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 72
+    },
+    {
+      "code": "159949",
+      "name": "创业板50ETF华安",
+      "category": "创业板·50",
+      "score": 72,
+      "signal": "bullish",
+      "premium": 1.9706922688226225,
+      "spot_price": 2.018,
+      "spot_chg": 1.92,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0044",
+        "RSI=54健康",
+        "布林上轨84%压力",
+        "20日涨12天强势"
+      ],
+      "has_data": true,
+      "quant_score": 72
+    },
+    {
+      "code": "510300",
+      "name": "沪深300ETF华泰柏瑞",
+      "category": "宽基·300",
+      "score": 69,
+      "signal": "bullish",
+      "premium": 0.5265289590927641,
+      "spot_price": 4.964,
+      "spot_chg": 0.57,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0160",
+        "RSI=43偏弱",
+        "布林中轨64%"
+      ],
+      "has_data": true,
+      "quant_score": 69
+    },
+    {
+      "code": "513310",
+      "name": "中韩半导体ETF华泰柏瑞",
+      "category": "半导体·跨境",
+      "score": 67,
+      "signal": "bullish",
+      "premium": 23.069207622868593,
+      "spot_price": 6.135,
+      "spot_chg": 3.25,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0228",
+        "RSI=62健康",
+        "布林上轨78%压力",
+        "20日涨12天强势",
+        "⚠️溢价+23.07%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 67
+    },
+    {
+      "code": "159363",
+      "name": "创业板人工智能ETF华宝",
+      "category": "AI·创业板",
+      "score": 65,
+      "signal": "bullish",
+      "premium": 3.4193998604326534,
+      "spot_price": 1.482,
+      "spot_chg": 3.42,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0051",
+        "RSI=50健康",
+        "布林上轨83%压力",
+        "⚠️溢价+3.42%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 65
+    },
+    {
+      "code": "161128",
+      "name": "标普信息科技LOF",
+      "category": "海外·美股科技",
+      "score": 64,
+      "signal": "neutral",
+      "premium": null,
+      "spot_price": null,
+      "spot_chg": null,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "MACD金叉+0.0234",
+        "RSI=77超买",
+        "布林上轨105%压力",
+        "20日涨12天强势"
+      ],
+      "has_data": true,
+      "quant_score": 64
+    },
+    {
+      "code": "588000",
+      "name": "科创50ETF华夏",
+      "category": "科创·宽基",
+      "score": 63,
+      "signal": "neutral",
+      "premium": 2.0763187429854053,
+      "spot_price": 1.819,
+      "spot_chg": 2.13,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0485",
+        "RSI=45偏弱",
+        "布林下轨30%支撑",
+        "20日涨12天强势",
+        "⚠️溢价+2.08%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 63
+    },
+    {
+      "code": "588080",
+      "name": "科创50ETF易方达",
+      "category": "科创·宽基",
+      "score": 63,
+      "signal": "neutral",
+      "premium": 2.0254629629629584,
+      "spot_price": 1.763,
+      "spot_chg": 2.08,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0471",
+        "RSI=45偏弱",
+        "布林下轨30%支撑",
+        "20日涨12天强势",
+        "⚠️溢价+2.03%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 63
+    },
+    {
+      "code": "515050",
+      "name": "通信ETF华夏",
+      "category": "通信",
+      "score": 60,
+      "signal": "neutral",
+      "premium": 3.9312039312039166,
+      "spot_price": 1.269,
+      "spot_chg": 3.85,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向下",
+        "MACD金叉+0.0293",
+        "RSI=58健康",
+        "布林中轨40%",
+        "20日涨14天强势",
+        "⚠️溢价+3.93%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 60
+    },
+    {
+      "code": "159516",
+      "name": "半导体设备ETF国泰",
+      "category": "半导体设备",
+      "score": 58,
+      "signal": "neutral",
+      "premium": 2.487135506003442,
+      "spot_price": 1.195,
+      "spot_chg": 2.66,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "中长期趋势向下",
+        "MACD死叉-0.0150",
+        "RSI=50健康",
+        "布林中轨43%",
+        "20日涨13天强势",
+        "⚠️溢价+2.49%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 58
+    },
+    {
+      "code": "159941",
+      "name": "纳指ETF广发",
+      "category": "海外·纳指",
+      "score": 57,
+      "signal": "neutral",
+      "premium": 9.435173299101413,
+      "spot_price": 1.705,
+      "spot_chg": -1.73,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "MACD蓄力-0.0010",
+        "RSI=72偏强",
+        "布林上轨91%压力",
+        "20日涨13天强势",
+        "⚠️溢价+9.44%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 57
+    },
+    {
+      "code": "513100",
+      "name": "纳指ETF国泰",
+      "category": "海外·纳指",
+      "score": 57,
+      "signal": "neutral",
+      "premium": 10.838150289017346,
+      "spot_price": 2.301,
+      "spot_chg": -1.79,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "MACD蓄力-0.0014",
+        "RSI=72偏强",
+        "布林上轨91%压力",
+        "20日涨13天强势",
+        "⚠️溢价+10.84%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 57
+    },
+    {
+      "code": "513110",
+      "name": "纳指ETF华泰柏瑞",
+      "category": "海外·纳指",
+      "score": 57,
+      "signal": "neutral",
+      "premium": 7.298657718120803,
+      "spot_price": 2.558,
+      "spot_chg": -1.69,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "MACD蓄力-0.0017",
+        "RSI=72偏强",
+        "布林上轨91%压力",
+        "20日涨13天强势",
+        "⚠️溢价+7.30%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 57
+    },
+    {
+      "code": "501225",
+      "name": "全球芯片LOF",
+      "category": "半导体·跨境",
+      "score": 57,
+      "signal": "neutral",
+      "premium": null,
+      "spot_price": null,
+      "spot_chg": null,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "MACD死叉-0.0169",
+        "RSI=63健康",
+        "布林上轨71%压力",
+        "20日涨12天强势"
+      ],
+      "has_data": true,
+      "quant_score": 57
+    },
+    {
+      "code": "562500",
+      "name": "机器人ETF华夏",
+      "category": "机器人·AI",
+      "score": 54,
+      "signal": "neutral",
+      "premium": 0.4460303300624347,
+      "spot_price": 1.126,
+      "spot_chg": 0.36,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0276",
+        "RSI=43偏弱",
+        "布林中轨31%",
+        "20日涨12天强势",
+        "溢价+0.45%合理"
+      ],
+      "has_data": true,
+      "quant_score": 54
+    },
+    {
+      "code": "512890",
+      "name": "红利低波ETF华泰柏瑞",
+      "category": "红利·低波",
+      "score": 54,
+      "signal": "neutral",
+      "premium": -0.592718035563092,
+      "spot_price": 1.174,
+      "spot_chg": -0.68,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向下",
+        "MACD金叉+0.0049",
+        "RSI=52健康",
+        "布林上轨79%压力",
+        "20日仅涨5天偏弱"
+      ],
+      "has_data": true,
+      "quant_score": 54
+    },
+    {
+      "code": "512800",
+      "name": "银行ETF华宝",
+      "category": "金融·银行",
+      "score": 54,
+      "signal": "neutral",
+      "premium": -0.633713561470216,
+      "spot_price": 0.784,
+      "spot_chg": -0.76,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向下",
+        "MACD金叉+0.0040",
+        "RSI=57健康",
+        "布林上轨88%压力",
+        "20日仅涨7天偏弱"
+      ],
+      "has_data": true,
+      "quant_score": 54
+    },
+    {
+      "code": "513090",
+      "name": "香港证券ETF易方达",
+      "category": "港股·券商",
+      "score": 52,
+      "signal": "neutral",
+      "premium": -1.8141836173721781,
+      "spot_price": 1.786,
+      "spot_chg": -0.22,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0075",
+        "RSI=39偏弱",
+        "布林中轨47%",
+        "折价-1.81%机会"
+      ],
+      "has_data": true,
+      "quant_score": 52
+    },
+    {
+      "code": "159326",
+      "name": "电网设备ETF华夏",
+      "category": "电力·电网",
+      "score": 51,
+      "signal": "neutral",
+      "premium": 0.9652509652509661,
+      "spot_price": 2.092,
+      "spot_chg": 0.92,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0170",
+        "RSI=39偏弱",
+        "布林中轨43%",
+        "20日涨13天强势"
+      ],
+      "has_data": true,
+      "quant_score": 51
+    },
+    {
+      "code": "160644",
+      "name": "港美互联网LOF",
+      "category": "海外·中概互联",
+      "score": 51,
+      "signal": "neutral",
+      "premium": null,
+      "spot_price": null,
+      "spot_chg": null,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "MACD死叉-0.0103",
+        "RSI=71偏强",
+        "布林上轨81%压力",
+        "20日涨14天强势"
+      ],
+      "has_data": true,
+      "quant_score": 51
+    },
+    {
+      "code": "563360",
+      "name": "A500ETF华泰柏瑞",
+      "category": "宽基",
+      "score": 49,
+      "signal": "neutral",
+      "premium": 0.5113221329437468,
+      "spot_price": 1.376,
+      "spot_chg": 0.51,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0095",
+        "RSI=39偏弱",
+        "布林中轨38%"
+      ],
+      "has_data": true,
+      "quant_score": 49
+    },
+    {
+      "code": "159338",
+      "name": "中证A500ETF国泰",
+      "category": "宽基",
+      "score": 49,
+      "signal": "neutral",
+      "premium": 0.5401234567901153,
+      "spot_price": 1.303,
+      "spot_chg": 0.54,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0091",
+        "RSI=39偏弱",
+        "布林中轨37%"
+      ],
+      "has_data": true,
+      "quant_score": 49
+    },
+    {
+      "code": "512050",
+      "name": "A500ETF华夏",
+      "category": "宽基",
+      "score": 49,
+      "signal": "neutral",
+      "premium": 0.5430566330488842,
+      "spot_price": 1.296,
+      "spot_chg": 0.54,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0089",
+        "RSI=39偏弱",
+        "布林中轨37%"
+      ],
+      "has_data": true,
+      "quant_score": 49
+    },
+    {
+      "code": "159792",
+      "name": "港股通互联网ETF富国",
+      "category": "港股·互联网",
+      "score": 48,
+      "signal": "neutral",
+      "premium": -5.06706408345753,
+      "spot_price": 0.637,
+      "spot_chg": -3.34,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向下",
+        "MACD蓄力-0.0012",
+        "RSI=41偏弱",
+        "布林中轨54%",
+        "折价-5.07%机会"
+      ],
+      "has_data": true,
+      "quant_score": 48
+    },
+    {
+      "code": "513330",
+      "name": "恒生互联网ETF华夏",
+      "category": "港股·互联网",
+      "score": 48,
+      "signal": "neutral",
+      "premium": -3.9534883720930267,
+      "spot_price": 0.413,
+      "spot_chg": -2.13,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向下",
+        "MACD蓄力-0.0006",
+        "RSI=45偏弱",
+        "布林中轨62%",
+        "折价-3.95%机会"
+      ],
+      "has_data": true,
+      "quant_score": 48
+    },
+    {
+      "code": "159530",
+      "name": "机器人ETF易方达",
+      "category": "机器人·AI",
+      "score": 48,
+      "signal": "neutral",
+      "premium": 0.5225342913128679,
+      "spot_price": 1.539,
+      "spot_chg": 0.46,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0500",
+        "RSI=41偏弱",
+        "布林下轨14%支撑",
+        "20日涨12天强势"
+      ],
+      "has_data": true,
+      "quant_score": 48
+    },
+    {
+      "code": "512100",
+      "name": "中证1000ETF南方",
+      "category": "宽基·中小盘",
+      "score": 46,
+      "signal": "neutral",
+      "premium": 0.47463660634826504,
+      "spot_price": 3.387,
+      "spot_chg": 0.56,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0552",
+        "RSI=33超卖",
+        "布林下轨6%支撑",
+        "20日涨12天强势",
+        "溢价+0.47%合理"
+      ],
+      "has_data": true,
+      "quant_score": 46
+    },
+    {
+      "code": "513500",
+      "name": "标普500ETF博时",
+      "category": "海外·标普500",
+      "score": 46,
+      "signal": "neutral",
+      "premium": 6.1582381729200755,
+      "spot_price": 2.603,
+      "spot_chg": -0.31,
+      "reasons": [
+        "MA5>MA20 多头排列",
+        "MACD死叉-0.0034",
+        "RSI=68偏强",
+        "布林上轨92%压力",
+        "20日涨14天强势",
+        "⚠️溢价+6.16%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 46
+    },
+    {
+      "code": "510050",
+      "name": "上证50ETF华夏",
+      "category": "宽基·50",
+      "score": 44,
+      "signal": "neutral",
+      "premium": 0.06675567423231721,
+      "spot_price": 2.998,
+      "spot_chg": 0.17,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向上",
+        "MACD死叉-0.0178",
+        "RSI=31超卖",
+        "布林下轨27%支撑",
+        "溢价+0.07%合理"
+      ],
+      "has_data": true,
+      "quant_score": 44
+    },
+    {
+      "code": "513350",
+      "name": "标普油气ETF富国",
+      "category": "海外·能源",
+      "score": 36,
+      "signal": "bearish",
+      "premium": 7.298657718120803,
+      "spot_price": 1.279,
+      "spot_chg": 3.98,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "MACD死叉-0.0112",
+        "RSI=46健康",
+        "布林中轨36%",
+        "⚠️溢价+7.30%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 36
+    },
+    {
+      "code": "518880",
+      "name": "黄金ETF华安",
+      "category": "黄金·商品",
+      "score": 32,
+      "signal": "bearish",
+      "premium": -1.4454245934743437,
+      "spot_price": 9.273,
+      "spot_chg": -1.46,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向下",
+        "MACD死叉-0.0073",
+        "RSI=33超卖",
+        "布林中轨32%",
+        "折价-1.45%机会"
+      ],
+      "has_data": true,
+      "quant_score": 32
+    },
+    {
+      "code": "512880",
+      "name": "证券ETF国泰",
+      "category": "金融·券商",
+      "score": 29,
+      "signal": "bearish",
+      "premium": 0.0,
+      "spot_price": 1.036,
+      "spot_chg": -0.1,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向下",
+        "MACD死叉-0.0053",
+        "RSI=31超卖",
+        "布林下轨27%支撑",
+        "溢价+0.00%合理"
+      ],
+      "has_data": true,
+      "quant_score": 29
+    },
+    {
+      "code": "513120",
+      "name": "港股创新药ETF广发",
+      "category": "港股·医药",
+      "score": 26,
+      "signal": "bearish",
+      "premium": -4.151291512915143,
+      "spot_price": 1.039,
+      "spot_chg": -3.8,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "中长期趋势向下",
+        "MACD死叉-0.0099",
+        "RSI=24超卖",
+        "布林下轨15%支撑",
+        "20日仅涨5天偏弱",
+        "折价-4.15%机会"
+      ],
+      "has_data": true,
+      "quant_score": 26
+    },
+    {
+      "code": "513050",
+      "name": "中概互联网ETF易方达",
+      "category": "港股·互联网",
+      "score": 21,
+      "signal": "bearish",
+      "premium": 2.480070859167407,
+      "spot_price": 1.157,
+      "spot_chg": -2.2,
+      "reasons": [
+        "MA5<MA20 空头排列",
+        "MACD死叉-0.0157",
+        "RSI=30超卖",
+        "布林下轨19%支撑",
+        "⚠️溢价+2.48%偏高"
+      ],
+      "has_data": true,
+      "quant_score": 21
+    }
+  ]
+}

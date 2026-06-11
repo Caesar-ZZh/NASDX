@@ -1,0 +1,511 @@
+{
+  "generated_at": "2026-06-09T10:53:13",
+  "risk_profile": "balanced",
+  "risk_profile_label": "均衡",
+  "posture": "结构性轮动",
+  "action_gate": "normal",
+  "allocation": {
+    "max_total": "35%-60%",
+    "etf_budget": "20%-35%",
+    "stock_budget": "10%-25%",
+    "single_stock_cap": "5%-10%",
+    "cash_buffer": "40%-65%",
+    "mode": "ETF 做主线暴露，个股做卫星增强，遇到风险红灯降仓。"
+  },
+  "core_candidates": [
+    {
+      "code": "515220",
+      "name": "煤炭ETF国泰",
+      "asset_type": "ETF",
+      "category": "周期·煤炭",
+      "score": 89.0,
+      "adjusted_score": 97.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "MA5>MA20 多头排列；中长期趋势向上"
+    },
+    {
+      "code": "159687",
+      "name": "亚太精选ETF南方",
+      "asset_type": "ETF",
+      "category": "海外·亚太",
+      "score": 83.0,
+      "adjusted_score": 91.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "MA5>MA20 多头排列；MACD金叉+0.0029"
+    },
+    {
+      "code": "512890",
+      "name": "红利低波ETF华泰柏瑞",
+      "asset_type": "ETF",
+      "category": "红利·低波",
+      "score": 83.0,
+      "adjusted_score": 91.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "MA5>MA20 多头排列；中长期趋势向下"
+    },
+    {
+      "code": "515880",
+      "name": "通信ETF国泰",
+      "asset_type": "ETF",
+      "category": "通信",
+      "score": 82.0,
+      "adjusted_score": 90.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "MA5>MA20 多头排列；中长期趋势向上"
+    },
+    {
+      "code": "515050",
+      "name": "通信ETF华夏",
+      "asset_type": "ETF",
+      "category": "通信",
+      "score": 80.0,
+      "adjusted_score": 88.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "MA5>MA20 多头排列；中长期趋势向下"
+    }
+  ],
+  "satellite_candidates": [
+    {
+      "code": "000733",
+      "name": "振华科技",
+      "asset_type": "个股",
+      "category": "军工·航空",
+      "score": 94.0,
+      "adjusted_score": 100,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "规则扫描与深度报告综合排序"
+    },
+    {
+      "code": "601985",
+      "name": "中国核电",
+      "asset_type": "个股",
+      "category": "电力·电网",
+      "score": 94.0,
+      "adjusted_score": 100,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "规则扫描与深度报告综合排序"
+    },
+    {
+      "code": "600498",
+      "name": "烽火通信",
+      "asset_type": "个股",
+      "category": "通信·光模块",
+      "score": 91.0,
+      "adjusted_score": 99.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "规则扫描与深度报告综合排序"
+    },
+    {
+      "code": "000063",
+      "name": "中兴通讯",
+      "asset_type": "个股",
+      "category": "通信·光模块",
+      "score": 90.0,
+      "adjusted_score": 98.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "规则扫描与深度报告综合排序"
+    },
+    {
+      "code": "002527",
+      "name": "新时达",
+      "asset_type": "个股",
+      "category": "机器人·人形",
+      "score": 85.0,
+      "adjusted_score": 93.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "规则扫描与深度报告综合排序"
+    }
+  ],
+  "watchlist": [
+    {
+      "code": "300502",
+      "name": "新易盛",
+      "asset_type": "个股",
+      "category": "通信·光模块",
+      "score": 84.0,
+      "adjusted_score": 92.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "规则扫描与深度报告综合排序"
+    },
+    {
+      "code": "601688",
+      "name": "华泰证券",
+      "asset_type": "个股",
+      "category": "金融·券商",
+      "score": 84.0,
+      "adjusted_score": 92.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "规则扫描与深度报告综合排序"
+    },
+    {
+      "code": "512800",
+      "name": "银行ETF华宝",
+      "asset_type": "ETF",
+      "category": "金融·银行",
+      "score": 80.0,
+      "adjusted_score": 88.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "MA5>MA20 多头排列；中长期趋势向下"
+    },
+    {
+      "code": "002747",
+      "name": "埃斯顿",
+      "asset_type": "个股",
+      "category": "机器人·人形",
+      "score": 76.0,
+      "adjusted_score": 84.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "规则扫描与深度报告综合排序"
+    },
+    {
+      "code": "510880",
+      "name": "红利ETF华泰柏瑞",
+      "asset_type": "ETF",
+      "category": "红利",
+      "score": 74.0,
+      "adjusted_score": 82.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "MA5>MA20 多头排列；中长期趋势向下"
+    },
+    {
+      "code": "513310",
+      "name": "中韩半导体ETF华泰柏瑞",
+      "asset_type": "ETF",
+      "category": "半导体·跨境",
+      "score": 73.0,
+      "adjusted_score": 81.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "MA5>MA20 多头排列；中长期趋势向上"
+    },
+    {
+      "code": "159915",
+      "name": "创业板ETF易方达",
+      "asset_type": "ETF",
+      "category": "创业板·宽基",
+      "score": 73.0,
+      "adjusted_score": 81.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "MA5>MA20 多头排列；中长期趋势向上"
+    },
+    {
+      "code": "603986",
+      "name": "兆易创新",
+      "asset_type": "个股",
+      "category": "半导体·芯片",
+      "score": 73.0,
+      "adjusted_score": 81.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "规则扫描与深度报告综合排序"
+    },
+    {
+      "code": "600905",
+      "name": "三峡能源",
+      "asset_type": "个股",
+      "category": "电力·电网",
+      "score": 73.0,
+      "adjusted_score": 81.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "规则扫描与深度报告综合排序"
+    },
+    {
+      "code": "300223",
+      "name": "北京君正",
+      "asset_type": "个股",
+      "category": "半导体·芯片",
+      "score": 72.0,
+      "adjusted_score": 80.0,
+      "signal": "bullish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "优先跟踪，等待入场条件",
+      "reason": "规则扫描与深度报告综合排序"
+    }
+  ],
+  "trim_or_avoid": [
+    {
+      "code": "513130",
+      "name": "恒生科技ETF华泰柏瑞",
+      "asset_type": "ETF",
+      "category": "港股·科技",
+      "score": 18.0,
+      "adjusted_score": 18.0,
+      "signal": "bearish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "回避/减仓",
+      "reason": "MA5<MA20 空头排列；中长期趋势向下"
+    },
+    {
+      "code": "512480",
+      "name": "半导体ETF国联安",
+      "asset_type": "ETF",
+      "category": "半导体",
+      "score": 18.0,
+      "adjusted_score": 18.0,
+      "signal": "bearish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "回避/减仓",
+      "reason": "MA5<MA20 空头排列；中长期趋势向下"
+    },
+    {
+      "code": "518880",
+      "name": "黄金ETF华安",
+      "asset_type": "ETF",
+      "category": "黄金·商品",
+      "score": 26.0,
+      "adjusted_score": 26.0,
+      "signal": "bearish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "回避/减仓",
+      "reason": "MA5<MA20 空头排列；中长期趋势向下"
+    },
+    {
+      "code": "513120",
+      "name": "港股创新药ETF广发",
+      "asset_type": "ETF",
+      "category": "港股·医药",
+      "score": 26.0,
+      "adjusted_score": 26.0,
+      "signal": "bearish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "回避/减仓",
+      "reason": "MA5<MA20 空头排列；中长期趋势向下"
+    },
+    {
+      "code": "000768",
+      "name": "中航西飞",
+      "asset_type": "个股",
+      "category": "军工·航空",
+      "score": 26.0,
+      "adjusted_score": 26.0,
+      "signal": "bearish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "回避/减仓",
+      "reason": "规则扫描与深度报告综合排序"
+    },
+    {
+      "code": "600893",
+      "name": "航发动力",
+      "asset_type": "个股",
+      "category": "军工·航空",
+      "score": 26.0,
+      "adjusted_score": 26.0,
+      "signal": "bearish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "回避/减仓",
+      "reason": "规则扫描与深度报告综合排序"
+    },
+    {
+      "code": "600765",
+      "name": "中航重机",
+      "asset_type": "个股",
+      "category": "军工·航空",
+      "score": 26.0,
+      "adjusted_score": 26.0,
+      "signal": "bearish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "回避/减仓",
+      "reason": "规则扫描与深度报告综合排序"
+    },
+    {
+      "code": "600406",
+      "name": "国电南瑞",
+      "asset_type": "个股",
+      "category": "电力·电网",
+      "score": 26.0,
+      "adjusted_score": 26.0,
+      "signal": "bearish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "回避/减仓",
+      "reason": "规则扫描与深度报告综合排序"
+    },
+    {
+      "code": "601669",
+      "name": "中国电建",
+      "asset_type": "个股",
+      "category": "电力·电网",
+      "score": 26.0,
+      "adjusted_score": 26.0,
+      "signal": "bearish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "回避/减仓",
+      "reason": "规则扫描与深度报告综合排序"
+    },
+    {
+      "code": "300699",
+      "name": "光威复材",
+      "asset_type": "个股",
+      "category": "机器人·人形",
+      "score": 26.0,
+      "adjusted_score": 26.0,
+      "signal": "bearish",
+      "deep_signal": null,
+      "bullish_pct": null,
+      "action": "回避/减仓",
+      "reason": "规则扫描与深度报告综合排序"
+    }
+  ],
+  "next_actions": [
+    "按 ETF 主线优先、个股卫星补充的顺序建立观察和试错。",
+    "对 515220 煤炭ETF国泰 跑深度分析，确认是否从观察升级为试错。",
+    "对 159687 亚太精选ETF南方 跑深度分析，确认是否从观察升级为试错。",
+    "对 000733 振华科技 跑深度分析，确认是否从观察升级为试错。",
+    "对 601985 中国核电 跑深度分析，确认是否从观察升级为试错。",
+    "所有候选必须满足入场条件后再执行，未满足时保留现金缓冲。"
+  ],
+  "future_scenarios": [
+    {
+      "scenario": "顺势偏多",
+      "trigger": "结构性轮动 且 515220 煤炭ETF国泰、159687 亚太精选ETF南方、512890 红利低波ETF华泰柏瑞 连续保持高分，深度报告未出现风险红灯",
+      "action": "ETF主线优先：515220 煤炭ETF国泰、159687 亚太精选ETF南方、512890 红利低波ETF华泰柏瑞；个股只选择深度分析确认的 000733 振华科技、601985 中国核电、600498 烽火通信",
+      "position_rule": "按风险画像上限分批加仓，单日不一次性打满"
+    },
+    {
+      "scenario": "结构轮动",
+      "trigger": "ETF前排更换、个股强弱分化、看多/中性接近",
+      "action": "降低个股卫星，保留ETF主线；新主题必须连续两次扫描靠前再进入观察",
+      "position_rule": "总仓位降到画像上限的50%-70%"
+    },
+    {
+      "scenario": "防守下行",
+      "trigger": "弱势池扩大，513130 恒生科技ETF华泰柏瑞、512480 半导体ETF国联安、518880 黄金ETF华安 继续走弱，或市场宽度转空",
+      "action": "减掉弱势和未验证个股，保留现金；只跟踪防御或低波ETF",
+      "position_rule": "总仓位降到0%-20%，个股不新增"
+    }
+  ],
+  "decision_rules": [
+    "先看数据闸门：行情或扫描过期时，不把任何榜单当作交易执行依据。",
+    "先ETF后个股：ETF用于确认主线方向，个股必须经过深度分析再升级为试错。",
+    "先分批后加仓：只有扫描、深度报告、风险维度三者同步时才提高仓位。",
+    "先退出再寻找新机会：跌破止损/风险维度转空时先降仓，不用新标的掩盖旧风险。",
+    "均衡画像：ETF主线和个股卫星分开管理，避免主题过度集中。"
+  ],
+  "monitoring_checklist": [
+    "每天收盘后刷新 `run_portfolio_plan.py`，确认总仓位上限有没有变化。",
+    "每次加仓前检查 `portfolio_plan_latest.json` 的 `action_gate` 是否为 normal。",
+    "每周检查前排候选是否连续稳定，避免只追单日高分。",
+    "跟踪 515220 煤炭ETF国泰：若跌出候选前排或深度信号转空，降级为观察。",
+    "跟踪 159687 亚太精选ETF南方：若跌出候选前排或深度信号转空，降级为观察。",
+    "跟踪 512890 红利低波ETF华泰柏瑞：若跌出候选前排或深度信号转空，降级为观察。",
+    "跟踪 000733 振华科技：若跌出候选前排或深度信号转空，降级为观察。"
+  ],
+  "review_cadence": [
+    "盘中只看风险红灯，不因单日波动频繁换仓。",
+    "每个交易日收盘后刷新扫描榜单。",
+    "每周复核一次组合暴露和主题拥挤度。",
+    "重大财报、公告、政策或海外指数急跌时立即复核。"
+  ],
+  "data_quality": {
+    "market_data": {
+      "status": "fresh",
+      "severity": "ok",
+      "action_gate": "normal",
+      "data_date": "20260609",
+      "generated_at": "2026-06-09T09:45:15.102633",
+      "age_days": 0,
+      "message": "行情数据距今 0 天，可用于短线研究。"
+    },
+    "etf_scan": {
+      "status": "fresh",
+      "severity": "ok",
+      "action_gate": "normal",
+      "data_date": "",
+      "generated_at": "2026-06-09T09:49:51.365716",
+      "age_days": 0,
+      "message": "行情数据距今 0 天，可用于短线研究。"
+    },
+    "stock_scan": {
+      "status": "fresh",
+      "severity": "ok",
+      "action_gate": "normal",
+      "data_date": "",
+      "generated_at": "2026-06-09T09:56:52.714062",
+      "age_days": 0,
+      "message": "行情数据距今 0 天，可用于短线研究。"
+    },
+    "deep_reports": {
+      "status": "stale",
+      "severity": "warning",
+      "action_gate": "normal",
+      "message": "现有 2 份深度报告已过期，未参与本次排序；候选升级前需重跑深度分析。",
+      "active_count": 0,
+      "stale_count": 2
+    }
+  },
+  "source_files": {
+    "market_data": "C:\\Users\\11561\\AppData\\Roaming\\cortex-desktop\\Documents\\Cortex\\Projects\\NASDX\\stock_data_20260609.json",
+    "etf_scan": "C:\\Users\\11561\\AppData\\Roaming\\cortex-desktop\\Documents\\Cortex\\Projects\\NASDX\\reports\\etf50_20260609_0949.json",
+    "stock_scan": "C:\\Users\\11561\\AppData\\Roaming\\cortex-desktop\\Documents\\Cortex\\Projects\\NASDX\\reports\\stocks60_20260609_0956.json",
+    "deep_reports": {},
+    "stale_deep_reports": {
+      "159687": "C:\\Users\\11561\\AppData\\Roaming\\cortex-desktop\\Documents\\Cortex\\Projects\\NASDX\\reports\\report_159687_20260602.json",
+      "603501": "C:\\Users\\11561\\AppData\\Roaming\\cortex-desktop\\Documents\\Cortex\\Projects\\NASDX\\reports\\report_603501_20260521.json"
+    }
+  },
+  "disclaimer": "研究辅助，不保证收益；下单前必须结合账户风险承受能力、最新行情和官方公告复核。"
+}

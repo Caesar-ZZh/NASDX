@@ -1,0 +1,165 @@
+{
+  "date": "20260602",
+  "generated_at": "2026-06-02T12:02:22.148067",
+  "total": 22,
+  "bullish": 0,
+  "bearish": 0,
+  "neutral": 0,
+  "elapsed_minutes": 61.5,
+  "results": [
+    {
+      "code": "512480",
+      "name": "芯片ETF",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "588810",
+      "name": "科创芯片ETF(富国)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "159516",
+      "name": "半导体设备ETF(国泰)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "589130",
+      "name": "科创芯片ETF(易方达)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "515050",
+      "name": "5G通信ETF",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "159327",
+      "name": "半导体设备ETF(万家)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "159869",
+      "name": "通信ETF",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "159507",
+      "name": "通信ETF(广发)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "159611",
+      "name": "电力ETF(广发)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "562560",
+      "name": "电力ETF(富国)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "561380",
+      "name": "电网设备ETF(国泰)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "515070",
+      "name": "人工智能ETF",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "512660",
+      "name": "军工ETF",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "159819",
+      "name": "科技龙头ETF",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "512680",
+      "name": "军工ETF(招商)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "159779",
+      "name": "消费电子ETF(招商)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "159272",
+      "name": "机器人ETF(富国)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "561100",
+      "name": "消费电子ETF(富国)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "159530",
+      "name": "机器人ETF(易方达)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "159547",
+      "name": "红利低波ETF(华夏)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "159842",
+      "name": "券商ETF(银华)",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    },
+    {
+      "code": "161128",
+      "name": "标普信息科技LOF",
+      "signal": "error",
+      "ok": false,
+      "error": "所有模型均不可用，请稍后重试"
+    }
+  ]
+}

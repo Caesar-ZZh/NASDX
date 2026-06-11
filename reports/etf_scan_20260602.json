@@ -1,0 +1,175 @@
+{
+  "date": "20260602",
+  "generated_at": "2026-06-02T11:27:08.448552",
+  "total": 11,
+  "bullish": 7,
+  "bearish": 1,
+  "neutral": 3,
+  "results": [
+    {
+      "code": "159687",
+      "name": "亚太精选ETF(南方)",
+      "sector": "海外ETF",
+      "close": 2.025,
+      "chg": 2.84,
+      "score": 85,
+      "signal": "bullish",
+      "reasons": [
+        "MA5>1.83多头",
+        "中长期多头",
+        "MACD金叉+0.0327",
+        "RSI=74偏强"
+      ]
+    },
+    {
+      "code": "513300",
+      "name": "纳斯达克ETF(华夏)",
+      "sector": "海外ETF",
+      "close": 2.816,
+      "chg": -1.71,
+      "score": 80,
+      "signal": "bullish",
+      "reasons": [
+        "MA5>2.61多头",
+        "中长期多头",
+        "MACD金叉+0.0355",
+        "RSI=71偏强"
+      ]
+    },
+    {
+      "code": "159995",
+      "name": "半导体芯片ETF",
+      "sector": "半导体",
+      "close": 2.405,
+      "chg": 2.04,
+      "score": 78,
+      "signal": "bullish",
+      "reasons": [
+        "MA5>2.43多头",
+        "中长期多头",
+        "MACD死叉-0.0575",
+        "RSI=51健康"
+      ]
+    },
+    {
+      "code": "159327",
+      "name": "半导体设备ETF(万家)",
+      "sector": "半导体设备",
+      "close": 2.808,
+      "chg": 2.74,
+      "score": 78,
+      "signal": "bullish",
+      "reasons": [
+        "MA5>2.86多头",
+        "中长期多头",
+        "MACD死叉-0.0939",
+        "RSI=51健康"
+      ]
+    },
+    {
+      "code": "501225",
+      "name": "全球芯片LOF",
+      "sector": "半导体",
+      "close": 4.35,
+      "chg": -4.4,
+      "score": 76,
+      "signal": "bullish",
+      "reasons": [
+        "MA5>4.25多头",
+        "中长期多头",
+        "MACD死叉-0.0469",
+        "RSI=49健康"
+      ]
+    },
+    {
+      "code": "159819",
+      "name": "科技龙头ETF",
+      "sector": "AI算力",
+      "close": 1.968,
+      "chg": 2.71,
+      "score": 73,
+      "signal": "bullish",
+      "reasons": [
+        "MA5>1.97多头",
+        "中长期多头",
+        "MACD死叉-0.0352",
+        "RSI=45偏弱"
+      ]
+    },
+    {
+      "code": "512760",
+      "name": "芯片ETF(国泰)",
+      "sector": "半导体",
+      "close": 1.123,
+      "chg": 1.91,
+      "score": 68,
+      "signal": "bullish",
+      "reasons": [
+        "MA5>1.14多头",
+        "中长期空头",
+        "MACD死叉-0.0042",
+        "RSI=50健康"
+      ]
+    },
+    {
+      "code": "159530",
+      "name": "机器人ETF(易方达)",
+      "sector": "消费科技ETF",
+      "close": 1.533,
+      "chg": 1.25,
+      "score": 56,
+      "signal": "neutral",
+      "reasons": [
+        "MA5<1.63空头",
+        "中长期多头",
+        "MACD死叉-0.0502",
+        "RSI=41偏弱"
+      ]
+    },
+    {
+      "code": "159272",
+      "name": "机器人ETF(富国)",
+      "sector": "消费科技ETF",
+      "close": 0.92,
+      "chg": 1.21,
+      "score": 54,
+      "signal": "neutral",
+      "reasons": [
+        "MA5<0.98空头",
+        "中长期多头",
+        "MACD死叉-0.0300",
+        "RSI=42偏弱"
+      ]
+    },
+    {
+      "code": "512660",
+      "name": "军工ETF",
+      "sector": "军工",
+      "close": 1.253,
+      "chg": -1.26,
+      "score": 49,
+      "signal": "neutral",
+      "reasons": [
+        "MA5<1.38空头",
+        "中长期多头",
+        "MACD死叉-0.0316",
+        "RSI=17超卖反弹"
+      ]
+    },
+    {
+      "code": "159869",
+      "name": "通信ETF",
+      "sector": "通信",
+      "close": 1.128,
+      "chg": -3.09,
+      "score": 36,
+      "signal": "bearish",
+      "reasons": [
+        "MA5<1.24空头",
+        "中长期空头",
+        "MACD死叉-0.0215",
+        "RSI=16超卖反弹"
+      ]
+    }
+  ]
+}
