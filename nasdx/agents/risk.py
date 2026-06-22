@@ -53,14 +53,17 @@ class RiskAgent(BaseAgent):
 【信号】bullish（低风险可进场）或 bearish（高风险应离场）或 neutral（持仓观望）
 【置信度】0.65
 """
-        response = self._ask(prompt)
-        signal, confidence = self._parse_signal(response)
-        key_points = self._build_risk_points(indicators)
+        response, payload = self._ask_analysis(prompt)
+        signal, confidence = self._parse_structured_signal(response, payload)
+        key_points = self._merge_key_points(
+            self._structured_key_points(payload),
+            self._build_risk_points(indicators),
+        )
 
         return AnalysisResult(
             agent_name=self.name,
             dimension=self.dimension,
-            conclusion=response,
+            conclusion=self._structured_conclusion(response, payload),
             signal=signal,
             confidence=confidence,
             key_points=key_points,

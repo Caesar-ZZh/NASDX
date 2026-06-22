@@ -1,22 +1,13 @@
-"""
-60只个股完整扫描 — 分批抓取，失败自动重试，合并历史结果
-"""
-import requests as _req
-_real_get = _req.get
-def _patched_get(url, **kwargs):
-    if 'eastmoney.com' in url:
-        s = _req.Session()
-        s.trust_env = True
-        return s.get(url, **kwargs)
-    return _real_get(url, **kwargs)
-_req.get = _patched_get
+"""60只个股完整扫描 — 多数据源回退，记录覆盖率。"""
 
 import sys, json, time
 from pathlib import Path
 from datetime import datetime, timedelta
 
-import akshare as ak
 import pandas as pd
+
+from nasdx.history_store import record_daily_scan
+from nasdx.market_sources import fetch_stock_hist, last_trade_date
 
 ROOT  = Path(__file__).parent
 NOW   = datetime.now()
@@ -98,19 +89,8 @@ STOCK_POOL = [
 
 # ── 抓取+计算 ─────────────────────────────────────────
 def fetch_and_calc(code, name, sector):
-    time.sleep(1.0)
-    df = None
-    for attempt in range(3):
-        try:
-            df = ak.stock_zh_a_hist(symbol=code, period='daily',
-                                    start_date=START, end_date=TODAY, adjust='qfq')
-            if isinstance(df, pd.DataFrame) and len(df) >= 10:
-                break
-            df = None
-        except Exception:
-            if attempt < 2:
-                time.sleep(3 ** attempt)
-            df = None
+    time.sleep(0.2)
+    df, source = fetch_stock_hist(code, START, TODAY, min_rows=10)
     if df is None or len(df) < 10:
         return None
     try:
@@ -139,8 +119,10 @@ def fetch_and_calc(code, name, sector):
         turnover = df['换手率'].astype(float).iloc[-1] if '换手率' in df.columns else None
         return {
             'code':code,'name':name,'sector':sector,
+            'data_source': source,
+            'data_date': last_trade_date(df),
             'close':round(float(cur),2),'chg':round(float(chg),2),
-            'turnover':round(float(turnover),2) if turnover else None,
+            'turnover':round(float(turnover),2) if pd.notna(turnover) and turnover else None,
             'ma5':round(float(ma5),2),
             'ma10':round(float(ma10),2) if ma10 else None,
             'ma20':round(float(ma20),2) if ma20 else None,
@@ -214,10 +196,18 @@ bull=[r for r in valid if r['signal']=='bullish']
 neut=[r for r in valid if r['signal']=='neutral']
 bear=[r for r in valid if r['signal']=='bearish']
 failed=len(STOCK_POOL)-len(valid)
+data_dates=[r.get('data_date') for r in valid if r.get('data_date')]
+latest_data_date=max(data_dates) if data_dates else None
+source_counts={}
+for r in valid:
+    src=r.get('data_source') or 'unknown'
+    source_counts[src]=source_counts.get(src,0)+1
 
 print(f'\n{"="*68}')
 print(f'  🏆 60只个股评分排行  {NOW.strftime("%H:%M")}')
 print(f'  📈{len(bull)}  ➡️{len(neut)}  📉{len(bear)}  ❌{failed}只无数据（剩余{len(valid)}只）')
+if latest_data_date:
+    print(f'  数据日期: {latest_data_date}  来源: {source_counts}')
 print(f'{"="*68}')
 print(f'  {"排":<3}{"代码":<8}{"名称":<10}{"板块":<14}{"收盘":>8}{"涨跌":>8}{"换手":>6}{"量比":>5}  {"分":>3}  信号')
 print(f'  {"-"*70}')
@@ -366,12 +356,20 @@ with open(out,'w',encoding='utf-8') as f: f.write(html)
 with open(latest,'w',encoding='utf-8') as f: f.write(html)
 
 jout=ROOT/'reports'/f'stocks60_{TODAY}_{HHMM}.json'
-with open(jout,'w',encoding='utf-8') as f:
-    json.dump({'datetime':NOW.isoformat(),'total':len(valid),
+expected_total = len(STOCK_POOL)
+valid_count = len(valid)
+json_payload = {'datetime':NOW.isoformat(),'total':expected_total,
+               'date':latest_data_date,
+               'data_sources':source_counts,
+               'expected_total':expected_total,'valid_count':valid_count,
+               'no_data':failed,'coverage_ratio':round(valid_count/expected_total,4) if expected_total else 0,
                'bullish':len(bull),'neutral':len(neut),'bearish':len(bear),
                'top3':[{'code':r['code'],'name':r['name'],'score':r['score'],'signal':r['signal'],'chg':r['chg']} for r in top3],
                'results':[{k:v for k,v in r.items() if k!='reasons'} for r in valid]
-              },f,ensure_ascii=False,indent=2)
+              }
+with open(jout,'w',encoding='utf-8') as f:
+    json.dump(json_payload,f,ensure_ascii=False,indent=2)
+record_daily_scan('stocks60', TODAY, json_payload, source_path=jout, generated_at=NOW.isoformat())
 
 print(f'\n📁 HTML: {out}')
 print(f'📁 最新: {latest}')

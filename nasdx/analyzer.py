@@ -14,6 +14,7 @@ from nasdx.environments.battle import BattleEnvironment
 from nasdx.agents.synthesis import SynthesisAgent
 from nasdx.data_quality import assess_data_quality
 from nasdx.decision import build_decision_plan, format_decision_plan
+from nasdx.history_store import record_report_history
 from nasdx.report import generate_html_report
 
 
@@ -206,6 +207,13 @@ class NasdxAnalyzer:
             }
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+            record_report_history(
+                report.stock_code,
+                report.date,
+                data,
+                source_path=path,
+                generated_at=report.date,
+            )
 
         else:
             raise ValueError(f"不支持的格式：{fmt}，请用 html 或 json")

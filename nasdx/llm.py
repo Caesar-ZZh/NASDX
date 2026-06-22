@@ -4,16 +4,49 @@ LLM 客户端 — 支持 OpenAI 兼容接口（DeepSeek / Qwen / GPT-4o 等）
 """
 import os
 import json
+import re
 import time
 from typing import Any, Dict, List, Optional
 from openai import OpenAI
 
-# 从环境变量读取，也可在 config.toml 中配置
-API_KEY    = os.environ.get("NASDX_API_KEY", "***REMOVED***")
+# 从环境变量读取；不要在仓库中写入真实 API Key。
+API_KEY    = os.environ.get("NASDX_API_KEY", "")
 BASE_URL   = os.environ.get("NASDX_BASE_URL", "https://api.deepseek.com")
 MODEL_NAME = os.environ.get("NASDX_MODEL", "deepseek-v4-pro")
 MAX_TOKENS = int(os.environ.get("NASDX_MAX_TOKENS", "4096"))
 TEMPERATURE = float(os.environ.get("NASDX_TEMPERATURE", "0.3"))
+
+
+def extract_json_payload(text: str) -> Dict[str, Any]:
+    """Extract the first JSON object from an LLM response."""
+    if not text or not text.strip():
+        raise ValueError("empty LLM response")
+
+    decoder = json.JSONDecoder()
+    fenced_blocks = re.findall(r"```(?:json)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
+    for block in fenced_blocks:
+        payload = _loads_json_object(block.strip())
+        if payload is not None:
+            return payload
+
+    for idx, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            payload, _end = decoder.raw_decode(text[idx:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    raise ValueError("LLM response does not contain a JSON object")
+
+
+def _loads_json_object(text: str) -> Dict[str, Any] | None:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 class LLMClient:
@@ -103,18 +136,9 @@ class LLMClient:
     ) -> Dict[str, Any]:
         """调用 LLM 并解析 JSON 响应"""
         result = self.ask(messages, system=system, temperature=0.1)
-        # 尝试提取 ```json ... ``` 块
-        if "```json" in result:
-            start = result.find("```json") + 7
-            end = result.find("```", start)
-            result = result[start:end].strip()
-        elif "```" in result:
-            start = result.find("```") + 3
-            end = result.find("```", start)
-            result = result[start:end].strip()
         try:
-            return json.loads(result)
-        except json.JSONDecodeError:
+            return extract_json_payload(result)
+        except ValueError:
             return {"raw": result}
 
 

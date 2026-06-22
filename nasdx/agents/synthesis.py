@@ -84,19 +84,22 @@ class SynthesisAgent(BaseAgent):
 【最终信号】bullish 或 bearish 或 neutral
 【置信度】0.72
 """
-        response = self._ask(prompt, temperature=0.2)
-        signal, confidence = self._parse_signal(response)
+        response, payload = self._ask_analysis(prompt, temperature=0.2)
+        signal, confidence = self._parse_structured_signal(response, payload, final=True)
 
         return AnalysisResult(
             agent_name=self.name,
             dimension=self.dimension,
-            conclusion=response,
+            conclusion=self._structured_conclusion(response, payload),
             signal=signal,
             confidence=confidence,
-            key_points=[
-                f"看多{bullish_count}票，看空{bearish_count}票，中性{neutral_count}票",
-                f"看多占比{bullish_pct:.1f}%",
-            ],
+            key_points=self._merge_key_points(
+                self._structured_key_points(payload),
+                [
+                    f"看多{bullish_count}票，看空{bearish_count}票，中性{neutral_count}票",
+                    f"看多占比{bullish_pct:.1f}%",
+                ],
+            ),
             raw_data_summary=f"综合{total}个维度信号",
         )
 

@@ -81,14 +81,17 @@ class FundFlowAgent(BaseAgent):
 【信号】bullish 或 bearish 或 neutral
 【置信度】0.70
 """
-        response = self._ask(prompt)
-        signal, confidence = self._parse_signal(response)
-        key_points = self._build_key_points(recent, total_main, positive_days, avg_pct)
+        response, payload = self._ask_analysis(prompt)
+        signal, confidence = self._parse_structured_signal(response, payload)
+        key_points = self._merge_key_points(
+            self._structured_key_points(payload),
+            self._build_key_points(recent, total_main, positive_days, avg_pct),
+        )
 
         return AnalysisResult(
             agent_name=self.name,
             dimension=self.dimension,
-            conclusion=response,
+            conclusion=self._structured_conclusion(response, payload),
             signal=signal,
             confidence=confidence,
             key_points=key_points,

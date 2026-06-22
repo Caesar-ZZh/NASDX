@@ -2,7 +2,9 @@
 Research 环境 — 并行/顺序运行多个专家 Agent，汇总分析结果
 对应 FinGenius 的 ResearchEnvironment
 """
+import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List
 
 from nasdx.schema import AnalysisResult
@@ -15,7 +17,7 @@ from nasdx.agents.chokepoint import ChokepointAgent
 
 class ResearchEnvironment:
     """
-    研究环境：协调5个专家 Agent 顺序分析一只股票
+    研究环境：协调5个专家 Agent 分析一只股票
     返回 Dict[dimension, AnalysisResult]
     """
 
@@ -27,9 +29,10 @@ class ResearchEnvironment:
         ("chokepoint", "瓶颈"),
     ]
 
-    def __init__(self, max_steps: int = 3, delay: float = 1.0):
+    def __init__(self, max_steps: int = 3, delay: float = 1.0, max_workers: int | None = None):
         self.max_steps = max_steps
-        self.delay = delay  # Agent 之间的间隔（秒），避免 API 过速
+        self.delay = delay  # 顺序模式下 Agent 之间的间隔（秒），避免 API 过速
+        self.max_workers = _resolve_max_workers(max_workers, len(self.AGENT_ORDER))
 
         self.agents = {
             "technical": TechnicalAgent(max_steps=max_steps),
@@ -46,44 +49,88 @@ class ResearchEnvironment:
         verbose: bool = True,
     ) -> Dict[str, AnalysisResult]:
         """
-        顺序执行所有专家 Agent
+        并发执行所有专家 Agent。若 max_workers=1，则退回顺序执行。
 
         Returns:
             {dimension: AnalysisResult}
         """
+        if self.max_workers <= 1:
+            return self._run_sequential(stock_code, stock_data, verbose=verbose)
+
+        return self._run_parallel(stock_code, stock_data, verbose=verbose)
+
+    def _run_sequential(
+        self,
+        stock_code: str,
+        stock_data: Dict[str, Any],
+        verbose: bool = True,
+    ) -> Dict[str, AnalysisResult]:
+        """顺序执行 Agent，用于调试、限流或单线程环境。"""
         results: Dict[str, AnalysisResult] = {}
         total = len(self.AGENT_ORDER)
 
         for i, (dim, label) in enumerate(self.AGENT_ORDER, 1):
-            agent = self.agents.get(dim)
-            if not agent:
-                continue
-
             if verbose:
                 print(f"  [{i}/{total}] {label} Agent 分析中...")
 
-            try:
-                result = agent.run(stock_code, stock_data)
-                results[dim] = result
-                if verbose:
-                    emoji = {"bullish": "🟢", "bearish": "🔴", "neutral": "🟡"}.get(result.signal, "⚪")
-                    print(f"         → {emoji} {result.signal}（置信度 {result.confidence:.0%}）")
-            except Exception as e:
-                if verbose:
-                    print(f"         → ❌ 失败：{e}")
-                results[dim] = AnalysisResult(
-                    agent_name=dim,
-                    dimension=dim,
-                    conclusion=f"分析失败：{e}",
-                    signal="neutral",
-                    confidence=0.0,
-                )
+            result = self._run_one_agent(dim, stock_code, stock_data)
+            results[dim] = result
+            if verbose:
+                _print_agent_result(result)
 
             # 最后一个不需要等待
             if i < total and self.delay > 0:
                 time.sleep(self.delay)
 
         return results
+
+    def _run_parallel(
+        self,
+        stock_code: str,
+        stock_data: Dict[str, Any],
+        verbose: bool = True,
+    ) -> Dict[str, AnalysisResult]:
+        """使用线程池并发执行 Phase 1 Agent，并按 AGENT_ORDER 返回结果。"""
+        total = len(self.AGENT_ORDER)
+        if verbose:
+            for i, (_dim, label) in enumerate(self.AGENT_ORDER, 1):
+                print(f"  [{i}/{total}] {label} Agent 已提交...")
+
+        completed: Dict[str, AnalysisResult] = {}
+        with ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="nasdx-agent") as executor:
+            futures = {
+                executor.submit(self._run_one_agent, dim, stock_code, stock_data): dim
+                for dim, _label in self.AGENT_ORDER
+                if self.agents.get(dim)
+            }
+            for future in as_completed(futures):
+                dim = futures[future]
+                result = future.result()
+                completed[dim] = result
+                if verbose:
+                    _print_agent_result(result)
+
+        return {
+            dim: completed.get(dim) or _fallback_result(dim, "Agent 未返回结果")
+            for dim, _label in self.AGENT_ORDER
+            if self.agents.get(dim)
+        }
+
+    def _run_one_agent(
+        self,
+        dim: str,
+        stock_code: str,
+        stock_data: Dict[str, Any],
+    ) -> AnalysisResult:
+        """执行单个 Agent，并把异常收敛为中性结果。"""
+        agent = self.agents.get(dim)
+        if not agent:
+            return _fallback_result(dim, "Agent 未配置")
+
+        try:
+            return agent.run(stock_code, stock_data)
+        except Exception as e:
+            return _fallback_result(dim, f"分析失败：{e}")
 
 
 class SectorResearchEnvironment:
@@ -136,3 +183,31 @@ class SectorResearchEnvironment:
             "bullish_pct": bullish_pct,
             "stock_results": sector_results,
         }
+
+
+def _resolve_max_workers(max_workers: int | None, default_workers: int) -> int:
+    if max_workers is not None:
+        return max(1, min(int(max_workers), default_workers))
+    raw = os.environ.get("NASDX_RESEARCH_MAX_WORKERS", "")
+    if raw:
+        try:
+            return max(1, min(int(raw), default_workers))
+        except ValueError:
+            pass
+    return default_workers
+
+
+def _fallback_result(dim: str, message: str) -> AnalysisResult:
+    return AnalysisResult(
+        agent_name=dim,
+        dimension=dim,
+        conclusion=message,
+        signal="neutral",
+        confidence=0.0,
+        key_points=[],
+    )
+
+
+def _print_agent_result(result: AnalysisResult) -> None:
+    emoji = {"bullish": "🟢", "bearish": "🔴", "neutral": "🟡"}.get(result.signal, "⚪")
+    print(f"         → {emoji} {result.dimension}: {result.signal}（置信度 {result.confidence:.0%}）")

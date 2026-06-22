@@ -9,7 +9,7 @@ NASDX V2 — ETF50 量化全量分析
   6. 输出完整排行 + HTML 报告
 
 ⚡ 优化：将重量级 import 延迟到 run_etf50_quant() 内部执行
-  - quant.patch_requests：~200ms
+  - quant.patch_requests：兼容层，无导入期 HTTP 副作用
   - quant.data：~440ms
   - quant.factors：~8ms
   - quant.backtest 等：~20ms
@@ -84,9 +84,10 @@ def run_etf50_quant(
     # ⚡ 延迟导入：在真正执行时才加载重量级依赖
     import numpy as np
     import pandas as pd
-    import quant.patch_requests  # 代理 patch，必须最先
+    from quant.patch_requests import configure_requests
     from quant.data import get_ohlcv
     from quant.factors import compute_alpha158
+    configure_requests()
 
     # 加载 ETF 池
     with open(ROOT / "etf50_pool.json", encoding="utf-8") as f:

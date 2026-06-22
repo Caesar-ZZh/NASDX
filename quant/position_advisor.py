@@ -10,7 +10,7 @@ NASDX V2 — 持仓调仓顾问
   - 候选替换标的（来自 ETF50 量化结果）
 """
 from __future__ import annotations
-import quant.patch_requests  # 必须最先
+from quant.patch_requests import configure_requests
 import json, time
 from pathlib import Path
 from datetime import datetime
@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).parent.parent
+configure_requests()
 
 
 # ══════════════════════════════════════════
