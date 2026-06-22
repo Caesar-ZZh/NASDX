@@ -30,6 +30,7 @@ def main() -> int:
     checks: list[tuple[str, Callable[[], str]]] = [
         ("Python 语法", check_python_syntax),
         ("硬编码 API Key", check_no_hardcoded_api_keys),
+        ("依赖清单", check_delivery_assets),
         ("行情文件指标覆盖", check_market_data_contract),
         ("Serenity 五维 Agent", check_serenity_agent),
         ("研究阶段并发/HTTP隔离", check_architecture_optimization_contract),
@@ -101,6 +102,27 @@ def check_no_hardcoded_api_keys() -> str:
     if hits:
         raise AssertionError("发现疑似真实密钥: " + ", ".join(hits[:5]))
     return "未发现疑似真实 sk-* 密钥"
+
+
+def check_delivery_assets() -> str:
+    requirements_path = ROOT / "requirements_nasdx.txt"
+    if not requirements_path.exists():
+        raise AssertionError("缺少 requirements_nasdx.txt")
+    text = _read_text(requirements_path)
+    required_packages = ["akshare", "pandas", "numpy", "requests", "openai", "pydantic", "streamlit"]
+    missing = [name for name in required_packages if name not in text]
+    if missing:
+        raise AssertionError("requirements_nasdx.txt 缺少依赖: " + ", ".join(missing))
+
+    proc = subprocess.run(
+        ["git", "check-ignore", "-q", "requirements_nasdx.txt"],
+        cwd=str(ROOT),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if proc.returncode == 0:
+        raise AssertionError("requirements_nasdx.txt 被 .gitignore 忽略")
+    return f"requirements_nasdx.txt 包含 {len(required_packages)} 项核心依赖且可入库"
 
 
 def check_market_data_contract() -> str:

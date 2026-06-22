@@ -1,0 +1,24 @@
+# NASDX 多智能体分析系统依赖
+# pip install -r requirements_nasdx.txt
+
+# 数据获取（已有）
+akshare>=1.16.87
+pandas>=2.2.3
+numpy>=2.0.0
+requests>=2.32.0
+
+# AI 调用
+openai>=1.66.5        # OpenAI 兼容接口（DeepSeek/Qwen/GPT-4o）
+tenacity>=9.0.0       # 重试机制
+
+# Web UI
+streamlit>=1.40.0
+
+# 数据结构
+pydantic>=2.10.6      # 数据验证
+
+# 配置
+tomli>=2.0.0          # TOML 解析（Python 3.11 内置 tomllib 也可）
+
+# 可选：美化输出
+rich>=13.7.1          # 终端彩色输出

@@ -20,6 +20,7 @@ venv/
 
 # 日志
 *.txt
+!requirements_nasdx.txt
 nasdx_*.txt
 fetch_log.txt
 pip_install.txt

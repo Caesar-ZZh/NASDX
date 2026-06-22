@@ -93,7 +93,7 @@ NASDX
 ### 1. 安装依赖
 
 ```bash
-pip install akshare pandas openai streamlit pydantic
+pip install -r requirements_nasdx.txt
 ```
 
 ### 2. 获取数据（无需 API Key）
