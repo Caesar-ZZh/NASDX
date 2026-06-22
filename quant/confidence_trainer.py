@@ -15,7 +15,7 @@ NASDX V2 — 数据置信度训练器
   VnPy  → 实盘级别的信号准确率统计
 """
 from __future__ import annotations
-import quant.patch_requests  # noqa
+from quant.patch_requests import configure_requests
 import json
 import glob
 import time
@@ -28,6 +28,7 @@ import pandas as pd
 ROOT = Path(__file__).parent.parent
 CONF_PATH = ROOT / "models" / "signal_confidence.json"
 CONF_PATH.parent.mkdir(exist_ok=True)
+configure_requests()
 
 
 # ══════════════════════════════════════════

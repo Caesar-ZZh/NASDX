@@ -4,15 +4,14 @@ NASDX V2 — 统一数据层
 兼容 QLib / FinRL / VnPy 的数据接口
 
 修复内容：
-1. 完整的 requests patch（支持代理环境）
-2. 精确的 ETF 代码识别（沪 51/50, 深 15/16, 科创 58/56）
-3. 3次重试机制（指数退避）
-4. 自动备用接口切换
-5. 进度显示 + 数据质量检查
-6. 缓存支持（streamlit / lru_cache）
+1. 精确的 ETF 代码识别（沪 51/50, 深 15/16, 科创 58/56）
+2. 3次重试机制（指数退避）
+3. 自动备用接口切换
+4. 进度显示 + 数据质量检查
+5. 缓存支持（streamlit / lru_cache）
 """
 from __future__ import annotations
-import os, time, warnings, sys
+import time, warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -21,33 +20,6 @@ import pandas as pd
 import numpy as np
 
 warnings.filterwarnings("ignore")
-
-# ══════════════════════════════════════════════════════════
-#  完整的代理 PATCH（最先执行）
-# ══════════════════════════════════════════════════════════
-import requests as _req
-
-# 备份原始方法
-_original_get = _req.get
-_original_session_get = _req.Session.get
-
-def _patch_get(url, **kw):
-    """patch requests.get，支持代理环境"""
-    if any(domain in url for domain in ['eastmoney.com', 'sina.com', 'qq.com']):
-        session = _req.Session()
-        session.trust_env = True
-        return session.get(url, **kw)
-    return _original_get(url, **kw)
-
-def _patch_session_get(self, url, **kw):
-    """patch Session.get"""
-    if any(domain in url for domain in ['eastmoney.com', 'sina.com', 'qq.com']):
-        self.trust_env = True
-    return _original_session_get(self, url, **kw)
-
-# 应用 patch
-_req.get = _patch_get
-_req.Session.get = _patch_session_get
 
 ROOT = Path(__file__).parent.parent
 

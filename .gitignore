@@ -40,3 +40,4 @@ config.toml
 scheduled_tasks.lock
 streamlit.log
 focus_ind.json
+nasdx_history.db

@@ -15,6 +15,7 @@ from typing import Any, Dict, Iterable, List, Tuple
 
 from nasdx.data_quality import assess_data_quality
 from nasdx.decision import RISK_PROFILES
+from nasdx.history_store import record_artifact
 
 
 PROJECT_DIR = Path(__file__).parent.parent
@@ -46,6 +47,9 @@ EXPOSURE_RULES = {
     },
 }
 
+MIN_SCAN_COVERAGE = 0.50
+MIN_COVERAGE_UNIVERSE = 10
+
 
 def build_portfolio_plan(
     risk_profile: str = "balanced",
@@ -66,17 +70,22 @@ def build_portfolio_plan(
     data_quality = assess_data_quality(data or {}, now=now) if data else _missing_quality("未找到行情数据文件，请先刷新行情。")
     etf_quality = _artifact_quality(etf_scan, etf_path, now)
     stock_quality = _artifact_quality(stock_scan, stock_path, now)
+    usable_etf_scan = None if _is_low_coverage(etf_quality) else etf_scan
+    usable_stock_scan = None if _is_low_coverage(stock_quality) else stock_scan
 
-    etf_candidates = _rank_candidates(
-        _iter_scan_rows(etf_scan),
+    ranked_etf_candidates = _rank_candidates(
+        _iter_scan_rows(usable_etf_scan),
         asset_type="ETF",
         reports=reports,
     )
-    stock_candidates = _rank_candidates(
-        _iter_scan_rows(stock_scan),
+    ranked_stock_candidates = _rank_candidates(
+        _iter_scan_rows(usable_stock_scan),
         asset_type="个股",
         reports=reports,
     )
+    report_avoid = _report_avoid_candidates(ranked_etf_candidates + ranked_stock_candidates)
+    etf_candidates = [item for item in ranked_etf_candidates if not _is_avoid_candidate(item)]
+    stock_candidates = [item for item in ranked_stock_candidates if not _is_avoid_candidate(item)]
 
     action_gate = _combined_gate([data_quality, etf_quality, stock_quality])
     if action_gate == "refresh_required":
@@ -86,13 +95,19 @@ def build_portfolio_plan(
         posture = "谨慎试错"
         max_total = _cap_total(exposure["max_total"], "0%-25%")
     else:
-        posture = _market_posture(etf_scan, stock_scan)
+        posture = _market_posture(usable_etf_scan, usable_stock_scan)
         max_total = exposure["max_total"]
 
     core = etf_candidates[:max_etfs]
     satellite = stock_candidates[:max_stocks]
     watchlist = _build_watchlist(etf_candidates[max_etfs:], stock_candidates[max_stocks:])
-    trim_or_avoid = _trim_or_avoid(etf_scan, stock_scan)
+    trim_or_avoid = _dedupe_candidates(_trim_or_avoid(usable_etf_scan, usable_stock_scan) + report_avoid)[:10]
+    data_quality_map = {
+        "market_data": data_quality,
+        "etf_scan": etf_quality,
+        "stock_scan": stock_quality,
+        "deep_reports": _reports_quality(reports, stale_reports),
+    }
 
     return {
         "generated_at": now.isoformat(timespec="seconds"),
@@ -105,7 +120,7 @@ def build_portfolio_plan(
         "satellite_candidates": satellite,
         "watchlist": watchlist,
         "trim_or_avoid": trim_or_avoid,
-        "next_actions": _next_actions(action_gate, core, satellite, reports),
+        "next_actions": _next_actions(action_gate, core, satellite, reports, data_quality_map),
         "future_scenarios": _future_scenarios(action_gate, posture, core, satellite, trim_or_avoid),
         "decision_rules": _decision_rules(profile_key, action_gate),
         "monitoring_checklist": _monitoring_checklist(core, satellite),
@@ -115,12 +130,7 @@ def build_portfolio_plan(
             "每周复核一次组合暴露和主题拥挤度。",
             "重大财报、公告、政策或海外指数急跌时立即复核。",
         ],
-        "data_quality": {
-            "market_data": data_quality,
-            "etf_scan": etf_quality,
-            "stock_scan": stock_quality,
-            "deep_reports": _reports_quality(reports, stale_reports),
-        },
+        "data_quality": data_quality_map,
         "source_files": {
             "market_data": str(data_path) if data_path else None,
             "etf_scan": str(etf_path) if etf_path else None,
@@ -211,6 +221,13 @@ def save_portfolio_plan(plan: Dict[str, Any], output_dir: str | Path | None = No
     latest_json = out_dir / "portfolio_plan_latest.json"
     latest_md.write_text(md_path.read_text(encoding="utf-8"), encoding="utf-8")
     latest_json.write_text(json_path.read_text(encoding="utf-8"), encoding="utf-8")
+    record_artifact(
+        "portfolio_plan",
+        "latest",
+        plan,
+        generated_at=plan.get("generated_at"),
+        source_path=json_path,
+    )
     return {
         "markdown": str(md_path),
         "json": str(json_path),
@@ -314,6 +331,9 @@ def _rank_candidates(
         code = str(row.get("code", ""))
         report = reports.get(code, {}).get("data", {})
         report_signal = report.get("final_signal")
+        decision = report.get("decision_plan") or {}
+        report_action = str(decision.get("action") or "")
+        report_position_band = str(decision.get("position_band") or "")
         bullish_pct = report.get("bullish_pct")
         adjusted = score
         if signal == "bullish":
@@ -324,6 +344,8 @@ def _rank_candidates(
             adjusted += 10
         elif report_signal == "bearish":
             adjusted -= 20
+        if _is_avoid_report_action(report_action):
+            adjusted -= 35
         candidates.append(
             {
                 "code": code,
@@ -335,7 +357,9 @@ def _rank_candidates(
                 "signal": signal,
                 "deep_signal": report_signal,
                 "bullish_pct": bullish_pct,
-                "action": _candidate_action(signal, report_signal, adjusted),
+                "report_action": report_action,
+                "report_position_band": report_position_band,
+                "action": _candidate_action(signal, report_signal, adjusted, report_action),
                 "reason": _candidate_reason(row, report),
             }
         )
@@ -353,14 +377,22 @@ def _score_of(row: Dict[str, Any]) -> float:
     return 50.0
 
 
-def _candidate_action(signal: str, deep_signal: str | None, adjusted_score: float) -> str:
-    if signal == "bearish" or deep_signal == "bearish":
+def _candidate_action(signal: str, deep_signal: str | None, adjusted_score: float, report_action: str = "") -> str:
+    if signal == "bearish" or deep_signal == "bearish" or _is_avoid_report_action(report_action):
         return "回避/减仓"
+    if deep_signal is None:
+        if adjusted_score >= 65:
+            return "观察，先补深度报告"
+        return "只观察"
     if adjusted_score >= 80:
         return "优先跟踪，等待入场条件"
     if adjusted_score >= 65:
         return "观察试错"
     return "只观察"
+
+
+def _is_avoid_report_action(action: str) -> bool:
+    return "回避" in action or "减仓" in action
 
 
 def _candidate_reason(row: Dict[str, Any], report: Dict[str, Any]) -> str:
@@ -377,6 +409,26 @@ def _candidate_reason(row: Dict[str, Any], report: Dict[str, Any]) -> str:
 def _build_watchlist(etfs: List[Dict[str, Any]], stocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     pool = [item for item in etfs + stocks if item.get("action") != "回避/减仓"]
     return sorted(pool, key=lambda item: item["adjusted_score"], reverse=True)[:10]
+
+
+def _report_avoid_candidates(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [item for item in items if _is_avoid_candidate(item)]
+
+
+def _is_avoid_candidate(item: Dict[str, Any]) -> bool:
+    return item.get("action") == "回避/减仓"
+
+
+def _dedupe_candidates(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen = set()
+    deduped = []
+    for item in items:
+        code = item.get("code")
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        deduped.append(item)
+    return deduped
 
 
 def _trim_or_avoid(scan_a: Dict[str, Any] | None, scan_b: Dict[str, Any] | None) -> List[Dict[str, Any]]:
@@ -425,11 +477,117 @@ def _artifact_quality(data: Dict[str, Any] | None, path: Path | None, now: datet
     raw_dt = data.get("generated_at") or data.get("datetime")
     date_raw = data.get("date", "")
     if raw_dt or date_raw:
-        return assess_data_quality({"generated_at": raw_dt, "date": date_raw}, now=now)
+        quality = assess_data_quality({"generated_at": raw_dt, "date": date_raw}, now=now)
+        return _with_scan_coverage(quality, data, path)
     if path:
         mtime = datetime.fromtimestamp(path.stat().st_mtime)
-        return assess_data_quality({"generated_at": mtime.isoformat(), "date": mtime.strftime("%Y%m%d")}, now=now)
+        quality = assess_data_quality({"generated_at": mtime.isoformat(), "date": mtime.strftime("%Y%m%d")}, now=now)
+        return _with_scan_coverage(quality, data, path)
     return _missing_quality("扫描结果缺少生成时间。")
+
+
+def _with_scan_coverage(
+    quality: Dict[str, Any],
+    data: Dict[str, Any],
+    path: Path | None,
+) -> Dict[str, Any]:
+    coverage = _scan_coverage(data, path)
+    if not coverage:
+        return quality
+
+    merged = dict(quality)
+    merged.update(coverage)
+    base_message = str(quality.get("message") or "扫描数据已评估。")
+    expected = coverage["expected_total"]
+    valid = coverage["valid_count"]
+    ratio = coverage["coverage_ratio"]
+    coverage_text = f"扫描覆盖率 {valid}/{expected}（{ratio:.0%}）"
+
+    if expected >= MIN_COVERAGE_UNIVERSE and ratio < MIN_SCAN_COVERAGE:
+        merged["status"] = "low_coverage"
+        merged["severity"] = "warning"
+        if quality.get("action_gate") != "refresh_required":
+            merged["action_gate"] = "position_cap"
+        merged["message"] = f"{base_message}；{coverage_text}，本轮不把该榜单作为加仓依据。"
+    else:
+        merged["message"] = f"{base_message}；{coverage_text}。"
+    return merged
+
+
+def _scan_coverage(data: Dict[str, Any], path: Path | None) -> Dict[str, Any] | None:
+    rows = list(_iter_scan_rows(data))
+    expected_total = _as_nonnegative_int(
+        data.get("expected_total") or data.get("scan_total") or data.get("universe_total")
+    )
+    if expected_total is None:
+        expected_total = _expected_total_from_path(path)
+
+    total = _as_nonnegative_int(data.get("total"))
+    no_data = _as_nonnegative_int(data.get("no_data"))
+    valid_count = _as_nonnegative_int(data.get("valid_count"))
+
+    if valid_count is None:
+        if rows:
+            valid_count = sum(
+                1
+                for row in rows
+                if row.get("has_data", True) is not False and row.get("signal") != "no_data"
+            )
+        elif total is not None and no_data is not None:
+            valid_count = max(total - no_data, 0)
+        else:
+            valid_count = total
+
+    if expected_total is None:
+        if total is not None and no_data is not None:
+            expected_total = max(total, (valid_count or 0) + no_data)
+        elif total is not None:
+            expected_total = max(total, valid_count or 0)
+        else:
+            expected_total = valid_count
+
+    if expected_total is None or expected_total <= 0 or valid_count is None:
+        return None
+
+    valid_count = max(0, min(valid_count, expected_total))
+    if no_data is None:
+        no_data = max(expected_total - valid_count, 0)
+    ratio = valid_count / expected_total
+    return {
+        "expected_total": expected_total,
+        "valid_count": valid_count,
+        "no_data": no_data,
+        "coverage_ratio": round(ratio, 4),
+    }
+
+
+def _as_nonnegative_int(value: Any) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float):
+        return int(value) if value >= 0 else None
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+def _expected_total_from_path(path: Path | None) -> int | None:
+    if not path:
+        return None
+    stem = path.stem.lower()
+    if stem.startswith("etf50_"):
+        return 50
+    if stem.startswith("stocks60_"):
+        return 60
+    if stem.startswith("stocks50_"):
+        return 50
+    return None
+
+
+def _is_low_coverage(quality: Dict[str, Any]) -> bool:
+    return quality.get("status") == "low_coverage"
 
 
 def _missing_quality(message: str) -> Dict[str, Any]:
@@ -469,21 +627,70 @@ def _next_actions(
     core: List[Dict[str, Any]],
     satellite: List[Dict[str, Any]],
     reports: Dict[str, Dict[str, Any]],
+    data_quality: Dict[str, Dict[str, Any]],
 ) -> List[str]:
     actions = []
-    if action_gate == "refresh_required":
+    low_coverage_actions = _low_coverage_actions(data_quality)
+    if low_coverage_actions:
+        actions.extend(low_coverage_actions)
+    elif action_gate == "refresh_required":
         target = (core[0]["code"] if core else satellite[0]["code"] if satellite else "603501")
         actions.append(f"先运行 `python run_investment_workflow.py {target} --workflow quick` 刷新行情和 ETF 扫描。")
     elif action_gate == "position_cap":
-        actions.append("行情或扫描偏旧，本轮只允许小仓位验证，刷新后再放大仓位。")
+        actions.append("行情偏旧或扫描质量不足，本轮只允许小仓位验证，刷新后再放大仓位。")
     else:
         actions.append("按 ETF 主线优先、个股卫星补充的顺序建立观察和试错。")
+        actions.extend(_deep_report_actions(core, satellite, reports))
 
     for item in core[:2] + satellite[:2]:
         if item.get("code") and item["code"] not in reports:
             actions.append(f"对 {item['code']} {item['name']} 跑深度分析，确认是否从观察升级为试错。")
     actions.append("所有候选必须满足入场条件后再执行，未满足时保留现金缓冲。")
     return actions[:6]
+
+
+def _deep_report_actions(
+    core: List[Dict[str, Any]],
+    satellite: List[Dict[str, Any]],
+    reports: Dict[str, Dict[str, Any]],
+) -> List[str]:
+    if not reports:
+        return []
+
+    actions: List[str] = []
+    core_bullish = [item for item in core[:3] if item.get("deep_signal") == "bullish"]
+    core_neutral = [item for item in core[:3] if item.get("deep_signal") == "neutral"]
+    core_bearish = [item for item in core[:3] if item.get("deep_signal") == "bearish"]
+    sat_bullish = [item for item in satellite[:3] if item.get("deep_signal") == "bullish"]
+    sat_neutral = [item for item in satellite[:3] if item.get("deep_signal") == "neutral"]
+    sat_bearish = [item for item in satellite[:3] if item.get("deep_signal") == "bearish"]
+
+    if core_bullish:
+        actions.append(f"ETF试错优先看 {_name_list(core_bullish[:2])}；只在回踩不破关键均线、成交/折溢价正常时分批。")
+    if core_neutral:
+        actions.append(f"{_name_list(core_neutral[:2])} 深度信号中性，保留主线观察，不作为加仓第一顺位。")
+    if core_bearish:
+        actions.append(f"{_name_list(core_bearish[:2])} 深度信号偏空，降级观察或剔出试错池。")
+    if sat_bullish:
+        actions.append(f"个股卫星只从 {_name_list(sat_bullish[:3])} 里小仓试错；公告/财报和成交复核不通过则不动。")
+    if sat_neutral:
+        actions.append(f"{_name_list(sat_neutral[:2])} 深度信号中性，等待趋势或基本面证据增强。")
+    if sat_bearish:
+        actions.append(f"{_name_list(sat_bearish[:2])} 深度信号偏空，暂不升级为试错。")
+    return actions
+
+
+def _low_coverage_actions(data_quality: Dict[str, Dict[str, Any]]) -> List[str]:
+    labels = {"etf_scan": "ETF扫描", "stock_scan": "个股扫描"}
+    actions = []
+    for key, label in labels.items():
+        item = data_quality.get(key, {})
+        if not _is_low_coverage(item):
+            continue
+        valid = item.get("valid_count", 0)
+        expected = item.get("expected_total", 0)
+        actions.append(f"{label}覆盖率不足（{valid}/{expected}），本轮不把该榜单作为加仓依据；先重跑或修复对应扫描数据源。")
+    return actions
 
 
 def _future_scenarios(
@@ -516,6 +723,28 @@ def _future_scenarios(
                 "trigger": f"{weak or '弱势池'} 扩大，或主线候选跌出前排",
                 "action": "维持现金，回避弱势池，等待下一轮扫描修复",
                 "position_rule": "总仓位维持0%-5%",
+            },
+        ]
+
+    if action_gate == "position_cap":
+        return [
+            {
+                "scenario": "数据质量修复",
+                "trigger": "行情仍在2天内，且ETF/个股扫描覆盖率恢复到50%以上",
+                "action": "重新生成投资路线；覆盖恢复后再开放个股卫星候选",
+                "position_rule": "修复前总仓位0%-25%，修复后再按风险画像上限分批",
+            },
+            {
+                "scenario": "ETF主线延续",
+                "trigger": f"{top_core or 'ETF主线'} 继续保持前排，深度报告未出现风险红灯",
+                "action": f"只用ETF主线小仓验证：{top_core or '前排ETF'}；暂不新增个股卫星",
+                "position_rule": "ETF 0%-20%，个股0%，现金75%-100%",
+            },
+            {
+                "scenario": "质量未修复且信号转弱",
+                "trigger": f"{weak or '弱势池'} 扩大，或前排ETF连续跌出候选",
+                "action": "维持现金，不用低覆盖榜单寻找替代标的",
+                "position_rule": "总仓位维持0%-10%，等待下一轮有效扫描",
             },
         ]
 
@@ -556,6 +785,8 @@ def _decision_rules(profile_key: str, action_gate: str) -> List[str]:
         rules.append("均衡画像：ETF主线和个股卫星分开管理，避免主题过度集中。")
     if action_gate == "refresh_required":
         rules.insert(0, "当前数据闸门关闭：刷新前只允许观察或极小仓验证。")
+    elif action_gate == "position_cap":
+        rules.insert(0, "当前仓位闸门半开：扫描覆盖不足或数据偏旧时，总仓位降到0%-25%，不新增个股卫星。")
     return rules
 
 
@@ -594,10 +825,10 @@ def _allocation_for_gate(exposure: Dict[str, str], max_total: str, action_gate: 
         allocation.update(
             {
                 "etf_budget": "0%-20%",
-                "stock_budget": "0%-10%",
-                "single_stock_cap": "0%-5%",
+                "stock_budget": "0%",
+                "single_stock_cap": "0%",
                 "cash_buffer": "75%-100%",
-                "mode": "数据偏旧时仓位上限下调，刷新后再按风险画像恢复预算。",
+                "mode": "数据偏旧或扫描覆盖不足时仓位上限下调；本轮只允许ETF小仓验证，个股卫星等覆盖恢复后再开放。",
             }
         )
     return allocation

@@ -13,7 +13,7 @@ def assess_data_quality(data: Dict[str, Any], now: datetime | None = None) -> Di
     generated_at_raw = data.get("generated_at")
     date_raw = str(data.get("date", "") or "")
 
-    data_dt = _parse_datetime(generated_at_raw) or _parse_date(date_raw)
+    data_dt = _parse_date(date_raw) or _parse_datetime(generated_at_raw)
     age_days = None
     if data_dt:
         age_days = max(0, (now.date() - data_dt.date()).days)

@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from nasdx.portfolio import build_portfolio_plan, save_portfolio_plan
+from nasdx.investment_brief import build_and_save_investment_brief
 
 
 ROOT = Path(__file__).parent
@@ -36,6 +36,7 @@ def _step_command(
     stock_code: str,
     rounds: int,
     risk_profile: str,
+    analysis_mode: str,
 ) -> List[str]:
     if step == "refresh":
         return [sys.executable, "-u", str(ROOT / "fetch_stock_data.py")]
@@ -53,6 +54,8 @@ def _step_command(
             str(rounds),
             "--risk-profile",
             risk_profile,
+            "--mode",
+            analysis_mode,
         ]
     raise ValueError(f"未知步骤: {step}")
 
@@ -83,6 +86,7 @@ def _collect_artifacts(stock_code: str) -> Dict[str, str | None]:
         "stocks60_json": _latest("reports/stocks60_*.json"),
         "analysis_html": _latest(f"reports/report_{stock_code}_*.html"),
         "analysis_json": _latest(f"reports/report_{stock_code}_*.json"),
+        "investment_brief": _latest("reports/investment_brief_*.md"),
     }
 
 
@@ -107,6 +111,12 @@ def main() -> int:
     )
     parser.add_argument("--rounds", type=int, default=1)
     parser.add_argument(
+        "--analysis-mode",
+        choices=["auto", "llm", "rules"],
+        default=os.environ.get("NASDX_ANALYSIS_MODE", "auto"),
+        help="auto=LLM可用则用LLM，否则规则深度报告；rules=强制无API规则版；llm=强制LLM",
+    )
+    parser.add_argument(
         "--risk-profile",
         choices=["conservative", "balanced", "aggressive"],
         default=os.environ.get("NASDX_RISK_PROFILE", "balanced"),
@@ -130,7 +140,7 @@ def main() -> int:
     print("=" * 72, flush=True)
 
     for idx, (step, label) in enumerate(steps, 1):
-        cmd = _step_command(step, stock_code, args.rounds, args.risk_profile)
+        cmd = _step_command(step, stock_code, args.rounds, args.risk_profile, args.analysis_mode)
         print(f"\n[STEP {idx}/{len(steps)}] {label}", flush=True)
         print("[CMD] " + " ".join(str(part) for part in cmd), flush=True)
         if args.dry_run:
@@ -149,10 +159,10 @@ def main() -> int:
         return 0
 
     if not args.skip_portfolio_plan:
-        print("\n[STEP FINAL] 生成组合级投资路线", flush=True)
-        plan = build_portfolio_plan(risk_profile=args.risk_profile)
-        paths = save_portfolio_plan(plan)
-        print(f"[NASDX-WORKFLOW] 投资路线: {paths['markdown']}", flush=True)
+        print("\n[STEP FINAL] 生成组合级投资路线和最终简报", flush=True)
+        brief, paths = build_and_save_investment_brief(risk_profile=args.risk_profile)
+        print(f"[NASDX-WORKFLOW] 最终简报: {paths['markdown']}", flush=True)
+        print(f"[NASDX-WORKFLOW] 方向: {brief.get('primary_bias')}", flush=True)
 
     print("\n[NASDX-WORKFLOW] 产物路径", flush=True)
     for name, path in _collect_artifacts(stock_code).items():
