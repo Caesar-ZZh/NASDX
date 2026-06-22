@@ -6,6 +6,7 @@
 - Added `docs/SUBAGENT_WORKFLOW.md` to document the subagent collaboration model and automation safety boundaries.
 - Added `run_product_readiness.py` as a product-readiness runner for unit tests, final audit, and optional environment-only LLM smoke validation.
 - Added contract tests for the subagent templates, workflow documentation, and readiness runner.
+- Made `requirements_nasdx.txt` versionable, expanded its runtime dependencies, and added a final-audit dependency manifest check.
 
 ## 2026-06-18
 
