@@ -78,7 +78,8 @@ class Backtester:
     ) -> BacktestResult:
         """
         运行回测
-        signal_func(date, price_data) → dict{code: weight}（权重合计≤1）
+        signal_func(date, past_data) → dict{code: weight}（权重合计≤1）
+        past_data 只包含 date 之前的行情，避免用当日收盘生成同日成交信号。
         """
         # 合并所有收盘价
         close_all = pd.DataFrame({
@@ -123,9 +124,13 @@ class Backtester:
 
             # 再平衡
             if date in rebal_dates:
-                # 调用信号函数
-                past_data = {c: df[df.index <= date] for c, df in price_data.items()}
-                target_weights = signal_func(date, past_data)
+                # 信号只能看见上一根 bar；当日价格仅用于执行与估值。
+                past_data = {
+                    c: sliced
+                    for c, df in price_data.items()
+                    if not (sliced := df[df.index < date]).empty
+                }
+                target_weights = signal_func(date, past_data) if past_data else {}
 
                 if target_weights:
                     capital, holdings, cost_basis, day_trades = self._rebalance(

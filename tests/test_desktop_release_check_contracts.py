@@ -81,8 +81,8 @@ class DesktopReleaseCheckContractsTest(unittest.TestCase):
                 "portable_package",
                 "portable_smoke",
                 "installed_layout_smoke",
-                "release_evidence",
                 "installer_inputs",
+                "release_evidence",
                 "final_audit",
             ],
             labels,
@@ -152,6 +152,7 @@ class DesktopReleaseCheckContractsTest(unittest.TestCase):
         self.assertIn("portable_zip_smoke", labels)
         self.assertLess(labels.index("installed_layout_smoke"), labels.index("portable_zip"))
         self.assertLess(labels.index("portable_zip_smoke"), labels.index("installer_inputs"))
+        self.assertLess(labels.index("installer_inputs"), labels.index("release_evidence"))
         self.assertIn("build_portable_zip.ps1", joined)
         self.assertIn("smoke_portable_zip.ps1", joined)
         self.assertIn("dist\\NASDX-Desktop-portable.zip", joined)

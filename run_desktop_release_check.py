@@ -206,11 +206,6 @@ def build_commands(
             argv=installed_smoke_args,
             timeout=smoke_timeout + 60,
         ),
-        CommandSpec(
-            label="release_evidence",
-            argv=release_evidence_args,
-            timeout=120,
-        ),
     ]
     if zip_package:
         commands.extend(
@@ -220,6 +215,13 @@ def build_commands(
             ]
         )
     commands.append(CommandSpec(label="installer_inputs", argv=installer_args, timeout=120 if not compile_installer else 300))
+    commands.append(
+        CommandSpec(
+            label="release_evidence",
+            argv=release_evidence_args,
+            timeout=120,
+        )
+    )
     if include_final_audit:
         commands.append(
             CommandSpec(
@@ -310,7 +312,7 @@ def main() -> int:
     parser.add_argument(
         "--write-evidence",
         action="store_true",
-        help="write release evidence JSON after portable smoke instead of printing it",
+        help="write release evidence JSON after release artifacts instead of printing it",
     )
     parser.add_argument(
         "--evidence-output",

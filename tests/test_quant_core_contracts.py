@@ -84,6 +84,24 @@ class QuantCoreContractsTest(unittest.TestCase):
         self.assertTrue(math.isfinite(result.total_return))
         self.assertTrue(math.isfinite(result.max_drawdown))
 
+    def test_backtester_signal_data_excludes_execution_day(self):
+        prices = {"AAA": _price_frame(periods=10)}
+        backtester = Backtester(initial_capital=100_000, commission_rate=0.0, stamp_duty=0.0, slippage=0.0)
+        seen_dates = []
+
+        def signal(date, data):
+            seen_dates.append(date)
+            for frame in data.values():
+                self.assertLess(frame.index.max(), date)
+                self.assertNotIn(date, frame.index)
+            return {"AAA": 1.0}
+
+        result = backtester.run(prices, signal, rebalance_freq="D")
+
+        self.assertGreater(result.total_trades, 0)
+        self.assertEqual(prices["AAA"].index[1], seen_dates[0])
+        self.assertEqual(prices["AAA"].index[1], pd.Timestamp(result.trades[0].date))
+
     def test_strategy_helpers_return_expected_weights(self):
         prices = {
             "FAST": _price_frame(start=10.0, step=0.2),
