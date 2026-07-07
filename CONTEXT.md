@@ -1,9 +1,9 @@
 # CONTEXT
 
-- 当前：Milestone 8.34 已完成；Inno Setup 7 的 ISCC 自动发现、安装包编译、真实安装/启动烟测/卸载回环均已验证通过，`streamlit run app.py` 临时端口探活返回 HTTP 200。
-- 上次停在：安装包 `dist\installer\NASDX-Desktop-Setup.exe` 哈希为 `1583641be78bb3130801ecb218a0f707c9cbab16844cdbf4069c59a4512ba995`，portable zip 哈希为 `4db117b15d000fe4c55bfe3730fb972b8d229e5e961f4f3c8444320590371f81`。
-- 关键决定：继续保留 Streamlit 和现有 CLI，桌面化先走 launcher + portable zip + Inno Setup installer；selector 只能按独立模块/页面方式渐进迁移，不能覆盖当前投研 workflow。
-- 原因：当前目标是可交付 Windows 桌面入口和可复现打包链路；不重写 `app.py`，避免破坏既有工作流。已修正当前树里 selector workflow 把 `stock_code=None` 传给深度分析的问题：dry-run 显示占位候选，真实运行从 selector latest 报告选择首个候选，无候选则安全停止。
+- 当前：第一轮系统审计文档已新增：`PERFORMANCE_AUDIT.md`、`STRATEGY_AUDIT.md`、`PRODUCT_FLOW_AUDIT.md`、`DESKTOP_RELEASE_AUDIT.md`、`ARCHITECTURE_AUDIT.md`、`TEST_COVERAGE_AUDIT.md`、`MASTER_AUDIT.md`；未改业务代码。
+- 上次停在：待验证、提交、推送，并把 P0/P1 审计问题登记到 GitHub Issues。
+- 关键决定：第一轮只做审计和文档；继续保留 Streamlit 和现有 CLI，不重写 `app.py`，不迁移 Electron/Tauri/PySide6。
+- 原因：审计确认桌面 MVP 基本成熟，但策略可信度、报告/runtime 路径、性能阻塞和产品闭环仍需分阶段修复；当前正式 portable 包 release evidence 因 `.venv` 内 `__pycache__` 失败，属于发布前 P0。
 
 ## Desktop Packaging
 
