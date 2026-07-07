@@ -269,6 +269,10 @@ class DesktopPackagingContractsTest(unittest.TestCase):
             "--page plan",
             "Get-CimInstance Win32_Process",
             "_smoke_runtime",
+            "Remove-PythonCacheArtifacts",
+            "__pycache__",
+            "*.pyc",
+            "*.pyo",
         ]:
             self.assertIn(marker, text)
 
@@ -304,6 +308,10 @@ class DesktopPackagingContractsTest(unittest.TestCase):
             "reports",
             "CheckShortcuts",
             "NASDX installed smoke passed",
+            "Remove-PythonCacheArtifacts",
+            "__pycache__",
+            "*.pyc",
+            "*.pyo",
         ]:
             self.assertIn(marker, text)
 

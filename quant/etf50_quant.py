@@ -82,6 +82,7 @@ def run_etf50_quant(
         }
     """
     # ⚡ 延迟导入：在真正执行时才加载重量级依赖
+    global np, pd
     import numpy as np
     import pandas as pd
     from quant.patch_requests import configure_requests
@@ -172,25 +173,26 @@ def run_etf50_quant(
         for r, rank in zip(valid, ranks):
             r.factor_rank = rank
 
-    # ── Phase 3: 组合回测（Top N 等权）───────────────────
+    # ── Phase 3: 组合回测（滚动 Top N 等权）──────────────
     bt_result = None
     portfolio_weights = {}
 
     if len(price_cache) >= 3:
         if verbose:
-            print(f"\n  ⚡ 回测 Top{top_n} 组合...")
+            print(f"\n  ⚡ 回测滚动 Top{top_n} 组合...")
         try:
-            top_codes = [r.code for r in sorted(valid, key=lambda x: -x.factor_score)[:top_n]]
-            top_prices = {c: price_cache[c] for c in top_codes if c in price_cache}
+            current_top_codes = [r.code for r in sorted(valid, key=lambda x: -x.factor_score)[:top_n]]
+            backtest_prices = {r.code: price_cache[r.code] for r in valid if r.code in price_cache}
 
             from quant.backtest import Backtester, strategy_factor_rank
             bt = Backtester(initial_capital=100_000)
 
-            def _top_n_signal(date, pdata):
-                return {c: 1.0 / len(top_codes) for c in top_codes if c in pdata}
+            def _rolling_top_n_signal(date, pdata):
+                return strategy_factor_rank(date, pdata, top_n=top_n)
 
-            bt_result = bt.run(top_prices, _top_n_signal, rebalance_freq=rebalance_freq)
-            portfolio_weights = {c: 1.0 / len(top_codes) for c in top_codes}
+            bt_result = bt.run(backtest_prices, _rolling_top_n_signal, rebalance_freq=rebalance_freq)
+            if current_top_codes:
+                portfolio_weights = {c: 1.0 / len(current_top_codes) for c in current_top_codes}
 
             if verbose:
                 print(f"  组合回测: 收益={bt_result.total_return:.1%} 夏普={bt_result.sharpe_ratio:.2f} 回撤={bt_result.max_drawdown:.1%}")

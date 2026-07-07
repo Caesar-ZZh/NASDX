@@ -23,6 +23,35 @@ if (-not (Test-Path -LiteralPath $InstallPath)) {
     throw "Installed NASDX directory does not exist: $InstallPath"
 }
 
+function Remove-PythonCacheArtifacts {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootPath
+    )
+
+    if (-not (Test-Path -LiteralPath $RootPath -PathType Container)) {
+        return
+    }
+    $ResolvedRoot = [System.IO.Path]::GetFullPath($RootPath)
+    $RootPrefix = $ResolvedRoot.TrimEnd("\") + "\"
+
+    Get-ChildItem -LiteralPath $ResolvedRoot -Directory -Recurse -Force -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Name -eq "__pycache__" -and
+            [System.IO.Path]::GetFullPath($_.FullName).StartsWith($RootPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+        } |
+        Sort-Object { $_.FullName.Length } -Descending |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
+
+    foreach ($Pattern in @("*.pyc", "*.pyo")) {
+        Get-ChildItem -LiteralPath $ResolvedRoot -File -Recurse -Force -Filter $Pattern -ErrorAction SilentlyContinue |
+            Where-Object {
+                [System.IO.Path]::GetFullPath($_.FullName).StartsWith($RootPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+            } |
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($PythonExe)) {
     $VenvPython = Join-Path $InstallPath ".venv\Scripts\python.exe"
     if (Test-Path -LiteralPath $VenvPython) {
@@ -82,6 +111,9 @@ if ($CheckShortcuts) {
 
 $SmokeRuntime = [System.IO.Path]::GetFullPath((Join-Path ([System.IO.Path]::GetTempPath()) ("nasdx-installed-smoke-" + [guid]::NewGuid().ToString("N"))))
 New-Item -ItemType Directory -Force -Path $SmokeRuntime | Out-Null
+if (-not $NoClean) {
+    Remove-PythonCacheArtifacts -RootPath $InstallPath
+}
 
 $OldRuntimeDir = $env:NASDX_RUNTIME_DIR
 $OldHistoryDb = $env:NASDX_HISTORY_DB
@@ -209,5 +241,8 @@ try {
 
     if ((Test-Path -LiteralPath $SmokeRuntime) -and -not $NoClean) {
         Remove-Item -LiteralPath $SmokeRuntime -Recurse -Force
+    }
+    if (-not $NoClean) {
+        Remove-PythonCacheArtifacts -RootPath $InstallPath
     }
 }
