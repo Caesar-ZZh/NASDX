@@ -15,12 +15,22 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+wheelhouse/
 .venv/
 venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.spec
 
 # 日志
 *.txt
 !requirements_nasdx.txt
+!requirements-dev.txt
+!requirements_desktop.txt
+!packaging/windows/constraints-win.txt
 nasdx_*.txt
 fetch_log.txt
 pip_install.txt
@@ -40,5 +50,8 @@ config.toml
 .env
 scheduled_tasks.lock
 streamlit.log
+desktop_*.log
+desktop_logs/
 focus_ind.json
 nasdx_history.db
+models/signal_confidence.json
