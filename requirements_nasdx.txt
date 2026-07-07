@@ -3,13 +3,14 @@
 
 # 数据获取（已有）
 akshare>=1.16.87
+mootdx>=0.11.7
 pandas>=2.2.3
 numpy>=2.0.0
 requests>=2.32.0
 
 # AI 调用
 openai>=1.66.5        # OpenAI 兼容接口（DeepSeek/Qwen/GPT-4o）
-tenacity>=9.0.0       # 重试机制
+tenacity>=8.1.0,<9.0.0 # mootdx 依赖 tenacity<9，保持通达信 fallback 兼容
 
 # Web UI
 streamlit>=1.40.0

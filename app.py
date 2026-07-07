@@ -113,6 +113,12 @@ def load_etf50():
     with open(files[0], encoding="utf-8") as f: return json.load(f)
 
 @st.cache_data(ttl=60, show_spinner=False)
+def load_stock_selector():
+    path = ROOT / "reports" / "stock_selector_latest.json"
+    if not path.exists(): return None
+    with open(path, encoding="utf-8") as f: return json.load(f)
+
+@st.cache_data(ttl=60, show_spinner=False)
 def load_stocks60():
     files = sorted(ROOT.glob("reports/stocks60_*.json"), key=os.path.getmtime, reverse=True)
     if not files: return None
@@ -207,7 +213,7 @@ for k, v in DEFAULTS.items():
 
 # 从 URL 读当前页面（首次加载 / 刷新时恢复）
 _qp = st.query_params
-_valid_pages = {"home","plan","etf50","stocks60","deep","quant","ths"}
+_valid_pages = {"home","plan","etf50","stocks60","deep","quant","selector","ths"}
 if "page" not in st.session_state:
     st.session_state.page = _qp.get("page","home") if _qp.get("page","home") in _valid_pages else "home"
 
@@ -242,6 +248,7 @@ with st.sidebar:
         ("stocks60", "📈", "个股扫描"),
         ("deep",     "🤖", "深度分析"),
         ("quant",    "⚗️", "量化引擎"),
+        ("selector", "🎯", "今日选股"),
         ("ths",      "🔗", "同花顺"),
     ]
     pg = st.session_state.page
@@ -427,6 +434,17 @@ if pg == "home":
         """, unsafe_allow_html=True)
         if st.button("进入 →", key="g_deep", use_container_width=True):
             _nav_to("deep")
+
+    with c0:
+        st.markdown("""
+        <div class="n-card n-card-accent-yellow">
+          <div style="font-size:20px;margin-bottom:12px">🎯</div>
+          <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">今日选股</div>
+          <div class="n-sub" style="margin-bottom:12px">全 A 动态候选池 · 多维度评分</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("进入 →", key="g_sel", use_container_width=True):
+            _nav_to("selector")
 
     st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
 
@@ -1641,6 +1659,19 @@ elif pg == "ths":
     except Exception as _e:
         import traceback
         st.error(f"同花顺页面加载失败：{_e}")
+        st.code(traceback.format_exc())
+
+
+# ══════════════════════════════════════════════════════
+#  今日选股页（路由到独立模块）
+# ══════════════════════════════════════════════════════
+elif pg == "selector":
+    try:
+        import selector_page as _sp
+        _sp.render_selector_page(st, ROOT)
+    except Exception as _e:
+        import traceback
+        st.error(f"选股页面加载失败：{_e}")
         st.code(traceback.format_exc())
 
 

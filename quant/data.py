@@ -55,15 +55,16 @@ def _is_etf(code: str) -> bool:
 def _validate_ohlcv(df: pd.DataFrame) -> bool:
     """
     数据质量检查
-    - close 列非空
-    - close 非全零
+    - close / 收盘 列非空
+    - close / 收盘 非全零
     - 至少 5 行数据
     """
     if df is None or df.empty or len(df) < 5:
         return False
-    if 'close' not in df.columns:
+    close_col = "close" if "close" in df.columns else ("收盘" if "收盘" in df.columns else None)
+    if not close_col:
         return False
-    close_val = pd.to_numeric(df['close'], errors='coerce')
+    close_val = pd.to_numeric(df[close_col], errors="coerce")
     if close_val.isna().all() or (close_val == 0).all():
         return False
     return True
@@ -93,6 +94,89 @@ def retry_with_backoff(max_attempts: int = 3, initial_wait: float = 0.5):
     return decorator
 
 
+def _get_tdxrs_market(code: str) -> int:
+    """
+    推断通达信市场代码：
+    沪市 (1): 60, 68, 51, 50, 58, 56, 55, 59
+    深市 (0): 00, 30, 15, 16, 12, 39
+    """
+    if not isinstance(code, str) or not code:
+        return 1
+    if code.startswith(("60", "68", "51", "50", "58", "56", "55", "59")):
+        return 1
+    return 0
+
+
+@retry_with_backoff(max_attempts=3, initial_wait=0.5)
+def _get_tdxrs(code: str, days: int) -> Optional[pd.DataFrame]:
+    """
+    通过 tdxrs (Rust 极速接口) 获取历史 K 线
+    """
+    try:
+        import tdxrs
+        from tdxrs import TdxHqClient
+        from tdxrs.constants import KLINE_DAILY
+
+        market = _get_tdxrs_market(code)
+        client = TdxHqClient()
+        if not client.connect_to_any():
+            return None
+
+        try:
+            if hasattr(client, "get_security_bars_dataframe"):
+                df = client.get_security_bars_dataframe(KLINE_DAILY, market, code, 0, days)
+            else:
+                bars = client.get_security_bars(KLINE_DAILY, market, code, 0, days)
+                if not bars:
+                    return None
+                df = pd.DataFrame(bars)
+
+            if isinstance(df, pd.DataFrame) and len(df) > 5:
+                return df
+        finally:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return None
+
+
+def _get_tdxrs_quotes(codes: list[str]) -> dict[str, dict]:
+    """
+    通过 tdxrs 获取 A股/ETF 实时五档盘口与最新价
+    """
+    try:
+        import tdxrs
+        from tdxrs import TdxHqClient
+
+        reqs = [(_get_tdxrs_market(c), c) for c in codes]
+        client = TdxHqClient()
+        if not client.connect_to_any():
+            return {}
+
+        try:
+            quotes = client.get_security_quotes(reqs)
+            result = {}
+            if quotes:
+                for q in quotes:
+                    c = str(q.get("code", ""))
+                    if c in codes:
+                        price = float(q.get("price", 0))
+                        chg = float(q.get("reversed_bytes0", 0) if "reversed_bytes0" in q else q.get("chg", 0))
+                        vol = float(q.get("amount", 0) or q.get("vol", 0))
+                        result[c] = {"price": price, "chg": chg, "volume": vol}
+            return result
+        finally:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+    except Exception:
+        return {}
+
+
 # ══════════════════════════════════════════════════════════
 #  统一 OHLCV 数据获取
 # ══════════════════════════════════════════════════════════
@@ -107,7 +191,7 @@ def get_ohlcv(
     参数：
       code: 股票/ETF 代码
       days: 查询天数
-      source: 数据源 ("auto", "akshare", "mootdx")
+      source: 数据源 ("auto", "tdxrs", "akshare", "mootdx")
 
     返回：
       DataFrame，列为 [open, high, low, close, volume, amount, change_pct]
@@ -119,6 +203,12 @@ def get_ohlcv(
     end_s   = end.strftime("%Y%m%d")
 
     df = None
+
+    # 尝试 tdxrs (Rust 极速引擎，若可用)
+    if source in ("tdxrs", "auto"):
+        df = _get_tdxrs(code, days)
+        if df is not None and _validate_ohlcv(df):
+            return _standardize_columns(df)
 
     # 尝试 akshare
     if source in ("akshare", "auto"):
@@ -143,6 +233,7 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
         "日期": "date", "开盘": "open", "收盘": "close",
         "最高": "high", "最低": "low", "成交量": "volume",
         "涨跌幅": "change_pct", "成交额": "amount",
+        "vol": "volume",
     }
     df.rename(columns=col_map, inplace=True)
 
@@ -294,8 +385,13 @@ def get_batch_ohlcv(codes: list[str], days: int = 252, verbose: bool = True) -> 
 def get_realtime_quotes(codes: list[str]) -> dict[str, dict]:
     """
     获取实时行情（最新价、涨幅、成交额）
-    优先级：ths_bridge > akshare
+    优先级：tdxrs > ths_bridge > akshare
     """
+    # 优先尝试 tdxrs (Rust 极速引擎)
+    tdxrs_quotes = _get_tdxrs_quotes(codes)
+    if tdxrs_quotes:
+        return tdxrs_quotes
+
     try:
         from ths_bridge import get_realtime_batch
         return get_realtime_batch(codes)

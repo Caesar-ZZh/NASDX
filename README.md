@@ -96,6 +96,82 @@ NASDX
 pip install -r requirements_nasdx.txt
 ```
 
+Windows PowerShell 推荐使用独立虚拟环境：
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -U pip
+python -m pip install -r requirements_nasdx.txt
+```
+
+开发/测试工具单独安装，避免把 lint、测试和 hooks 混进普通运行环境：
+
+```powershell
+python -m pip install -r requirements-dev.txt
+```
+
+常用开发检查：
+
+```powershell
+python -m pytest
+python -m ruff check --no-cache .
+python -B -m unittest discover -s tests
+python -B -m unittest tests.test_desktop_launcher_contracts -v
+python -B run_security_checks.py --skip-optional
+python -B run_desktop_doctor.py
+python -B run_desktop_completion_audit.py
+python -B run_desktop_release_evidence.py --json
+python -B run_final_audit.py
+python -B run_product_readiness.py
+python -B run_desktop_release_check.py
+```
+
+可选安装本地提交前检查：
+
+```powershell
+pre-commit install
+pre-commit run --all-files
+```
+
+轻量安全检查默认只扫描可入库文本文件里的疑似密钥，并跳过未安装的外部工具：
+
+```powershell
+python -B run_security_checks.py --skip-optional
+```
+
+若已单独安装 `pip-audit`、`bandit`、`detect-secrets`，可以显式运行可选检查：
+
+```powershell
+python -B run_security_checks.py --run-optional
+```
+
+API Key 只通过环境变量或网页会话输入，不写入 Git 跟踪文件：
+
+```powershell
+$env:NASDX_API_KEY="sk-xxxx"
+$env:NASDX_BASE_URL="https://api.deepseek.com"
+$env:NASDX_MODEL="deepseek-chat"
+```
+
+Windows 桌面启动器也支持本地用户配置文件。推荐路径：
+
+```powershell
+New-Item -ItemType Directory -Force "$env:APPDATA\NASDX"
+Copy-Item config.example.toml "$env:APPDATA\NASDX\config.toml"
+notepad "$env:APPDATA\NASDX\config.toml"
+python -B desktop\launcher.py --dry-run --page plan
+```
+
+也可以显式指定配置文件：
+
+```powershell
+$env:NASDX_CONFIG_FILE="D:\secure\nasdx\config.toml"
+python -B desktop\launcher.py --page plan
+```
+
+优先级是：当前进程环境变量 > `NASDX_CONFIG_FILE` 指定文件 > `%APPDATA%\NASDX\config.toml` > 项目内被忽略的 `config.toml`。`--dry-run` 只显示配置路径和已加载字段名，不打印 API Key 值。
+
 ### 2. 获取数据（无需 API Key）
 
 ```bash
@@ -138,6 +214,9 @@ python run_investment_workflow.py 603501 --workflow quick --risk-profile balance
 # 一键闭环：刷新行情 + ETF50/个股双扫描 + 深度分析（较慢）
 python run_investment_workflow.py 603501 --workflow full --rounds 1 --risk-profile conservative
 
+# 一键闭环：动态选股后对 Top 候选做深度分析（无候选时会安全停止）
+python run_investment_workflow.py --workflow selector --analysis-mode rules
+
 # 只生成组合级投资路线（读取最新本地扫描和深度报告）
 python run_portfolio_plan.py --risk-profile balanced
 
@@ -159,7 +238,7 @@ python run_account_review.py --ledger trades.csv --capital 100000 --print
 # 导出复盘快照包（ZIP，含简报/路线/候选审计/执行队列/外部复核包）
 python run_review_snapshot.py --risk-profile balanced
 
-# 最终版交付自检（语法、安全、路线契约、SQLite历史库、网页入口、文档覆盖）
+# 最终版交付自检（语法、安全、路线契约、SQLite历史库、网页入口、桌面交付资产、文档覆盖）
 python run_final_audit.py
 
 # 产品化巡检聚合入口（单测 + 最终审计）
@@ -172,6 +251,151 @@ python run_product_readiness.py --llm-smoke
 双击 启动网页.bat
 # 或: streamlit run app.py
 ```
+
+### 5. Windows 桌面启动器 MVP
+
+当前桌面入口仍复用现有 Streamlit UI，不迁移前端、不删除 `.bat` 和 CLI 脚本。桌面控制面板提供 Start、Stop、Open App、Settings、Logs、Data Refresh 入口；底层启动器会在本机启动 `app.py`，默认绑定 `127.0.0.1`，可打开指定页面：
+
+完整 Windows 桌面使用说明见 `docs/WINDOWS_DESKTOP.md`。
+
+```powershell
+# 打开桌面控制面板
+python -B desktop\control_panel.py
+
+# 只读检查桌面环境、配置元数据和可选打包工具
+python -B run_desktop_doctor.py
+
+# 输出桌面化完成度证据矩阵，显式标出 installer 未闭环项
+python -B run_desktop_completion_audit.py
+
+# 需要确认 runtime/report 路径可写时再显式加写入探针
+python -B run_desktop_doctor.py --check-write
+
+# 或直接双击/运行桌面批处理
+.\启动NASDX桌面.bat
+
+# 验证批处理入口，不打开 GUI
+.\启动NASDX桌面.bat --dry-run --page plan
+
+# 预览当前用户快捷方式，不写入
+powershell -ExecutionPolicy Bypass -File packaging\windows\create_shortcuts.ps1 -Desktop
+
+# 确认后创建开始菜单和桌面快捷方式
+powershell -ExecutionPolicy Bypass -File packaging\windows\create_shortcuts.ps1 -Desktop -Apply
+
+# 查看将要执行的 Streamlit 命令，不启动服务
+python -B desktop\launcher.py --dry-run --page plan
+
+# 启动后检查就绪再自动关闭，适合发布前 smoke
+python -B desktop\launcher.py --headless-smoke --timeout 30 --no-browser
+
+# 正常打开投资路线页
+python -B desktop\launcher.py --page plan
+```
+
+启动器会读取安全本地配置，并把允许字段转换为子进程环境变量；父进程中的 `NASDX_API_KEY`、`NASDX_BASE_URL`、`NASDX_MODEL`、`NASDX_HISTORY_DB` 等显式环境变量优先。启动器不会创建或写入 `.env`、`config.toml` 或报告目录。
+源码 checkout 默认使用项目目录作为运行目录；便携包或只读安装场景可显式指定运行目录：
+
+```powershell
+$env:NASDX_RUNTIME_DIR="$env:LOCALAPPDATA\NASDX"
+python -B desktop\launcher.py --page plan
+```
+
+启动器会设置 `NASDX_HISTORY_DB` 默认指向运行目录下的 `nasdx_history.db`；如果父进程已设置该变量，则保留用户指定值。`NASDX_REPORTS_DIR` 目前作为后续报告目录迁移的兼容环境变量预留，现有 Streamlit/CLI 默认仍读取项目内 `reports/`，不改变报告结构。
+可在本地配置的 `[paths]` 中设置 `runtime_dir`、`history_db`、`reports_dir`；相对路径按配置文件所在目录解析。
+控制面板的 Settings 按同一规则打开或创建用户级 `config.toml`，Logs 打开运行目录下的 `desktop_logs`，Data Refresh 只调用现有 `fetch_stock_data.py`，不会自动触发扫描、交易或部署同步。
+
+如果需要原生桌面窗口体验，可单独安装可选 WebView 依赖：
+
+```powershell
+python -m pip install -r requirements_desktop.txt
+python -B desktop\launcher.py --webview --page plan
+```
+
+`--webview` 依赖本机 WebView2/pywebview；不可用时会回退到普通浏览器，不影响 `.bat`、Streamlit 或 CLI 使用。
+
+### 6. Windows 便携包骨架
+
+当前打包策略先生成便携文件夹，不做 one-file 全量打包：
+
+```powershell
+# 快速验证复制/排除规则，不安装依赖
+powershell -ExecutionPolicy Bypass -File packaging\windows\build_portable.ps1 -SkipDependencyInstall
+
+# 可选：只构建启动器 exe 的计划检查，不打包 app.py/量化依赖，也不安装 PyInstaller
+powershell -ExecutionPolicy Bypass -File packaging\windows\build_launcher_exe.ps1 -SkipBuild
+
+# 从包目录启动 Streamlit 并检查 plan 页、静态 CSS、runtime 路径和残留进程
+powershell -ExecutionPolicy Bypass -File packaging\windows\smoke_portable.ps1 -PackageDir dist\NASDX-Desktop
+
+# 给 portable 包创建当前用户快捷方式，先预览再显式 -Apply
+powershell -ExecutionPolicy Bypass -File dist\NASDX-Desktop\packaging\windows\create_shortcuts.ps1 -Desktop
+powershell -ExecutionPolicy Bypass -File dist\NASDX-Desktop\packaging\windows\create_shortcuts.ps1 -Desktop -Apply
+
+# 用便携包模拟已安装目录形态，检查控制面板、runtime 和 plan 页
+powershell -ExecutionPolicy Bypass -File packaging\windows\smoke_installed.ps1 -InstallDir dist\NASDX-Desktop -Timeout 60
+
+# 把已验证的便携目录打成 zip，并解压到临时目录后再次 smoke
+# 会同时生成 dist\NASDX-Desktop-portable.zip.sha256 和 dist\NASDX-Desktop-portable.manifest.json
+powershell -ExecutionPolicy Bypass -File packaging\windows\build_portable_zip.ps1 -PackageDir dist\NASDX-Desktop -OutputZip dist\NASDX-Desktop-portable.zip
+powershell -ExecutionPolicy Bypass -File packaging\windows\smoke_portable_zip.ps1 -ZipPath dist\NASDX-Desktop-portable.zip -Timeout 60
+
+# 真正准备便携目录，会在 dist\NASDX-Desktop\.venv 安装核心运行依赖
+powershell -ExecutionPolicy Bypass -File packaging\windows\build_portable.ps1
+
+# 如需把 pywebview 一并装进包内 venv，再显式打开可选项
+powershell -ExecutionPolicy Bypass -File packaging\windows\build_portable.ps1 -IncludeWebView
+
+# 网络不稳定时，先构建本地 wheelhouse，再离线安装到便携包
+powershell -ExecutionPolicy Bypass -File packaging\windows\build_wheelhouse.ps1
+powershell -ExecutionPolicy Bypass -File packaging\windows\build_portable.ps1 -WheelhouseDir wheelhouse\nasdx-win-py311
+
+# 验证安装器输入，不编译、不安装
+powershell -ExecutionPolicy Bypass -File packaging\windows\build_installer.ps1 -SkipPortableBuild -SkipCompile
+
+# Inno Setup 编译器引导默认只预览，不安装系统软件
+powershell -ExecutionPolicy Bypass -File packaging\windows\install_inno_setup.ps1
+powershell -ExecutionPolicy Bypass -File packaging\windows\install_inno_setup.ps1 -Install -AcceptAgreements
+
+# 安装器发布预检，只读检查 portable/zip/hash/manifest/ISCC 和下一步命令
+powershell -ExecutionPolicy Bypass -File packaging\windows\preflight_installer_release.ps1 -RequireVenv
+
+# 本机已安装 Inno Setup 7/6 时，编译安装器到 dist\installer\
+powershell -ExecutionPolicy Bypass -File packaging\windows\build_installer.ps1 -SkipPortableBuild
+
+# 在一次性 Windows 用户或 VM 里安装后，验证真实安装目录
+powershell -ExecutionPolicy Bypass -File packaging\windows\smoke_installed.ps1 -InstallDir "$env:LOCALAPPDATA\Programs\NASDX Desktop" -Timeout 60
+
+# 在一次性 Windows 用户或 VM 里执行真实安装/验证/卸载闭环，并证明使用包内 .venv
+powershell -ExecutionPolicy Bypass -File packaging\windows\smoke_installer_roundtrip.ps1 -InstallerPath dist\installer\NASDX-Desktop-Setup.exe -AllowInstall -CheckShortcuts -RequireVenv -Timeout 60
+
+# 桌面发布前聚合检查：lint、桌面合同、轻量安全检查、隔离 portable 包、smoke、installer 输入、final audit
+python -B run_desktop_release_check.py
+python -B run_desktop_release_check.py --write-evidence
+
+# 汇总桌面发布证据；可用 --package-dir 指向本次被测包
+python -B run_desktop_release_evidence.py --json
+python -B run_desktop_release_evidence.py --json --package-dir dist\NASDX-Desktop-check
+
+# 真正准备带 .venv 的包时显式打开；慢网络可调大 package/pip 超时；已安装 Inno Setup 7/6 时再编译 installer
+python -B run_desktop_release_check.py --full-package --package-timeout 1200 --pip-timeout 120 --pip-retries 3
+python -B run_desktop_release_check.py --full-package --zip-package --package-timeout 1200 --zip-timeout 900 --pip-timeout 120 --pip-retries 3
+python -B run_desktop_release_check.py --full-package --compile-installer
+```
+
+输出目录 `dist\NASDX-Desktop\`、默认快速门禁目录 `dist\NASDX-Desktop-check\` 和可选 `dist\launcher-exe\` 都被 Git 忽略。脚本只复制源码、配置模板、依赖清单、池配置和桌面启动脚本，排除并 scrub `reports/`、`stock_data_*.json`、`nasdx_history.db`、`.env`、`config.toml`、日志、`__pycache__/`、`*.pyc`、缓存和构建产物；依赖安装完成后会保留包内 `.venv`，但再次清理 `.venv` 中的 Python 缓存。
+包内 `PACKAGING_MANIFEST.json` 使用 `path_policy=relative-or-redacted`，只记录相对路径或 `<source-checkout>` / `<external-path>` 占位符，不写入打包机的 `C:\Users\...` 绝对目录。
+`启动NASDX桌面.bat` 默认打开桌面控制面板；如果控制面板不可用，会回退到 direct launcher。批处理会透传 `--dry-run`、`--page`、`--timeout` 等参数给控制面板，便于 smoke 验证真实入口。`create_shortcuts.ps1` 默认只预览，传 `-Apply` 才会给当前用户写入开始菜单或桌面快捷方式。`pywebview` 不是默认打包依赖；没有它时 direct launcher 会回退到普通浏览器，仍然复用现有 Streamlit UI。
+`build_launcher_exe.ps1` 是可选 PyInstaller 路径，只冻结 `desktop\exe_launcher.py` 这个很薄的启动器；生成的 exe 仍会调用 portable 包内 `.venv\Scripts\python.exe -B desktop\control_panel.py`，不会把 `app.py`、AkShare、pandas 或投研逻辑打进单文件 exe。默认先用 `-SkipBuild` 做计划检查；只有打包机已安装 PyInstaller 时再去掉该参数。
+GitHub Actions 的 Windows 桌面检查会运行 `python -B run_desktop_release_check.py --skip-final-audit --fail-fast`，默认把快速 portable 包写到 `dist\NASDX-Desktop-check\`，避免覆盖带 `.venv` 的正式发行包；完整投资数据审计仍以本地 `run_product_readiness.py` 为准。
+显式运行 `--full-package` 时，portable 和 installed-layout smoke 会要求使用 `dist\NASDX-Desktop\.venv\Scripts\python.exe`，避免用开发机全局 Python 掩盖缺依赖问题。
+显式运行 `--zip-package` 时，会生成被 Git 忽略的 `dist\NASDX-Desktop-portable.zip`、`dist\NASDX-Desktop-portable.zip.sha256` 和 `dist\NASDX-Desktop-portable.manifest.json`，再校验 SHA256/`nasdx_portable_release.v1` manifest、解压到临时目录并复用包内 `smoke_installed.ps1` 验证。
+`build_portable_zip.ps1` 会在压缩前拒绝包内禁入文件，`smoke_portable_zip.ps1` 会在解压后复查 `__pycache__/`、`*.pyc`、`.env`、`config.toml`、`reports/`、日志和本地 DB；release evidence 也会把 zip entry 的禁入路径计入 `zip_forbidden_failures`。
+`run_desktop_completion_audit.py` 是只读完成度证据矩阵，会单独报告 portable runtime bundle 状态，把 `pywebview` 缺失标为 WARN，把本机缺少 `ISCC.exe` 或真实 installer roundtrip 未验证标为 INCOMPLETE；它不会启动应用、安装依赖或运行安装器。`ISCC.exe` 会从 PATH、Inno Setup 7/6 常见目录和 Windows 卸载注册表中自动发现；特殊安装位置仍可传 `-IsccPath`。
+`run_desktop_release_check.py --write-evidence` 会在 build/smoke 之后写入 ignored `dist\release-evidence\NASDX-desktop-release-evidence.json`；也可以用 `--evidence-output` 指向其他 ignored 路径。默认 release gate 仍只打印 evidence，不落盘。
+默认 release gate 没有运行 `--zip-package` 时会用 `--skip-zip` 避免把历史遗留 zip 当成本轮验证对象；显式 `--zip-package` 时才把刚构建并 smoke 过的 zip 纳入 release evidence。
+`run_desktop_release_evidence.py` 是只读发布证据包汇总，会聚合 completion audit、desktop doctor、portable/zip/installer artifact 元数据、ignored path 检查和下一步命令；默认只打印 JSON，`--package-dir` 可指向本次 release gate 验证的 `dist\NASDX-Desktop-check` 或正式 `dist\NASDX-Desktop`，传 `--write` 时才写入 ignored `dist\release-evidence\NASDX-desktop-release-evidence.json`。它还会在 `forbidden_present` 中列出包内禁入相对路径，并把数量计入 `package_forbidden_failures`；发现 `.env`、`config.toml`、`reports/`、日志、`__pycache__/`、`*.pyc`、本地数据库或构建输出时会失败，但不会读取或打印文件内容。
+`smoke_installer_roundtrip.ps1` 默认只输出 plan-only 预检，不会运行安装器；只有显式传入 `-AllowInstall` 才会安装、调用 `smoke_installed.ps1`、再运行 Inno 卸载器，适合一次性 Windows 用户或 VM。安装器卸载时会删除 `{app}` 这个应用安装目录，包括运行后生成的 Python 缓存；用户配置、报告和历史库仍在 `%APPDATA%\NASDX` 或外部目录。正式交付验证建议同时传 `-RequireVenv`，证明安装目录使用包内 `.venv` 而不是开发机全局 Python。真实 roundtrip 成功后会在 ignored `dist\installer\NASDX-Desktop-roundtrip-proof.json` 写入 proof；`run_desktop_completion_audit.py` 只有在 proof 的 installer SHA256、安装 smoke、卸载、`RequireVenv` 和快捷方式检查都匹配当前 setup 时才会把 installer roundtrip 视为 PASS。
 
 | 工作流 | 做什么 | 适合场景 |
 |---|---|---|

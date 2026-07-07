@@ -1,0 +1,22 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q -p no:cacheprovider"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "reports",
+]
+
+[tool.ruff.lint]
+# Phase 1 keeps the lint baseline conservative so existing research scripts do
+# not need broad style churn before the desktop wrapper work starts.
+select = ["E9"]

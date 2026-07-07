@@ -6,6 +6,7 @@ NASDX 一键投研工作流
 """
 import argparse
 import glob
+import json
 import os
 import subprocess
 import sys
@@ -23,6 +24,7 @@ WORKFLOW_LABELS = {
     "analysis-only": "仅深度分析",
     "quick": "刷新行情 + ETF50 扫描 + 深度分析",
     "full": "刷新行情 + ETF50/个股扫描 + 深度分析",
+    "selector": "动态选股引擎 → 对 Top 候选深度分析",
 }
 
 
@@ -31,9 +33,38 @@ def _latest(pattern: str) -> str | None:
     return files[-1] if files else None
 
 
+def _normalize_stock_code(code: object) -> str | None:
+    text = str(code or "").strip()
+    if not text:
+        return None
+    return text.zfill(6) if text.isdigit() else text
+
+
+def _select_top_selector_code(report_path: Path | None = None) -> str | None:
+    path = report_path or (ROOT / "reports" / "stock_selector_latest.json")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    candidates = data.get("candidates", {})
+    if not isinstance(candidates, dict):
+        return None
+    for bucket in ("tier_a", "tier_b", "pullback", "breakout"):
+        rows = candidates.get(bucket) or []
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if isinstance(row, dict):
+                code = _normalize_stock_code(row.get("code"))
+                if code:
+                    return code
+    return None
+
+
 def _step_command(
     step: str,
-    stock_code: str,
+    stock_code: str | None,
     rounds: int,
     risk_profile: str,
     analysis_mode: str,
@@ -44,7 +75,11 @@ def _step_command(
         return [sys.executable, "-u", str(ROOT / "scan_etf50.py")]
     if step == "scan_stocks60":
         return [sys.executable, "-u", str(ROOT / "scan_stocks_full.py")]
+    if step == "selector_run":
+        return [sys.executable, "-u", str(ROOT / "run_stock_selector.py")]
     if step == "analysis":
+        if not stock_code:
+            raise ValueError("analysis step requires a stock code")
         return [
             sys.executable,
             "-u",
@@ -76,6 +111,11 @@ def _workflow_steps(workflow: str) -> List[Tuple[str, str]]:
             ("scan_stocks60", "60只个股规则扫描"),
             ("analysis", "多 Agent 深度分析"),
         ]
+    if workflow == "selector":
+        return [
+            ("selector_run", "动态选股引擎"),
+            ("analysis", "多 Agent 深度分析（对 Top 候选）"),
+        ]
     raise ValueError(f"未知工作流: {workflow}")
 
 
@@ -102,12 +142,12 @@ def _run_step(command: List[str], timeout: int | None) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="NASDX 一键投研工作流")
-    parser.add_argument("stock_code", nargs="?", default="603501")
+    parser.add_argument("stock_code", nargs="?")
     parser.add_argument(
         "--workflow",
-        choices=["analysis-only", "quick", "full"],
+        choices=["analysis-only", "quick", "full", "selector"],
         default="analysis-only",
-        help="analysis-only=只跑深度分析；quick=刷新+ETF扫描+深度；full=刷新+双扫描+深度",
+        help="analysis-only=只跑深度分析；quick=刷新+ETF扫描+深度；full=刷新+双扫描+深度；selector=先选股再分析Top候选",
     )
     parser.add_argument("--rounds", type=int, default=1)
     parser.add_argument(
@@ -126,13 +166,16 @@ def main() -> int:
     parser.add_argument("--skip-portfolio-plan", action="store_true", help="跳过组合级投资路线生成")
     args = parser.parse_args()
 
-    stock_code = args.stock_code.strip().zfill(6)
+    stock_code = _normalize_stock_code(args.stock_code)
+    if args.workflow != "selector" and not stock_code:
+        stock_code = "603501"
     steps = _workflow_steps(args.workflow)
     timeout = None if args.timeout == 0 else args.timeout
+    display_stock = stock_code or "selector-top-candidate"
 
     print("=" * 72, flush=True)
     print(
-        f"[NASDX-WORKFLOW] {WORKFLOW_LABELS[args.workflow]} | 标的 {stock_code} | "
+        f"[NASDX-WORKFLOW] {WORKFLOW_LABELS[args.workflow]} | 标的 {display_stock} | "
         f"风险 {args.risk_profile} | 轮次 {args.rounds}",
         flush=True,
     )
@@ -140,7 +183,27 @@ def main() -> int:
     print("=" * 72, flush=True)
 
     for idx, (step, label) in enumerate(steps, 1):
-        cmd = _step_command(step, stock_code, args.rounds, args.risk_profile, args.analysis_mode)
+        if step == "analysis" and not stock_code:
+            if args.dry_run:
+                cmd = _step_command(
+                    step,
+                    "<selector-top-candidate>",
+                    args.rounds,
+                    args.risk_profile,
+                    args.analysis_mode,
+                )
+            else:
+                stock_code = _select_top_selector_code()
+                if not stock_code:
+                    print(
+                        "[NASDX-WORKFLOW] ❌ 动态选股未产生可分析候选，已停止深度分析",
+                        flush=True,
+                    )
+                    return 3
+                print(f"[NASDX-WORKFLOW] 动态选股 Top 候选: {stock_code}", flush=True)
+                cmd = _step_command(step, stock_code, args.rounds, args.risk_profile, args.analysis_mode)
+        else:
+            cmd = _step_command(step, stock_code, args.rounds, args.risk_profile, args.analysis_mode)
         print(f"\n[STEP {idx}/{len(steps)}] {label}", flush=True)
         print("[CMD] " + " ".join(str(part) for part in cmd), flush=True)
         if args.dry_run:

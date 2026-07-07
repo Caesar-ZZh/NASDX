@@ -1,0 +1,10 @@
+# NASDX development dependencies
+# Install after runtime deps:
+#   pip install -r requirements-dev.txt
+
+-r requirements_nasdx.txt
+
+# Phase 1 quality/test tools
+pytest>=8.0.0
+ruff>=0.8.0
+pre-commit>=4.0.0
