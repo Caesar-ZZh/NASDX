@@ -14,6 +14,16 @@ class StreamlitStateContractsTest(unittest.TestCase):
         self.assertNotIn('os.environ["NASDX_MODEL"]', source)
         self.assertNotIn("LLMClient._instance = None", source)
 
+    def test_app_uses_public_llm_defaults_without_private_proxy_preset(self):
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        llm_source = (ROOT / "nasdx" / "llm.py").read_text(encoding="utf-8")
+        combined = app_source + "\n" + llm_source
+
+        self.assertIn('"deepseek-chat"', combined)
+        self.assertNotIn("deepseek-v4-pro", combined)
+        self.assertNotIn("newapi.ecdigit.cn", app_source)
+        self.assertNotIn("Claude 中转", app_source)
+
     def test_background_threads_are_not_stored_in_session_state(self):
         source = (ROOT / "app.py").read_text(encoding="utf-8")
 

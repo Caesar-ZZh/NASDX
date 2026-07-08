@@ -20,27 +20,66 @@ import pandas as pd
 
 
 # ══════════════════════════════════════════
-#  VnPy 绩效计算（替代自研版本，更精确）
+#  绩效计算（VnPy 可用则尝试接入，否则 pandas fallback）
 # ══════════════════════════════════════════
 def calc_performance_vnpy(equity_curve: pd.Series) -> dict:
     """
-    用 VnPy 标准方法计算回测绩效
-    如果 VnPy 不可用，回退到 pandas 版本
+    计算回测绩效。
+
+    若本机安装了兼容的 VnPy 统计函数，则优先尝试使用；VnPy 不可用或接口不兼容时，
+    稳定回退到 pandas 版本。
     """
+    if equity_curve.empty or len(equity_curve) < 2:
+        return {}
+
     try:
         from vnpy.trader.utility import calculate_statistics
-        # VnPy 需要 daily_results 格式，我们转换一下
+
         daily = equity_curve.pct_change().dropna()
         daily_results = [
-            {"date": d, "net_pnl": v * equity_curve.iloc[0], "balance": equity_curve.iloc[i+1]}
-            for i, (d, v) in enumerate(daily.items())
+            {"date": date, "net_pnl": ret * equity_curve.iloc[0], "balance": equity_curve.iloc[i + 1]}
+            for i, (date, ret) in enumerate(daily.items())
         ]
-        # 直接用 pandas 计算（更可靠）
-        raise ImportError("use pandas fallback")
+        stats = calculate_statistics(daily_results)
+        if isinstance(stats, dict):
+            return _normalize_vnpy_statistics(stats, fallback_days=len(equity_curve))
     except Exception:
         pass
 
-    # Pandas 回退（与 VnPy 公式一致）
+    return _calc_performance_pandas(equity_curve)
+
+
+def _normalize_vnpy_statistics(stats: dict, *, fallback_days: int) -> dict:
+    """Normalize common VnPy statistics keys to NASDX output keys."""
+    key_map = {
+        "total_return": ("total_return", "total_return_percent"),
+        "annual_return": ("annual_return", "annual_return_percent"),
+        "max_drawdown": ("max_drawdown", "max_ddpercent"),
+        "sharpe_ratio": ("sharpe_ratio",),
+        "calmar_ratio": ("calmar_ratio", "return_drawdown_ratio"),
+        "win_rate": ("win_rate",),
+        "total_days": ("total_days", "total_trading_days"),
+    }
+    normalized = {}
+    for target, candidates in key_map.items():
+        for key in candidates:
+            if key in stats and stats[key] is not None:
+                normalized[target] = _coerce_stat(stats[key])
+                break
+    normalized.setdefault("total_days", fallback_days)
+    if "max_losing_streak" not in normalized:
+        normalized["max_losing_streak"] = int(stats.get("max_losing_streak", 0) or 0)
+    return normalized
+
+
+def _coerce_stat(value):
+    if isinstance(value, (int, float, np.number)):
+        return round(float(value), 4)
+    return value
+
+
+def _calc_performance_pandas(equity_curve: pd.Series) -> dict:
+    """Pandas fallback compatible with the public NASDX performance contract."""
     if equity_curve.empty or len(equity_curve) < 2:
         return {}
 

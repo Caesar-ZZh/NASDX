@@ -1,6 +1,17 @@
 import unittest
 
+from nasdx.agents.base import BaseAgent
+from nasdx.agents.chokepoint import ChokepointAgent
+from nasdx.agents.fund_flow import FundFlowAgent
+from nasdx.agents.risk import RiskAgent
+from nasdx.agents.sector import SectorAgent
+from nasdx.agents.synthesis import SynthesisAgent
 from nasdx.agents.technical import TechnicalAgent
+
+
+class DummyAgent(BaseAgent):
+    def _analyze(self, stock_code, stock_data):
+        raise NotImplementedError
 
 
 class LLMStructuredContractsTest(unittest.TestCase):
@@ -61,6 +72,28 @@ class LLMStructuredContractsTest(unittest.TestCase):
         self.assertEqual(result.confidence, 0.91)
         self.assertEqual(result.conclusion, "结构化结论：短线趋势转弱，先降级观察。")
         self.assertIn("JSON信号优先", result.key_points)
+
+    def test_legacy_signal_parser_is_shared_by_agent_base_class(self):
+        agent = DummyAgent()
+
+        signal, confidence = agent._parse_signal("【信号】neutral\n【置信度】1.25")
+        self.assertEqual("neutral", signal)
+        self.assertEqual(1.0, confidence)
+
+        final_signal, final_confidence = agent._parse_signal("【最终信号】bearish\n【置信度】0.33", final=True)
+        self.assertEqual("bearish", final_signal)
+        self.assertEqual(0.33, final_confidence)
+
+    def test_specialized_agents_do_not_duplicate_legacy_signal_parser(self):
+        for agent_class in [
+            TechnicalAgent,
+            FundFlowAgent,
+            RiskAgent,
+            SectorAgent,
+            ChokepointAgent,
+            SynthesisAgent,
+        ]:
+            self.assertNotIn("_parse_signal", agent_class.__dict__, agent_class.__name__)
 
 
 if __name__ == "__main__":
