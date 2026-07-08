@@ -143,6 +143,10 @@ class BaseAgent:
                     seen.add(text)
         return merged
 
+    def _parse_signal(self, text: str, final: bool = False) -> tuple[str, float]:
+        """Parse legacy signal tags for callers that still use plain text output."""
+        return self._legacy_parse_signal(text, final=final)
+
     def _legacy_parse_signal(self, text: str, final: bool = False) -> tuple[str, float]:
         signal = "neutral"
         confidence = 0.5

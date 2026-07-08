@@ -1,9 +1,9 @@
 # CONTEXT
 
-- 当前：根据第一轮审计落地 P0 修复：Backtester 信号只看执行日前历史数据，ETF50 量化回测改为滚动 TopN 调仓，桌面 release gate 改为产物生成后再跑 evidence。
-- 上次停在：P0 修复已通过全量 pytest、ruff、doctor、completion audit、release gate 快速门禁和正式包污染回归；已推送并关闭 GitHub Issues #3、#4、#5。
-- 关键决定：先修策略可信度和发布证据阻塞；暂不展开 P1 的报告路径统一、selector 性能和产品工作台重构。
-- 原因：P0 会直接影响回测可信度和正式发布门禁；P1 涉及 UI/路径/服务层，需分阶段做，避免一次改动过散。
+- 当前：根据外部 `NASDX深度审阅.md` 落地仍适用的小范围修复：默认模型改 `deepseek-chat`，移除内置私人中转 preset，Agent 旧文本信号解析收口到 `BaseAgent`，`vnpy_bridge` 去掉强制 `ImportError` 占位并保留 pandas fallback。
+- 上次停在：全量 pytest、ruff、轻量安全扫描、desktop doctor、launcher dry-run 和 selector workflow dry-run 均通过；待提交并推送 GitHub。
+- 关键决定：以当前真实仓库为准处理审阅项；报告里“无 tests/pyproject/CI”等过时结论不作为修改依据。
+- 原因：本轮优先修安全/配置/DRY/占位问题，不重写 Streamlit、不删除 CLI、不展开 UI 组件抽取和报告路径重构。
 
 ## Desktop Packaging
 

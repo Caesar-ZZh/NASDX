@@ -116,19 +116,3 @@ class RiskAgent(BaseAgent):
         if not points:
             points.append("技术指标无明显极值，风险中性")
         return points
-
-    def _parse_signal(self, text: str):
-        signal = "neutral"
-        confidence = 0.5
-        for line in text.split("\n"):
-            if "【信号】" in line:
-                if "bullish" in line.lower():
-                    signal = "bullish"
-                elif "bearish" in line.lower():
-                    signal = "bearish"
-            if "【置信度】" in line:
-                try:
-                    confidence = float(line.split("】")[-1].strip())
-                except:
-                    pass
-        return signal, confidence

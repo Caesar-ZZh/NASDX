@@ -1,6 +1,6 @@
 """
 NASDX — A股多智能体量化分析平台
-Streamlit · DeepSeek V4 Pro · Notion 风格 UI
+Streamlit · DeepSeek Chat · Notion 风格 UI
 """
 import sys, os, json, subprocess, threading, time, glob, html
 from pathlib import Path
@@ -48,7 +48,7 @@ def _build_llm_env(api_key: str, base_url: str, model: str) -> dict:
     env["PYTHONIOENCODING"] = "utf-8"
     env["NASDX_API_KEY"] = api_key or ""
     env["NASDX_BASE_URL"] = base_url or "https://api.deepseek.com"
-    env["NASDX_MODEL"] = model or "deepseek-v4-pro"
+    env["NASDX_MODEL"] = model or "deepseek-chat"
     return env
 
 # ── 页面配置 ─────────────────────────────────────────
@@ -89,8 +89,7 @@ POOL = {
 }
 
 PRESETS = {
-    "DeepSeek": ("https://api.deepseek.com", ["deepseek-v4-pro","deepseek-v4-flash","deepseek-chat","deepseek-reasoner"]),
-    "Claude 中转": ("https://newapi.ecdigit.cn/v1", ["claude-opus-4-6-thinking","claude-sonnet-4-6","claude-haiku-4-5-20251001"]),
+    "DeepSeek": ("https://api.deepseek.com", ["deepseek-chat","deepseek-reasoner"]),
     "阿里通义":  ("https://dashscope.aliyuncs.com/compatible-mode/v1", ["qwen-plus","qwen-turbo","qwen-max"]),
     "月之暗面":  ("https://api.moonshot.cn/v1", ["moonshot-v1-8k","moonshot-v1-32k"]),
     "Ollama 本地": ("http://localhost:11434/v1", ["qwen2.5:14b","deepseek-r1:7b","llama3.1:8b"]),
@@ -207,7 +206,7 @@ def run_analysis_bg(code, rounds, risk_profile, workflow, analysis_mode, log_pat
 DEFAULTS = {"running":False,"current_code":"","log_path":None,"task_id":None,"done":False,
             "api_preset":"DeepSeek","api_key":os.environ.get("NASDX_API_KEY",""),
             "api_base":os.environ.get("NASDX_BASE_URL","https://api.deepseek.com"),
-            "api_model":os.environ.get("NASDX_MODEL","deepseek-v4-pro"),"api_ok":None}
+            "api_model":os.environ.get("NASDX_MODEL","deepseek-chat"),"api_ok":None}
 for k, v in DEFAULTS.items():
     if k not in st.session_state: st.session_state[k] = v
 
@@ -385,7 +384,7 @@ if pg == "home":
     st.markdown(f"""
     <div style="padding:28px 0 20px 0">
       <div class="n-title">NASDX</div>
-      <div class="n-sub">A股多智能体量化分析平台 · DeepSeek V4 Pro · 今日 {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+      <div class="n-sub">A股多智能体量化分析平台 · OpenAI 兼容 LLM · 今日 {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1644,7 +1643,7 @@ elif pg == "deep":
             <div style="text-align:center;padding:80px 20px">
               <div style="font-size:48px;margin-bottom:16px">🤖</div>
               <div style="font-size:18px;font-weight:600;color:#fff;margin-bottom:8px">在左侧输入股票代码</div>
-              <div style="font-size:13px;color:#48484a">支持 A股个股 · ETF · LOF<br>5个AI专家并行分析，Battle辩论，DeepSeek V4 Pro 推理</div>
+              <div style="font-size:13px;color:#48484a">支持 A股个股 · ETF · LOF<br>5个AI专家并行分析，Battle辩论，DeepSeek Chat 默认模型</div>
             </div>
             """, unsafe_allow_html=True)
 

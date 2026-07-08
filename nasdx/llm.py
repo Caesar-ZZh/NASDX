@@ -12,7 +12,7 @@ from openai import OpenAI
 # 从环境变量读取；不要在仓库中写入真实 API Key。
 API_KEY    = os.environ.get("NASDX_API_KEY", "")
 BASE_URL   = os.environ.get("NASDX_BASE_URL", "https://api.deepseek.com")
-MODEL_NAME = os.environ.get("NASDX_MODEL", "deepseek-v4-pro")
+MODEL_NAME = os.environ.get("NASDX_MODEL", "deepseek-chat")
 MAX_TOKENS = int(os.environ.get("NASDX_MAX_TOKENS", "4096"))
 TEMPERATURE = float(os.environ.get("NASDX_TEMPERATURE", "0.3"))
 
@@ -88,8 +88,8 @@ class LLMClient:
                 try:
                     if not API_KEY and "localhost" not in BASE_URL and "127.0.0.1" not in BASE_URL:
                         raise RuntimeError("请先设置 NASDX_API_KEY，或切换到 Ollama 本地模型")
-                    # 推理模型（deepseek-v4-pro / deepseek-reasoner）temperature 必须为 1
-                    is_reasoner = any(x in model for x in ("reasoner", "v4-pro", "v4-flash", "thinking", "r1"))
+                    # 推理模型（如 deepseek-reasoner）temperature 必须为 1
+                    is_reasoner = any(x in model for x in ("reasoner", "thinking", "r1"))
                     call_kwargs = dict(
                         model=model,
                         messages=full_messages,

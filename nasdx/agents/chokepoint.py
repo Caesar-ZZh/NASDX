@@ -137,23 +137,3 @@ class ChokepointAgent(BaseAgent):
             points.append(f"项目备注：{note}")
         points.append("公告/客户/订单/产能：当前项目未接入实时核验")
         return points
-
-    def _parse_signal(self, text: str):
-        signal = "neutral"
-        confidence = 0.5
-        for line in text.split("\n"):
-            if "【信号】" in line:
-                lower = line.lower()
-                if "bullish" in lower:
-                    signal = "bullish"
-                elif "bearish" in lower:
-                    signal = "bearish"
-                elif "neutral" in lower:
-                    signal = "neutral"
-            if "【置信度】" in line:
-                try:
-                    confidence = float(line.split("】")[-1].strip())
-                except Exception:
-                    pass
-        confidence = min(1.0, max(0.0, confidence))
-        return signal, confidence
