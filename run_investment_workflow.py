@@ -5,7 +5,6 @@ NASDX 一键投研工作流
 默认只跑深度分析，避免误触发较慢的全量抓取/扫描。
 """
 import argparse
-import glob
 import json
 import os
 import subprocess
@@ -16,6 +15,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 from nasdx.investment_brief import build_and_save_investment_brief
+from nasdx.paths import get_market_data_dir, get_reports_dir
 
 
 ROOT = Path(__file__).parent
@@ -28,8 +28,8 @@ WORKFLOW_LABELS = {
 }
 
 
-def _latest(pattern: str) -> str | None:
-    files = sorted(glob.glob(str(ROOT / pattern)), key=os.path.getmtime)
+def _latest(directory: Path, pattern: str) -> str | None:
+    files = sorted(directory.glob(pattern), key=os.path.getmtime)
     return files[-1] if files else None
 
 
@@ -41,7 +41,7 @@ def _normalize_stock_code(code: object) -> str | None:
 
 
 def _select_top_selector_code(report_path: Path | None = None) -> str | None:
-    path = report_path or (ROOT / "reports" / "stock_selector_latest.json")
+    path = report_path or (get_reports_dir() / "stock_selector_latest.json")
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -120,13 +120,14 @@ def _workflow_steps(workflow: str) -> List[Tuple[str, str]]:
 
 
 def _collect_artifacts(stock_code: str) -> Dict[str, str | None]:
+    reports_dir = get_reports_dir()
     return {
-        "data": _latest("stock_data_*.json"),
-        "etf50_json": _latest("reports/etf50_[0-9]*_[0-9]*.json"),
-        "stocks60_json": _latest("reports/stocks60_*.json"),
-        "analysis_html": _latest(f"reports/report_{stock_code}_*.html"),
-        "analysis_json": _latest(f"reports/report_{stock_code}_*.json"),
-        "investment_brief": _latest("reports/investment_brief_*.md"),
+        "data": _latest(get_market_data_dir(), "stock_data_*.json"),
+        "etf50_json": _latest(reports_dir, "etf50_[0-9]*_[0-9]*.json"),
+        "stocks60_json": _latest(reports_dir, "stocks60_*.json"),
+        "analysis_html": _latest(reports_dir, f"report_{stock_code}_*.html"),
+        "analysis_json": _latest(reports_dir, f"report_{stock_code}_*.json"),
+        "investment_brief": _latest(reports_dir, "investment_brief_*.md"),
     }
 
 

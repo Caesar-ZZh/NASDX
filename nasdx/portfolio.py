@@ -16,9 +16,7 @@ from typing import Any, Dict, Iterable, List, Tuple
 from nasdx.data_quality import assess_data_quality
 from nasdx.decision import RISK_PROFILES
 from nasdx.history_store import record_artifact
-
-
-PROJECT_DIR = Path(__file__).parent.parent
+from nasdx.paths import get_market_data_dir, get_reports_dir
 
 EXPOSURE_RULES = {
     "conservative": {
@@ -62,9 +60,10 @@ def build_portfolio_plan(
     profile_key = risk_profile if risk_profile in RISK_PROFILES else "balanced"
     exposure = EXPOSURE_RULES[profile_key]
 
-    data, data_path = _load_latest_json("stock_data_*.json")
-    etf_scan, etf_path = _load_latest_json("reports/etf50_[0-9]*_[0-9]*.json")
-    stock_scan, stock_path = _load_latest_json("reports/stocks60_*.json")
+    reports_dir = get_reports_dir()
+    data, data_path = _load_latest_json(get_market_data_dir(), "stock_data_*.json")
+    etf_scan, etf_path = _load_latest_json(reports_dir, "etf50_[0-9]*_[0-9]*.json")
+    stock_scan, stock_path = _load_latest_json(reports_dir, "stocks60_*.json")
     reports, stale_reports = _load_latest_reports(now)
 
     data_quality = assess_data_quality(data or {}, now=now) if data else _missing_quality("未找到行情数据文件，请先刷新行情。")
@@ -210,8 +209,8 @@ def format_portfolio_plan(plan: Dict[str, Any]) -> str:
 
 def save_portfolio_plan(plan: Dict[str, Any], output_dir: str | Path | None = None) -> Dict[str, str]:
     """Save markdown and JSON versions of the portfolio roadmap."""
-    out_dir = Path(output_dir) if output_dir else PROJECT_DIR / "reports"
-    out_dir.mkdir(exist_ok=True)
+    out_dir = Path(output_dir) if output_dir else get_reports_dir(create=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
     md_path = out_dir / f"portfolio_plan_{stamp}.md"
     json_path = out_dir / f"portfolio_plan_{stamp}.json"
@@ -236,8 +235,8 @@ def save_portfolio_plan(plan: Dict[str, Any], output_dir: str | Path | None = No
     }
 
 
-def _load_latest_json(pattern: str) -> Tuple[Dict[str, Any] | None, Path | None]:
-    files = sorted(PROJECT_DIR.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+def _load_latest_json(root: Path, pattern: str) -> Tuple[Dict[str, Any] | None, Path | None]:
+    files = sorted(root.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
     for path in files:
         try:
             return json.loads(path.read_text(encoding="utf-8")), path
@@ -249,7 +248,7 @@ def _load_latest_json(pattern: str) -> Tuple[Dict[str, Any] | None, Path | None]
 def _load_latest_reports(now: datetime) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
     reports: Dict[str, Dict[str, Any]] = {}
     stale_reports: Dict[str, Dict[str, Any]] = {}
-    files = sorted((PROJECT_DIR / "reports").glob("report_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    files = sorted(get_reports_dir().glob("report_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
     for path in files:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))

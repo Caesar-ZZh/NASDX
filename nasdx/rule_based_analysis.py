@@ -18,12 +18,9 @@ from nasdx.data_loader import get_stock_data, load_latest_data
 from nasdx.data_quality import assess_data_quality
 from nasdx.decision import build_decision_plan, format_decision_plan
 from nasdx.history_store import record_report_history
+from nasdx.paths import get_reports_dir
 from nasdx.report import generate_html_report
 from nasdx.schema import AnalysisResult, BattleVote, FinalReport
-
-
-PROJECT_DIR = Path(__file__).parent.parent
-
 
 def build_rule_based_report(
     stock_code: str,
@@ -90,8 +87,8 @@ def build_rule_based_report(
 
 def save_rule_based_report(report: FinalReport, output_dir: str | Path | None = None) -> Dict[str, str]:
     """Save JSON and HTML report files using the normal NASDX naming contract."""
-    out_dir = Path(output_dir) if output_dir else PROJECT_DIR / "reports"
-    out_dir.mkdir(exist_ok=True)
+    out_dir = Path(output_dir) if output_dir else get_reports_dir(create=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     base = out_dir / f"report_{report.stock_code}_{report.date}"
     html_path = base.with_suffix(".html")
     json_path = base.with_suffix(".json")
@@ -569,8 +566,9 @@ def _optional_num(value: Any) -> float | None:
 
 
 def _stock_from_latest_scan(stock_code: str) -> Tuple[Dict[str, Any] | None, Dict[str, Any]]:
-    for pattern in ("reports/etf50_[0-9]*_[0-9]*.json", "reports/stocks60_*.json"):
-        files = sorted(glob.glob(str(PROJECT_DIR / pattern)), key=os.path.getmtime, reverse=True)
+    reports_dir = get_reports_dir()
+    for pattern in ("etf50_[0-9]*_[0-9]*.json", "stocks60_*.json"):
+        files = sorted(glob.glob(str(reports_dir / pattern)), key=os.path.getmtime, reverse=True)
         for path_str in files:
             path = Path(path_str)
             try:

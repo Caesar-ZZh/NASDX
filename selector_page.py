@@ -16,7 +16,32 @@ from typing import Any, Dict, List
 
 import streamlit as st
 
+from nasdx.paths import get_reports_dir
+
 ROOT = Path(__file__).parent
+_LOCAL_TASKS = {}
+_LOCAL_TASK_LOCK = _threading.Lock()
+
+
+def _new_local_task_id(prefix: str) -> str:
+    return f"{prefix}_{int(time.time() * 1000)}"
+
+
+def _register_local_task(task_id: str, thread: _threading.Thread) -> None:
+    with _LOCAL_TASK_LOCK:
+        _LOCAL_TASKS[task_id] = thread
+
+
+def _local_task_alive(task_id: str | None) -> bool:
+    if not task_id:
+        return False
+    with _LOCAL_TASK_LOCK:
+        thread = _LOCAL_TASKS.get(task_id)
+    alive = bool(thread and thread.is_alive())
+    if thread and not alive:
+        with _LOCAL_TASK_LOCK:
+            _LOCAL_TASKS.pop(task_id, None)
+    return alive
 
 
 def _render_selector_table(rows: List[Dict], tab_name: str) -> str:
@@ -67,10 +92,14 @@ def _render_selector_table(rows: List[Dict], tab_name: str) -> str:
     )
 
 
-def render_selector_page(st_module, root_path=None):
+def render_selector_page(st_module, root_path=None, task_helpers=None):
     """Render the stock selector page."""
     st = st_module
     root = root_path or ROOT
+    helpers = task_helpers or {}
+    new_task_id = helpers.get("new_task_id", _new_local_task_id)
+    register_task = helpers.get("register_task", _register_local_task)
+    task_alive = helpers.get("task_alive", _local_task_alive)
 
     st.markdown(
         '<div style="padding:24px 0 20px">'
@@ -81,18 +110,46 @@ def render_selector_page(st_module, root_path=None):
     )
 
     sel_running = st.session_state.get("selector_scan_running", False)
-    c_btn, c_status, _ = st.columns([1, 2, 3])
+    c_limit, c_timeout, c_btn, c_status = st.columns([1, 1, 1, 3])
+
+    with c_limit:
+        selector_limit = st.number_input(
+            "最多抓取",
+            min_value=50,
+            max_value=5000,
+            value=int(st.session_state.get("selector_limit", 500)),
+            step=50,
+            key="selector_limit",
+        )
+    with c_timeout:
+        selector_timeout = st.number_input(
+            "超时秒数",
+            min_value=60,
+            max_value=3600,
+            value=int(st.session_state.get("selector_timeout", 900)),
+            step=60,
+            key="selector_timeout",
+        )
 
     with c_btn:
         if st.button("Pick Stocks", use_container_width=True,
                      disabled=sel_running, key="selector_scan_btn"):
+            task_id = new_task_id("selector_scan")
             def _run_selector():
-                subprocess.run(
-                    [sys.executable, str(root / "run_stock_selector.py"), "--top", "20"],
-                    capture_output=True,
-                )
-                st.session_state["selector_scan_running"] = False
-                st.session_state["selector_scan_thread"] = None
+                command = [
+                    sys.executable,
+                    str(root / "run_stock_selector.py"),
+                    "--top",
+                    "20",
+                    "--limit",
+                    str(int(selector_limit)),
+                    "--output-dir",
+                    str(get_reports_dir(create=True)),
+                ]
+                try:
+                    subprocess.run(command, capture_output=True, timeout=int(selector_timeout))
+                except subprocess.TimeoutExpired:
+                    pass
                 try:
                     load_stock_selector.clear()
                 except Exception:
@@ -100,18 +157,19 @@ def render_selector_page(st_module, root_path=None):
 
             _t = _threading.Thread(target=_run_selector, daemon=True)
             _t.start()
+            register_task(task_id, _t)
             st.session_state["selector_scan_running"] = True
-            st.session_state["selector_scan_thread"] = _t
+            st.session_state["selector_scan_task_id"] = task_id
             st.session_state["selector_scan_start"] = time.time()
             st.rerun()
 
     with c_status:
         if sel_running:
-            _scan_t = st.session_state.get("selector_scan_thread")
             _elapsed = int(time.time() - st.session_state.get("selector_scan_start", time.time()))
-            _done = _scan_t is None or not _scan_t.is_alive()
+            _done = not task_alive(st.session_state.get("selector_scan_task_id"))
             if _done:
                 st.session_state["selector_scan_running"] = False
+                st.session_state["selector_scan_task_id"] = None
                 try:
                     load_stock_selector.clear()
                 except Exception:
@@ -124,6 +182,8 @@ def render_selector_page(st_module, root_path=None):
                     f"Scanning... Elapsed: {estr}</div>",
                     unsafe_allow_html=True,
                 )
+                import streamlit.components.v1 as _cv1
+                _cv1.html('<script>setTimeout(()=>window.parent.location.reload(),3000);</script>', height=0)
 
     d = load_stock_selector()
     if not d:
@@ -199,7 +259,7 @@ def render_selector_page(st_module, root_path=None):
 @st.cache_data(ttl=60, show_spinner=False)
 def load_stock_selector():
     """Load latest stock selector result JSON."""
-    path = ROOT / "reports" / "stock_selector_latest.json"
+    path = get_reports_dir() / "stock_selector_latest.json"
     if not path.exists():
         return None
     with open(path, encoding="utf-8") as f:

@@ -34,6 +34,7 @@ from nasdx.selector.scoring import compute_all_scores
 from nasdx.selector.risk_filter import risk_filter
 from nasdx.selector.watchlist import generate_watchlist
 from nasdx.data_quality import assess_data_quality
+from nasdx.paths import get_reports_dir
 
 
 def run_selector(
@@ -53,9 +54,9 @@ def run_selector(
         选股结果字典，可直接序列化为 JSON
     """
     if output_dir is None:
-        output_dir = ROOT / "reports"
+        output_dir = get_reports_dir(create=True)
     out = Path(output_dir)
-    out.mkdir(exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     print(f"\n{'='*60}")

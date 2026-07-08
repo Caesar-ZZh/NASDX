@@ -13,17 +13,14 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
 from nasdx.history_store import record_artifact
-
-
-PROJECT_DIR = Path(__file__).parent.parent
-
+from nasdx.paths import get_reports_dir
 
 def build_recommendation_tracker(
     reports_dir: str | Path | None = None,
     latest_path: str | Path | None = None,
 ) -> Dict[str, Any]:
     """Compare the latest investment brief with the previous distinct brief."""
-    root = Path(reports_dir) if reports_dir else PROJECT_DIR / "reports"
+    root = Path(reports_dir) if reports_dir else get_reports_dir()
     latest = Path(latest_path) if latest_path else root / "investment_brief_latest.json"
     latest_brief = _load_json(latest)
     if not latest_brief:
@@ -86,7 +83,7 @@ def save_recommendation_tracker(
     output_dir: str | Path | None = None,
 ) -> Dict[str, str]:
     """Save recommendation tracker Markdown/JSON files."""
-    out_dir = Path(output_dir) if output_dir else PROJECT_DIR / "reports"
+    out_dir = Path(output_dir) if output_dir else get_reports_dir(create=True)
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
     md_path = out_dir / f"recommendation_tracker_{stamp}.md"

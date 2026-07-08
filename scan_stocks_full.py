@@ -8,6 +8,7 @@ import pandas as pd
 
 from nasdx.history_store import record_daily_scan
 from nasdx.market_sources import fetch_stock_hist, last_trade_date
+from nasdx.paths import get_reports_dir
 
 ROOT  = Path(__file__).parent
 NOW   = datetime.now()
@@ -349,13 +350,14 @@ tr:hover td{{background:#161b22!important;}}
 </div>
 </body></html>"""
 
-out=ROOT/'reports'/f'stocks60_{TODAY}_{HHMM}.html'
-latest=ROOT/'reports'/'stocks50_latest.html'
+reports_dir=get_reports_dir(create=True)
+out=reports_dir/f'stocks60_{TODAY}_{HHMM}.html'
+latest=reports_dir/'stocks50_latest.html'
 out.parent.mkdir(exist_ok=True)
 with open(out,'w',encoding='utf-8') as f: f.write(html)
 with open(latest,'w',encoding='utf-8') as f: f.write(html)
 
-jout=ROOT/'reports'/f'stocks60_{TODAY}_{HHMM}.json'
+jout=reports_dir/f'stocks60_{TODAY}_{HHMM}.json'
 expected_total = len(STOCK_POOL)
 valid_count = len(valid)
 json_payload = {'datetime':NOW.isoformat(),'total':expected_total,

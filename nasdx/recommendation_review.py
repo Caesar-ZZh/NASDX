@@ -14,10 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
 from nasdx.history_store import record_artifact
-
-
-PROJECT_DIR = Path(__file__).parent.parent
-
+from nasdx.paths import get_market_data_dir, get_reports_dir
 
 def build_recommendation_review(
     reports_dir: str | Path | None = None,
@@ -25,7 +22,7 @@ def build_recommendation_review(
     current_brief_path: str | Path | None = None,
 ) -> Dict[str, Any]:
     """Review a baseline brief against the latest local market and scan state."""
-    root = Path(reports_dir) if reports_dir else PROJECT_DIR / "reports"
+    root = Path(reports_dir) if reports_dir else get_reports_dir()
     current_path = Path(current_brief_path) if current_brief_path else root / "investment_brief_latest.json"
     current_brief = _load_json(current_path)
     if not current_brief:
@@ -35,9 +32,9 @@ def build_recommendation_review(
     if not baseline_brief:
         return _empty_review("缺少可复盘的历史简报；至少需要两份不同时间的 investment_brief JSON。")
 
-    market_data, market_path = _load_latest_json(PROJECT_DIR, "stock_data_*.json")
-    etf_scan, etf_path = _load_latest_json(PROJECT_DIR, "reports/etf50_[0-9]*_[0-9]*.json")
-    stock_scan, stock_path = _load_latest_json(PROJECT_DIR, "reports/stocks60_*.json")
+    market_data, market_path = _load_latest_json(get_market_data_dir(), "stock_data_*.json")
+    etf_scan, etf_path = _load_latest_json(root, "etf50_[0-9]*_[0-9]*.json")
+    stock_scan, stock_path = _load_latest_json(root, "stocks60_*.json")
     market_map = _market_map(market_data)
     scan_map = _scan_map(etf_scan, stock_scan)
     current_status = _current_status_map(current_brief)
@@ -78,7 +75,7 @@ def save_recommendation_review(
     output_dir: str | Path | None = None,
 ) -> Dict[str, str]:
     """Save recommendation review Markdown/JSON files."""
-    out_dir = Path(output_dir) if output_dir else PROJECT_DIR / "reports"
+    out_dir = Path(output_dir) if output_dir else get_reports_dir(create=True)
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
     md_path = out_dir / f"recommendation_review_{stamp}.md"

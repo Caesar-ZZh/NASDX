@@ -13,6 +13,7 @@ ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
 from nasdx.history_store import record_daily_scan, record_etf_pool
+from nasdx.paths import get_reports_dir
 
 NOW   = datetime.now()
 TODAY = NOW.strftime('%Y%m%d')
@@ -362,18 +363,19 @@ tr:hover td{{background:#161b22!important;}}
 </div>
 </body></html>"""
 
-out = ROOT / 'reports' / f'etf50_{TODAY}_{HHMM}.html'
+reports_dir = get_reports_dir(create=True)
+out = reports_dir / f'etf50_{TODAY}_{HHMM}.html'
 out.parent.mkdir(exist_ok=True)
 with open(out,'w',encoding='utf-8') as f:
     f.write(html)
 
 # 同时更新 latest 链接（覆盖）
-latest = ROOT / 'reports' / 'etf50_latest.html'
+latest = reports_dir / 'etf50_latest.html'
 with open(latest,'w',encoding='utf-8') as f:
     f.write(html)
 
 # 保存JSON
-json_out = ROOT / 'reports' / f'etf50_{TODAY}_{HHMM}.json'
+json_out = reports_dir / f'etf50_{TODAY}_{HHMM}.json'
 json_payload = {
     'datetime': NOW.isoformat(),
     'total': len(valid),
