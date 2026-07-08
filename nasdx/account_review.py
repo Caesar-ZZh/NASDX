@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
 from nasdx.history_store import record_artifact
+from nasdx.paths import get_market_data_dir, get_reports_dir
 from nasdx.position_sizing import parse_percent_band
 
 
@@ -79,10 +80,10 @@ def build_account_review_from_text(
         return review
 
     root = Path(project_dir) if project_dir else PROJECT_DIR
-    reports = Path(reports_dir) if reports_dir else root / "reports"
+    reports = Path(reports_dir) if reports_dir else (root / "reports" if project_dir else get_reports_dir())
     brief = _load_json(reports / "investment_brief_latest.json")
-    market_map = _market_map(root)
-    scan_map = _scan_map(root)
+    market_map = _market_map(root if project_dir else get_market_data_dir())
+    scan_map = _scan_map(reports)
     candidate_map = _candidate_map(brief)
 
     holdings, closed_positions, aggregate_warnings = _aggregate_trades(trades)
@@ -151,7 +152,7 @@ def parse_trade_ledger_text(csv_text: str, source_name: str = "<uploaded>") -> T
 
 def save_account_review(review: Dict[str, Any], output_dir: str | Path | None = None) -> Dict[str, str]:
     """Save derived account review Markdown/JSON files."""
-    out_dir = Path(output_dir) if output_dir else PROJECT_DIR / "reports"
+    out_dir = Path(output_dir) if output_dir else get_reports_dir(create=True)
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
     md_path = out_dir / f"account_review_{stamp}.md"
@@ -497,10 +498,10 @@ def _market_map(project_dir: Path) -> Dict[str, Dict[str, Any]]:
     return result
 
 
-def _scan_map(project_dir: Path) -> Dict[str, Dict[str, Any]]:
+def _scan_map(reports_dir: Path) -> Dict[str, Dict[str, Any]]:
     result: Dict[str, Dict[str, Any]] = {}
-    for pattern in ("reports/etf50_[0-9]*_[0-9]*.json", "reports/stocks60_*.json"):
-        files = sorted(project_dir.glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)
+    for pattern in ("etf50_[0-9]*_[0-9]*.json", "stocks60_*.json"):
+        files = sorted(reports_dir.glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)
         data = _load_json(files[0]) if files else {}
         rows = data.get("results") or data.get("top3") or []
         for row in rows if isinstance(rows, list) else []:

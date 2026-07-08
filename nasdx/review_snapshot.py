@@ -17,12 +17,9 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 from nasdx.investment_brief import build_and_save_investment_brief
+from nasdx.paths import get_reports_dir
 from nasdx.recommendation_review import build_recommendation_review, format_recommendation_review
 from nasdx.recommendation_tracker import build_recommendation_tracker, format_recommendation_tracker
-
-
-PROJECT_DIR = Path(__file__).parent.parent
-
 
 def build_review_snapshot(
     risk_profile: str = "balanced",
@@ -33,7 +30,7 @@ def build_review_snapshot(
     if refresh or not _latest_brief_json().exists():
         build_and_save_investment_brief(risk_profile=risk_profile)
 
-    reports_dir = PROJECT_DIR / "reports"
+    reports_dir = get_reports_dir()
     snapshot_dir = Path(output_dir) if output_dir else reports_dir / "snapshots"
     snapshot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -74,7 +71,7 @@ def build_review_snapshot(
 
 
 def _latest_brief_json() -> Path:
-    return PROJECT_DIR / "reports" / "investment_brief_latest.json"
+    return get_reports_dir() / "investment_brief_latest.json"
 
 
 def _load_json(path: Path) -> Dict[str, Any]:

@@ -301,7 +301,7 @@ $env:NASDX_RUNTIME_DIR="$env:LOCALAPPDATA\NASDX"
 python -B desktop\launcher.py --page plan
 ```
 
-启动器会设置 `NASDX_HISTORY_DB` 默认指向运行目录下的 `nasdx_history.db`；如果父进程已设置该变量，则保留用户指定值。`NASDX_REPORTS_DIR` 目前作为后续报告目录迁移的兼容环境变量预留，现有 Streamlit/CLI 默认仍读取项目内 `reports/`，不改变报告结构。
+启动器会设置 `NASDX_HISTORY_DB` 默认指向运行目录下的 `nasdx_history.db`，并把 `NASDX_REPORTS_DIR` 指向运行目录下的 `reports`；如果父进程已设置这些变量，则保留用户指定值。核心 Streamlit 页面、扫描脚本、投研 CLI 和报告模块会尊重该 reports 目录；`fetch_stock_data.py` 与数据加载器会优先使用 `NASDX_DATA_DIR`，未设置时使用 `NASDX_RUNTIME_DIR`，源码 checkout 无环境变量时仍保持原项目目录兼容。
 可在本地配置的 `[paths]` 中设置 `runtime_dir`、`history_db`、`reports_dir`；相对路径按配置文件所在目录解析。
 控制面板的 Settings 按同一规则打开或创建用户级 `config.toml`，Logs 打开运行目录下的 `desktop_logs`，Data Refresh 只调用现有 `fetch_stock_data.py`，不会自动触发扫描、交易或部署同步。
 

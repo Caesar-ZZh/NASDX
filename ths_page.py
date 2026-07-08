@@ -2,8 +2,8 @@
 
 
 def render_ths_page(st, ROOT):
-    import glob as _g
     from pathlib import Path
+    from nasdx.paths import get_reports_dir
 
     st.markdown(
         '<div style="padding:24px 0 20px">'
@@ -178,7 +178,7 @@ def render_ths_page(st, ROOT):
             unsafe_allow_html=True,
         )
 
-    etf_files = sorted(_g.glob(str(ROOT / "reports/etf50_*.json")))
+    etf_files = sorted(str(path) for path in get_reports_dir().glob("etf50_*.json"))
     if etf_files:
         latest_etf = etf_files[-1]
         st.caption(f"基于：{Path(latest_etf).name}")

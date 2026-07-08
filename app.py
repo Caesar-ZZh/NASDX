@@ -2,7 +2,7 @@
 NASDX — A股多智能体量化分析平台
 Streamlit · DeepSeek Chat · Notion 风格 UI
 """
-import sys, os, json, subprocess, threading, time, glob, html
+import sys, os, json, subprocess, threading, time, html
 from pathlib import Path
 from datetime import datetime
 
@@ -10,6 +10,9 @@ import streamlit as st
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
+
+from nasdx.paths import get_reports_dir
+from nasdx.report_history import list_report_history
 
 # ── 后台任务状态：只把 task_id 放入 session_state ───────
 RUNNING_TASKS = {}
@@ -101,55 +104,55 @@ PRESETS = {
 # ══════════════════════════════════════════════════════
 @st.cache_data(ttl=60, show_spinner=False)
 def load_report(code):
-    files = sorted(ROOT.glob(f"reports/report_{code}_*.json"))
+    files = sorted(get_reports_dir().glob(f"report_{code}_*.json"))
     if not files: return None
     with open(files[-1], encoding="utf-8") as f: return json.load(f)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_etf50():
-    files = sorted(ROOT.glob("reports/etf50_[0-9]*_[0-9]*.json"), key=os.path.getmtime, reverse=True)
+    files = sorted(get_reports_dir().glob("etf50_[0-9]*_[0-9]*.json"), key=os.path.getmtime, reverse=True)
     if not files: return None
     with open(files[0], encoding="utf-8") as f: return json.load(f)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_stock_selector():
-    path = ROOT / "reports" / "stock_selector_latest.json"
+    path = get_reports_dir() / "stock_selector_latest.json"
     if not path.exists(): return None
     with open(path, encoding="utf-8") as f: return json.load(f)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_stocks60():
-    files = sorted(ROOT.glob("reports/stocks60_*.json"), key=os.path.getmtime, reverse=True)
+    files = sorted(get_reports_dir().glob("stocks60_*.json"), key=os.path.getmtime, reverse=True)
     if not files: return None
     with open(files[0], encoding="utf-8") as f: return json.load(f)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_portfolio_latest():
-    path = ROOT / "reports" / "portfolio_plan_latest.json"
+    path = get_reports_dir() / "portfolio_plan_latest.json"
     if not path.exists(): return None
     with open(path, encoding="utf-8") as f: return json.load(f)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_investment_brief_latest():
-    path = ROOT / "reports" / "investment_brief_latest.json"
+    path = get_reports_dir() / "investment_brief_latest.json"
     if not path.exists(): return None
     with open(path, encoding="utf-8") as f: return json.load(f)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_recommendation_tracker_latest():
-    path = ROOT / "reports" / "recommendation_tracker_latest.json"
+    path = get_reports_dir() / "recommendation_tracker_latest.json"
     if not path.exists(): return None
     with open(path, encoding="utf-8") as f: return json.load(f)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_recommendation_review_latest():
-    path = ROOT / "reports" / "recommendation_review_latest.json"
+    path = get_reports_dir() / "recommendation_review_latest.json"
     if not path.exists(): return None
     with open(path, encoding="utf-8") as f: return json.load(f)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_account_review_latest():
-    path = ROOT / "reports" / "account_review_latest.json"
+    path = get_reports_dir() / "account_review_latest.json"
     if not path.exists(): return None
     with open(path, encoding="utf-8") as f: return json.load(f)
 
@@ -162,7 +165,7 @@ def load_pool():
 @st.cache_resource(show_spinner=False)
 def load_recent_reports(n=6):
     """加载最近报告 — 用 cache_resource 避免每次 glob 和序列化开销"""
-    files = sorted(ROOT.glob("reports/report_*.json"), key=os.path.getmtime, reverse=True)[:n]
+    files = sorted(get_reports_dir().glob("report_*.json"), key=os.path.getmtime, reverse=True)[:n]
     results = []
     for rp in files:
         try:
@@ -171,6 +174,10 @@ def load_recent_reports(n=6):
         except Exception:
             pass
     return results
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_report_history(limit=40):
+    return list_report_history(limit=limit)
 
 def clean(text):
     if not text: return ""
@@ -212,7 +219,7 @@ for k, v in DEFAULTS.items():
 
 # 从 URL 读当前页面（首次加载 / 刷新时恢复）
 _qp = st.query_params
-_valid_pages = {"home","plan","etf50","stocks60","deep","quant","selector","ths"}
+_valid_pages = {"home","plan","history","etf50","stocks60","deep","quant","selector","ths"}
 if "page" not in st.session_state:
     st.session_state.page = _qp.get("page","home") if _qp.get("page","home") in _valid_pages else "home"
 
@@ -243,6 +250,7 @@ with st.sidebar:
     NAV = [
         ("home",     "🏠", "首页"),
         ("plan",     "🧭", "投资路线"),
+        ("history",  "🗂️", "报告历史"),
         ("etf50",    "📊", "ETF 50"),
         ("stocks60", "📈", "个股扫描"),
         ("deep",     "🤖", "深度分析"),
@@ -485,7 +493,7 @@ if pg == "home":
                     </div>""", unsafe_allow_html=True)
 
     # 历史报告
-    all_r = sorted(ROOT.glob("reports/report_*.json"), key=os.path.getmtime, reverse=True)[:6]
+    all_r = sorted(get_reports_dir().glob("report_*.json"), key=os.path.getmtime, reverse=True)[:6]
     if all_r:
         st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
         st.markdown('<div class="n-section-title">最近深度分析</div>', unsafe_allow_html=True)
@@ -512,9 +520,9 @@ if pg == "home":
 #  投资路线页
 # ══════════════════════════════════════════════════════
 elif pg == "plan":
-    st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">投资路线</div><div style="font-size:13px;color:#636366;margin-top:4px">组合仓位框架 · ETF 主线 · 个股卫星 · 复核节奏</div></div>', unsafe_allow_html=True)
+    st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">投研工作台</div><div style="font-size:13px;color:#636366;margin-top:4px">今日选股 · 深度分析 · 投资路线 · 复盘报告</div></div>', unsafe_allow_html=True)
 
-    pc1, pc2, pc3 = st.columns([1,1,4])
+    pc1, pc2, pc3, pc4, _ = st.columns([1,1,1,1,3])
     with pc1:
         plan_profile = st.selectbox("风险画像", ["均衡", "保守", "进取"], index=0, key="plan_profile")
     profile_map = {"保守": "conservative", "均衡": "balanced", "进取": "aggressive"}
@@ -537,6 +545,12 @@ elif pg == "plan":
             try: load_account_review_latest.clear()
             except Exception: pass
             st.toast("投资路线和简报已生成", icon="✅")
+    with pc3:
+        if st.button("今日选股", use_container_width=True):
+            _nav_to("selector")
+    with pc4:
+        if st.button("报告历史", use_container_width=True):
+            _nav_to("history")
 
     d = load_portfolio_latest()
     b = load_investment_brief_latest()
@@ -1243,6 +1257,58 @@ elif pg == "plan":
             st.markdown("".join(f'<div class="n-card" style="font-size:13px;margin-bottom:8px;color:rgba(255,255,255,0.75)">{html.escape(str(x))}</div>' for x in d.get("monitoring_checklist", [])[:6]), unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════
+#  报告历史页
+# ══════════════════════════════════════════════════════
+elif pg == "history":
+    st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">报告历史</div><div style="font-size:13px;color:#636366;margin-top:4px">深度报告 · 扫描榜单 · 投资路线 · 复盘包</div></div>', unsafe_allow_html=True)
+
+    rows = load_report_history(limit=80)
+    if not rows:
+        st.markdown('<div class="n-card" style="text-align:center;padding:48px;color:#48484a">暂无报告历史</div>', unsafe_allow_html=True)
+    else:
+        labels = ["全部"] + sorted({row.get("label", "") for row in rows if row.get("label")})
+        hc1, hc2 = st.columns([1, 4])
+        with hc1:
+            label_filter = st.selectbox("", labels, key="history_label", label_visibility="collapsed")
+        filtered_history = [row for row in rows if label_filter == "全部" or row.get("label") == label_filter]
+        with hc2:
+            st.markdown(
+                f'<div style="padding:8px 0;font-size:12px;color:rgba(255,255,255,0.45)">'
+                f'{len(filtered_history)} 份 · {html.escape(str(get_reports_dir()))}</div>',
+                unsafe_allow_html=True,
+            )
+
+        for i, row in enumerate(filtered_history):
+            path = Path(row.get("path", ""))
+            title = html.escape(str(row.get("title", "")))
+            label = html.escape(str(row.get("label", "")))
+            generated = html.escape(str(row.get("generated_at") or row.get("modified_at") or ""))
+            file_name = html.escape(path.name)
+            st.markdown(
+                f'''
+                <div class="n-card" style="padding:12px 14px;margin-bottom:10px">
+                  <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
+                    <div>
+                      <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:3px">{label} · {generated}</div>
+                      <div style="font-size:14px;font-weight:700;color:#fff">{title}</div>
+                      <div style="font-size:11px;color:rgba(255,255,255,0.32);margin-top:4px">{file_name}</div>
+                    </div>
+                  </div>
+                </div>
+                ''',
+                unsafe_allow_html=True,
+            )
+            if path.exists() and path.is_file():
+                st.download_button(
+                    "下载 JSON",
+                    data=path.read_bytes(),
+                    file_name=path.name,
+                    mime="application/json",
+                    key=f"history_download_{i}_{path.name}",
+                    use_container_width=False,
+                )
+
+# ══════════════════════════════════════════════════════
 #  ETF50 页
 # ══════════════════════════════════════════════════════
 elif pg == "etf50":
@@ -1356,14 +1422,45 @@ elif pg == "etf50":
 elif pg == "stocks60":
     st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">60 只个股扫描</div><div style="font-size:13px;color:#636366;margin-top:4px">10大热门板块龙头 · 技术面综合评分</div></div>', unsafe_allow_html=True)
 
-    c_btn, _ = st.columns([1,4])
+    stocks60_running = st.session_state.get("stocks60_scan_running", False)
+    c_btn, c_status, _ = st.columns([1,2,3])
     with c_btn:
-        if st.button("↻  立即扫描", use_container_width=True, key="scan_st"):
-            with st.spinner("扫描中，约 5 分钟..."):
-                subprocess.run([sys.executable, str(ROOT/"scan_stocks_full.py")], capture_output=True, timeout=600)
+        if st.button("↻  立即扫描", use_container_width=True, key="scan_st", disabled=stocks60_running):
+            task_id = _new_task_id("stocks60_scan")
+            def _run_stocks60_scan():
+                try:
+                    subprocess.run([sys.executable, str(ROOT/"scan_stocks_full.py")], capture_output=True, timeout=600)
+                except subprocess.TimeoutExpired:
+                    pass
                 try: load_stocks60.clear()
                 except Exception: pass
-            # spinner 结束后 Streamlit 自动重算依赖，不需要 st.rerun()
+            _t = threading.Thread(target=_run_stocks60_scan, daemon=True)
+            _t.start()
+            _register_task(task_id, _t)
+            st.session_state["stocks60_scan_running"] = True
+            st.session_state["stocks60_scan_task_id"] = task_id
+            st.session_state["stocks60_scan_start"] = time.time()
+            st.rerun()
+
+    with c_status:
+        if stocks60_running:
+            _elapsed = int(time.time() - st.session_state.get("stocks60_scan_start", time.time()))
+            _done = not _task_alive(st.session_state.get("stocks60_scan_task_id"))
+            if _done:
+                st.session_state["stocks60_scan_running"] = False
+                st.session_state["stocks60_scan_task_id"] = None
+                try: load_stocks60.clear()
+                except Exception: pass
+                st.rerun()
+            else:
+                _estr = f"{_elapsed//60}分{_elapsed%60}秒" if _elapsed >= 60 else f"{_elapsed}秒"
+                st.markdown(
+                    f'<div style="padding-top:8px;font-size:12px;color:#f59e0b">'
+                    f'⏳ 扫描中... 已用时 {_estr}</div>',
+                    unsafe_allow_html=True,
+                )
+                import streamlit.components.v1 as _cv1
+                _cv1.html('<script>setTimeout(()=>window.parent.location.reload(),3000);</script>', height=0)
 
     d = load_stocks60()
     if not d:
@@ -1667,7 +1764,15 @@ elif pg == "ths":
 elif pg == "selector":
     try:
         import selector_page as _sp
-        _sp.render_selector_page(st, ROOT)
+        _sp.render_selector_page(
+            st,
+            ROOT,
+            {
+                "new_task_id": _new_task_id,
+                "register_task": _register_task,
+                "task_alive": _task_alive,
+            },
+        )
     except Exception as _e:
         import traceback
         st.error(f"选股页面加载失败：{_e}")

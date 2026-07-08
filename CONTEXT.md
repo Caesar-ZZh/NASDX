@@ -1,9 +1,9 @@
 # CONTEXT
 
-- 当前：根据外部 `NASDX深度审阅.md` 落地仍适用的小范围修复：默认模型改 `deepseek-chat`，移除内置私人中转 preset，Agent 旧文本信号解析收口到 `BaseAgent`，`vnpy_bridge` 去掉强制 `ImportError` 占位并保留 pandas fallback。
-- 上次停在：全量 pytest、ruff、轻量安全扫描、desktop doctor、launcher dry-run 和 selector workflow dry-run 均通过；待提交并推送 GitHub。
-- 关键决定：以当前真实仓库为准处理审阅项；报告里“无 tests/pyproject/CI”等过时结论不作为修改依据。
-- 原因：本轮优先修安全/配置/DRY/占位问题，不重写 Streamlit、不删除 CLI、不展开 UI 组件抽取和报告路径重构。
+- 当前：修复 GitHub issues #6/#7/#8：新增 runtime path helpers 和报告历史服务，Streamlit/CLI/扫描/投研报告模块尊重 `NASDX_REPORTS_DIR`，数据快照尊重 `NASDX_DATA_DIR`/`NASDX_RUNTIME_DIR`，Stocks60 与 selector 扫描不再阻塞主 UI。
+- 上次停在：全量 pytest 128 个通过，ruff 通过，`run_final_audit.py` 22/22 通过，desktop doctor PASS；待提交、推送，并在 GitHub issues 回复验证结果后关闭。
+- 关键决定：保留源码 checkout 默认目录兼容；仅在 launcher/env 指定 runtime/reports/data 时切换写入位置；`plan` 路由升级为投研工作台但不重写 Streamlit。
+- 原因：本轮集中关闭 P1 的桌面运行路径、扫描卡顿和投研闭环入口问题，不触碰交易、策略重写或 UI 框架迁移。
 
 ## Desktop Packaging
 

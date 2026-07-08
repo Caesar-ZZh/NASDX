@@ -19,12 +19,13 @@ import akshare as ak
 import pandas as pd
 
 from nasdx.market_sources import fetch_stock_hist, last_trade_date
+from nasdx.paths import get_market_data_dir
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_FILE = SCRIPT_DIR / "stocks.json"
 TODAY      = datetime.now().strftime("%Y%m%d")
 START_DATE = (datetime.now() - timedelta(days=90)).strftime("%Y%m%d")
-OUTPUT_FILE = SCRIPT_DIR / f"stock_data_{TODAY}.json"
+OUTPUT_FILE = get_market_data_dir(create=True) / f"stock_data_{TODAY}.json"
 
 
 def safe(fn, *args, **kwargs):

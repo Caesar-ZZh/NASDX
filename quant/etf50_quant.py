@@ -21,6 +21,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
+from nasdx.paths import get_reports_dir
+
 ROOT = Path(__file__).parent.parent
 
 
@@ -247,8 +249,8 @@ def run_etf50_quant(
     }
 
     # 保存 JSON
-    out_path = ROOT / "reports" / f"etf50_quant_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
-    out_path.parent.mkdir(exist_ok=True)
+    out_path = get_reports_dir(create=True) / f"etf50_quant_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         import copy
         json.dump(output, f, ensure_ascii=False, indent=2, default=str)
@@ -354,7 +356,7 @@ def _build_quant_score(results: list[ETFQuantResult], bt_result=None):
 
 def load_latest_quant() -> Optional[dict]:
     """加载最新的量化结果 JSON"""
-    files = sorted((ROOT / "reports").glob("etf50_quant_*.json"))
+    files = sorted(get_reports_dir().glob("etf50_quant_*.json"))
     if not files:
         return None
     with open(files[-1], encoding="utf-8") as f:

@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 import akshare as ak
 import pandas as pd
 
-ROOT = Path(__file__).parent.parent.parent
+from nasdx.paths import get_reports_dir
 
 
 def _safe(fn, *args, **kwargs):
@@ -184,8 +184,8 @@ def get_sector_list() -> List[Dict[str, str]]:
 
 def save_universe(stocks: List[Dict], etfs: List[Dict], path: Optional[Path] = None):
     """保存筛选后的宇宙列表到本地 JSON。"""
-    out = path or (ROOT / "reports" / "universe_latest.json")
-    out.parent.mkdir(exist_ok=True)
+    out = path or (get_reports_dir(create=True) / "universe_latest.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "generated_at": datetime.now().isoformat(),
         "stock_count": len(stocks),

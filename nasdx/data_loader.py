@@ -3,18 +3,14 @@
 并为各 Agent 提供结构化数据视图
 """
 import json
-import glob
-import os
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-
-PROJECT_DIR = Path(__file__).parent.parent
+from nasdx.paths import get_market_data_dir
 
 
 def load_latest_data() -> Dict[str, Any]:
     """加载最新的 stock_data_YYYYMMDD.json"""
-    files = sorted(glob.glob(str(PROJECT_DIR / "stock_data_*.json")))
+    files = sorted(get_market_data_dir().glob("stock_data_*.json"))
     if not files:
         raise FileNotFoundError("未找到股票数据文件，请先运行 fetch_stock_data.py")
     with open(files[-1], "r", encoding="utf-8") as f:

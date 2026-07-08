@@ -16,11 +16,8 @@ from nasdx.candidate_audit import build_candidate_audits
 from nasdx.execution_queue import build_execution_queue
 from nasdx.external_review import build_external_review_pack
 from nasdx.history_store import record_artifact
+from nasdx.paths import get_reports_dir
 from nasdx.portfolio import build_portfolio_plan, save_portfolio_plan
-
-
-PROJECT_DIR = Path(__file__).parent.parent
-
 
 def build_investment_brief(
     risk_profile: str = "balanced",
@@ -82,8 +79,8 @@ def save_investment_brief(
     output_dir: str | Path | None = None,
 ) -> Dict[str, str]:
     """Save markdown and JSON versions of the investment brief."""
-    out_dir = Path(output_dir) if output_dir else PROJECT_DIR / "reports"
-    out_dir.mkdir(exist_ok=True)
+    out_dir = Path(output_dir) if output_dir else get_reports_dir(create=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
     payload = {k: v for k, v in brief.items() if k != "markdown"}
     md_path = out_dir / f"investment_brief_{stamp}.md"
