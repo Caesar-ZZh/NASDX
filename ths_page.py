@@ -6,9 +6,10 @@ def render_ths_page(st, ROOT):
     from nasdx.paths import get_reports_dir
 
     st.markdown(
-        '<div style="padding:24px 0 20px">'
-        '<div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">同花顺接入</div>'
-        '<div style="font-size:13px;color:#6b6b6b;margin-top:4px">持仓同步 · 实时行情 · 自动交易</div>'
+        '<div class="n-page-head">'
+        '<div class="n-head-kicker">Broker Bridge</div>'
+        '<div class="n-page-title">同花顺接入</div>'
+        '<div class="n-page-sub">持仓同步 · 实时行情 · 自动交易</div>'
         "</div>",
         unsafe_allow_html=True,
     )

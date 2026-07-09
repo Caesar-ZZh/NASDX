@@ -194,6 +194,15 @@ def bar(v, color=None):
     cls = "bar-fill-green" if c=="#22c55e" else "bar-fill-red" if c=="#ef4444" else "bar-fill-yellow"
     return f'<div class="bar-wrap"><div class="{cls}" style="width:{min(v,100):.0f}%"></div></div>'
 
+def _page_header(title: str, subtitle: str, kicker: str = "NASDX WORKBENCH") -> str:
+    return (
+        '<div class="n-page-head">'
+        f'<div class="n-head-kicker">{html.escape(kicker)}</div>'
+        f'<div class="n-page-title">{html.escape(title)}</div>'
+        f'<div class="n-page-sub">{html.escape(subtitle)}</div>'
+        "</div>"
+    )
+
 def run_analysis_bg(code, rounds, risk_profile, workflow, analysis_mode, log_path, env):
     cmd = [
         sys.executable, "-u", str(ROOT/"run_investment_workflow.py"),
@@ -239,7 +248,7 @@ with st.sidebar:
       <div style="display:flex;align-items:center;gap:10px">
         <div style="font-size:24px">📊</div>
         <div>
-          <div style="font-size:15px;font-weight:700;color:#ffffff;letter-spacing:-0.02em">NASDX</div>
+          <div style="font-size:15px;font-weight:700;color:#ffffff;letter-spacing:0">NASDX</div>
           <div style="font-size:11px;color:#48484a">A股量化分析平台</div>
         </div>
       </div>
@@ -264,7 +273,7 @@ with st.sidebar:
         # active 时用蓝色背景区分
         if is_active:
             st.markdown(
-                f'<div style="background:rgba(59,130,246,0.12);border-left:2px solid #3b82f6;'
+                f'<div style="background:rgba(45,212,191,0.12);border-left:2px solid #2dd4bf;'
                 f'border-radius:4px;padding:8px 12px;margin:1px 0;font-size:13px;'
                 f'color:#fff;font-weight:600">{icon}  {label}</div>',
                 unsafe_allow_html=True
@@ -389,10 +398,20 @@ pg = st.session_state.page
 # ══════════════════════════════════════════════════════
 if pg == "home":
     # 顶部标题 + 副标题 + 日期
-    st.markdown(f"""
-    <div style="padding:28px 0 20px 0">
-      <div class="n-title">NASDX</div>
-      <div class="n-sub">A股多智能体量化分析平台 · OpenAI 兼容 LLM · 今日 {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+    st.markdown(
+        _page_header(
+            "NASDX",
+            f"A股多智能体量化分析平台 · OpenAI 兼容 LLM · 今日 {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            "Market Command Center",
+        ),
+        unsafe_allow_html=True,
+    )
+    st.markdown("""
+    <div class="n-workflow">
+      <div class="n-step" data-step="01"><div class="n-step-title">扫描市场</div><div class="n-step-text">ETF50、热门板块和全 A 候选池同步形成入口。</div></div>
+      <div class="n-step" data-step="02"><div class="n-step-title">生成路线</div><div class="n-step-text">按风险画像输出仓位上限、主线候选和观察池。</div></div>
+      <div class="n-step" data-step="03"><div class="n-step-title">深度复核</div><div class="n-step-text">多 Agent 研究、规则版兜底和 Battle 辩论集中呈现。</div></div>
+      <div class="n-step" data-step="04"><div class="n-step-title">执行追踪</div><div class="n-step-text">漂移追踪、复盘包和真实持仓复核闭环管理。</div></div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -400,10 +419,10 @@ if pg == "home":
     c0, c1, c2, c3 = st.columns(4, gap="medium")
     with c0:
         st.markdown("""
-        <div class="n-card n-card-accent-blue">
-          <div style="font-size:20px;margin-bottom:12px">🧭</div>
-          <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">投资路线</div>
-          <div class="n-sub" style="margin-bottom:12px">组合仓位 · ETF主线 · 个股卫星</div>
+        <div class="n-card n-feature n-card-accent-blue">
+          <div class="n-feature-icon">🧭</div>
+          <div class="n-feature-title">投资路线</div>
+          <div class="n-feature-copy">组合仓位 · ETF主线 · 个股卫星</div>
         </div>
         """, unsafe_allow_html=True)
         if st.button("进入 →", key="g_plan", use_container_width=True):
@@ -411,10 +430,10 @@ if pg == "home":
 
     with c1:
         st.markdown("""
-        <div class="n-card n-card-accent-green">
-          <div style="font-size:20px;margin-bottom:12px">📊</div>
-          <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">ETF 50 扫描</div>
-          <div class="n-sub" style="margin-bottom:12px">50只主流ETF技术面评分 · 实时溢价率</div>
+        <div class="n-card n-feature n-card-accent-green">
+          <div class="n-feature-icon">📊</div>
+          <div class="n-feature-title">ETF 50 扫描</div>
+          <div class="n-feature-copy">50只主流ETF技术面评分 · 实时溢价率</div>
         </div>
         """, unsafe_allow_html=True)
         if st.button("进入 →", key="g_etf", use_container_width=True):
@@ -422,10 +441,10 @@ if pg == "home":
 
     with c2:
         st.markdown("""
-        <div class="n-card n-card-accent-yellow">
-          <div style="font-size:20px;margin-bottom:12px">📈</div>
-          <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">60只个股扫描</div>
-          <div class="n-sub" style="margin-bottom:12px">10大热门板块龙头 · 技术面综合评分</div>
+        <div class="n-card n-feature n-card-accent-yellow">
+          <div class="n-feature-icon">📈</div>
+          <div class="n-feature-title">60只个股扫描</div>
+          <div class="n-feature-copy">10大热门板块龙头 · 技术面综合评分</div>
         </div>
         """, unsafe_allow_html=True)
         if st.button("进入 →", key="g_st", use_container_width=True):
@@ -433,10 +452,10 @@ if pg == "home":
 
     with c3:
         st.markdown("""
-        <div class="n-card n-card-accent-blue">
-          <div style="font-size:20px;margin-bottom:12px">🤖</div>
-          <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">深度分析</div>
-          <div class="n-sub" style="margin-bottom:12px">5 Agent 并行研究 · Battle 辩论</div>
+        <div class="n-card n-feature n-card-accent-blue">
+          <div class="n-feature-icon">🤖</div>
+          <div class="n-feature-title">深度分析</div>
+          <div class="n-feature-copy">5 Agent 并行研究 · Battle 辩论</div>
         </div>
         """, unsafe_allow_html=True)
         if st.button("进入 →", key="g_deep", use_container_width=True):
@@ -444,10 +463,10 @@ if pg == "home":
 
     with c0:
         st.markdown("""
-        <div class="n-card n-card-accent-yellow">
-          <div style="font-size:20px;margin-bottom:12px">🎯</div>
-          <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:4px">今日选股</div>
-          <div class="n-sub" style="margin-bottom:12px">全 A 动态候选池 · 多维度评分</div>
+        <div class="n-card n-feature n-card-accent-yellow">
+          <div class="n-feature-icon">🎯</div>
+          <div class="n-feature-title">今日选股</div>
+          <div class="n-feature-copy">全 A 动态候选池 · 多维度评分</div>
         </div>
         """, unsafe_allow_html=True)
         if st.button("进入 →", key="g_sel", use_container_width=True):
@@ -486,7 +505,7 @@ if pg == "home":
                       <div style="font-size:16px;margin-bottom:8px">{medal}</div>
                       <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:2px">{r['code']}</div>
                       <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">{r['name']}</div>
-                      <div style="font-size:26px;font-weight:600;color:{color};letter-spacing:-0.02em">{sc}</div>
+                      <div style="font-size:26px;font-weight:600;color:{color};letter-spacing:0">{sc}</div>
                       <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-top:2px">评分</div>
                       <div style="margin-top:8px">{bar(sc)}</div>
                       <div style="font-size:11px;color:{prem_c};margin-top:6px">{prem_s}</div>
@@ -520,7 +539,7 @@ if pg == "home":
 #  投资路线页
 # ══════════════════════════════════════════════════════
 elif pg == "plan":
-    st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">投研工作台</div><div style="font-size:13px;color:#636366;margin-top:4px">今日选股 · 深度分析 · 投资路线 · 复盘报告</div></div>', unsafe_allow_html=True)
+    st.markdown(_page_header("投研工作台", "今日选股 · 深度分析 · 投资路线 · 复盘报告", "Decision Desk"), unsafe_allow_html=True)
 
     pc1, pc2, pc3, pc4, _ = st.columns([1,1,1,1,3])
     with pc1:
@@ -1260,7 +1279,7 @@ elif pg == "plan":
 #  报告历史页
 # ══════════════════════════════════════════════════════
 elif pg == "history":
-    st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">报告历史</div><div style="font-size:13px;color:#636366;margin-top:4px">深度报告 · 扫描榜单 · 投资路线 · 复盘包</div></div>', unsafe_allow_html=True)
+    st.markdown(_page_header("报告历史", "深度报告 · 扫描榜单 · 投资路线 · 复盘包", "Archive"), unsafe_allow_html=True)
 
     rows = load_report_history(limit=80)
     if not rows:
@@ -1312,7 +1331,7 @@ elif pg == "history":
 #  ETF50 页
 # ══════════════════════════════════════════════════════
 elif pg == "etf50":
-    st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">ETF 50 扫描</div><div style="font-size:13px;color:#636366;margin-top:4px">50只主流ETF技术面评分 · 实时溢价率</div></div>', unsafe_allow_html=True)
+    st.markdown(_page_header("ETF 50 扫描", "50只主流ETF技术面评分 · 实时溢价率", "ETF Radar"), unsafe_allow_html=True)
 
     scan_running = st.session_state.get("etf50_scan_running", False)
     c_btn, c_status, _ = st.columns([1, 2, 3])
@@ -1383,7 +1402,7 @@ elif pg == "etf50":
                         </div>
                         <div style="font-size:16px">{m}</div>
                       </div>
-                      <div style="font-size:28px;font-weight:600;color:{color};letter-spacing:-0.02em">{sc}<span style="font-size:12px;color:rgba(255,255,255,0.40)"> 分</span></div>
+                      <div style="font-size:28px;font-weight:600;color:{color};letter-spacing:0">{sc}<span style="font-size:12px;color:rgba(255,255,255,0.40)"> 分</span></div>
                       {bar(sc)}
                       <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px">
                         <span class="{sig_cls(r.get('signal',''))}">{sig_label(r.get('signal',''))}</span>
@@ -1420,7 +1439,7 @@ elif pg == "etf50":
 #  个股60 页
 # ══════════════════════════════════════════════════════
 elif pg == "stocks60":
-    st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">60 只个股扫描</div><div style="font-size:13px;color:#636366;margin-top:4px">10大热门板块龙头 · 技术面综合评分</div></div>', unsafe_allow_html=True)
+    st.markdown(_page_header("60 只个股扫描", "10大热门板块龙头 · 技术面综合评分", "Stock Radar"), unsafe_allow_html=True)
 
     stocks60_running = st.session_state.get("stocks60_scan_running", False)
     c_btn, c_status, _ = st.columns([1,2,3])
@@ -1490,7 +1509,7 @@ elif pg == "stocks60":
                         </div>
                         <div style="font-size:16px">{m}</div>
                       </div>
-                      <div style="font-size:28px;font-weight:600;color:{color};letter-spacing:-0.02em">{sc}<span style="font-size:12px;color:rgba(255,255,255,0.40)"> 分</span></div>
+                      <div style="font-size:28px;font-weight:600;color:{color};letter-spacing:0">{sc}<span style="font-size:12px;color:rgba(255,255,255,0.40)"> 分</span></div>
                       {bar(sc)}
                       <div style="font-size:14px;font-weight:600;color:{chg_c};margin-top:8px">{chg:+.2f}%</div>
                     </div>""", unsafe_allow_html=True)
@@ -1521,7 +1540,7 @@ elif pg == "stocks60":
 #  深度分析页
 # ══════════════════════════════════════════════════════
 elif pg == "deep":
-    st.markdown('<div style="padding:24px 0 20px"><div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">多智能体深度分析</div><div style="font-size:13px;color:#636366;margin-top:4px">LLM 多智能体 / 无 API 规则深度报告 · 同一套行动计划</div></div>', unsafe_allow_html=True)
+    st.markdown(_page_header("多智能体深度分析", "LLM 多智能体 / 无 API 规则深度报告 · 同一套行动计划", "Research Room"), unsafe_allow_html=True)
 
     # 触发分析
     if run_btn and stock_input and not st.session_state.running:
@@ -1611,7 +1630,7 @@ elif pg == "deep":
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:12px">
           <div>
             <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:4px">{code} · {date_s} · {mode_s}</div>
-            <div style="font-size:28px;font-weight:600;color:#fff;letter-spacing:-0.02em">{name}</div>
+            <div style="font-size:28px;font-weight:600;color:#fff;letter-spacing:0">{name}</div>
           </div>
           <div style="text-align:right">
             <div class="{sig_cls(sig)}" style="font-size:14px;padding:6px 12px;margin-bottom:6px">{sig_label(sig)}</div>
