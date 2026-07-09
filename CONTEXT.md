@@ -1,9 +1,9 @@
 # CONTEXT
 
-- 当前：修复 GitHub issues #6/#7/#8：新增 runtime path helpers 和报告历史服务，Streamlit/CLI/扫描/投研报告模块尊重 `NASDX_REPORTS_DIR`，数据快照尊重 `NASDX_DATA_DIR`/`NASDX_RUNTIME_DIR`，Stocks60 与 selector 扫描不再阻塞主 UI。
-- 上次停在：全量 pytest 128 个通过，ruff 通过，`run_final_audit.py` 22/22 通过，desktop doctor PASS；待提交、推送，并在 GitHub issues 回复验证结果后关闭。
-- 关键决定：保留源码 checkout 默认目录兼容；仅在 launcher/env 指定 runtime/reports/data 时切换写入位置；`plan` 路由升级为投研工作台但不重写 Streamlit。
-- 原因：本轮集中关闭 P1 的桌面运行路径、扫描卡顿和投研闭环入口问题，不触碰交易、策略重写或 UI 框架迁移。
+- 当前：完成 Streamlit 前端 UI refresh：统一 `static/style.css` token、卡片/表格/Tab/按钮/页面头样式，首页新增扫描-路线-复核-追踪工作流视图，今日选股页中文化并统一数据表。
+- 上次停在：ruff 通过；pytest 相关契约 51 个通过；`run_final_audit.py` 22/22 通过；Playwright 验证 home/selector/quant 页面标题渲染且无错误文本；待提交并推送。
+- 关键决定：继续保留 Streamlit 与现有 CLI，不引入新前端框架；UI 优化集中在样式层和少量 HTML class；顺手修正量化页 `tab6` 缩进导致的页面级错误。
+- 原因：本轮目标是美化前端渲染和可读性，不触碰量化、数据、交易核心逻辑。
 
 ## Desktop Packaging
 

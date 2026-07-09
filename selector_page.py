@@ -6,6 +6,7 @@ selector_page.py - Streamlit 今日选股页面
 """
 from __future__ import annotations
 
+import html
 import json
 import subprocess
 import sys
@@ -47,7 +48,7 @@ def _local_task_alive(task_id: str | None) -> bool:
 def _render_selector_table(rows: List[Dict], tab_name: str) -> str:
     """Render selector table as HTML."""
     if not rows:
-        return '<div class="n-card" style="text-align:center;padding:24px;color:#48484a">No data</div>'
+        return f'<div class="n-card n-empty">暂无 {html.escape(tab_name)} 数据</div>'
 
     head = "<th>Code</th><th>Name</th><th>Close</th><th>Chg%</th><th>Score</th><th>Tech</th><th>Mom</th><th>Risk</th><th>Type</th><th>Action</th>"
     body = ""
@@ -63,32 +64,30 @@ def _render_selector_table(rows: List[Dict], tab_name: str) -> str:
             "etf_alternative": "ETF Alt", "avoid": "Avoid",
         }
         ctype = type_map.get(r.get("candidate_type", ""), r.get("candidate_type", ""))
+        code = html.escape(str(r.get("code", "")))
+        name = html.escape(str(r.get("name", "")))
+        action = html.escape(str(r.get("action_level", "")))
         body += (
             f"<tr>"
-            f'<td>{r.get("code","")}</td>'
-            f'<td>{r.get("name","")}</td>'
+            f"<td>{code}</td>"
+            f"<td>{name}</td>"
             f'<td>{r.get("close",0):.2f}</td>'
             f'<td style="color:{chg_color};font-weight:600">{chg_str}</td>'
             f'<td style="color:{sc_color};font-weight:700">{score:.0f}</td>'
             f'<td>{r.get("technical_score",0):.0f}</td>'
             f'<td>{r.get("momentum_score",0):.0f}</td>'
             f'<td>{r.get("risk_score",0):.0f}</td>'
-            f'<td>{ctype}</td>'
-            f'<td><span style="color:#8b949e;font-size:11px">{r.get("action_level","")}</span></td>'
+            f"<td>{html.escape(str(ctype))}</td>"
+            f'<td><span style="color:var(--text-muted);font-size:11px">{action}</span></td>'
             f"</tr>"
         )
 
     return (
-        '<div style="overflow:auto">'
-        f"<table style='width:100%;border-collapse:collapse;font-size:12px'>"
+        '<div class="n-card n-table-shell" style="padding:0;overflow:auto">'
+        f'<table class="n-data-table">'
         f"<thead><tr>{head}</tr></thead>"
         f"<tbody>{body}</tbody>"
-        f"</table></div>"
-        "<style>"
-        "table th{color:rgba(255,255,255,0.42);font-weight:600;text-align:left;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.08);white-space:nowrap}"
-        "table td{color:rgba(255,255,255,0.75);padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.06)}"
-        "table tr:last-child td{border-bottom:0}"
-        "</style>"
+        "</table></div>"
     )
 
 
@@ -102,9 +101,10 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
     task_alive = helpers.get("task_alive", _local_task_alive)
 
     st.markdown(
-        '<div style="padding:24px 0 20px">'
-        '<div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">Today\'s Stock Selection</div>'
-        '<div style="font-size:13px;color:#636366;margin-top:4px">Full A-share Universe &middot; Multi-dimensional Scoring &middot; Market Regime</div>'
+        '<div class="n-page-head">'
+        '<div class="n-head-kicker">Selector</div>'
+        '<div class="n-page-title">今日选股</div>'
+        '<div class="n-page-sub">全 A 动态候选池 · 多维度评分 · 市场环境过滤</div>'
         "</div>",
         unsafe_allow_html=True,
     )
@@ -132,7 +132,7 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
         )
 
     with c_btn:
-        if st.button("Pick Stocks", use_container_width=True,
+        if st.button("开始选股", use_container_width=True,
                      disabled=sel_running, key="selector_scan_btn"):
             task_id = new_task_id("selector_scan")
             def _run_selector():
@@ -178,8 +178,8 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
             else:
                 estr = f"{_elapsed // 60}m{_elapsed % 60}s" if _elapsed >= 60 else f"{_elapsed}s"
                 st.markdown(
-                    '<div style="padding-top:8px;font-size:12px;color:#f59e0b">'
-                    f"Scanning... Elapsed: {estr}</div>",
+                    '<div class="n-status-line" style="--status-color:var(--yellow)">'
+                    f'<span class="n-status-dot"></span><span>扫描中 · 已用时 {estr}</span></div>',
                     unsafe_allow_html=True,
                 )
                 import streamlit.components.v1 as _cv1
@@ -188,8 +188,8 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
     d = load_stock_selector()
     if not d:
         st.markdown(
-            '<div class="n-card" style="text-align:center;padding:48px;color:#48484a">'
-            'No data yet. Click "Pick Stocks" or wait for scheduled task.</div>',
+            '<div class="n-card n-empty">'
+            "暂无数据。点击「开始选股」或等待定时任务。</div>",
             unsafe_allow_html=True,
         )
     else:
@@ -201,12 +201,11 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
             "mixed": "#8b949e",
         }.get(regime.get("regime", ""), "#f59e0b")
         st.markdown(
-            f'<div style="background:{regime_color}15;border:1px solid {regime_color}40;'
-            f'border-radius:8px;padding:14px 16px;margin-bottom:20px">'
-            f'<div style="font-size:13px;font-weight:600;color:{regime_color}">'
-            f'Market: {regime.get("regime", "")} ({regime.get("score", 0)}/100)</div>'
+            f'<div class="n-card n-card-accent-line" style="--accent-line:{regime_color};margin-bottom:20px">'
+            f'<div style="font-size:13px;font-weight:700;color:{regime_color}">'
+            f'市场环境：{html.escape(str(regime.get("regime", "")))} ({regime.get("score", 0)}/100)</div>'
             f'<div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:4px">'
-            f"{regime.get('summary', '')}</div>"
+            f"{html.escape(str(regime.get('summary', '')))}</div>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -224,15 +223,15 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
         for col, (lb, val, color) in zip([sc1, sc2, sc3, sc4, sc5], stats):
             with col:
                 st.markdown(
-                    f'<div class="n-card" style="text-align:center;padding:12px 8px">'
-                    f'<div style="font-size:22px;font-weight:600;color:{color}">{val}</div>'
-                    f'<div style="font-size:11px;color:rgba(255,255,255,0.40);margin-top:4px">{lb}</div>'
+                    f'<div class="n-card n-kpi" style="--kpi-color:{color}">'
+                    f'<div class="n-kpi-value">{val}</div>'
+                    f'<div class="n-kpi-label">{lb}</div>'
                     f"</div>",
                     unsafe_allow_html=True,
                 )
 
         # Tabs
-        tab_names = ["Tier A", "Tier B", "Breakout", "Pullback", "Avoid"]
+        tab_names = ["A级候选", "B级候选", "突破", "回踩", "回避"]
         tab_keys = ["tier_a", "tier_b", "breakout", "pullback", "avoid"]
         tabs = st.tabs(tab_names)
         tab_data = {k: d.get("candidates", {}).get(k, []) for k in tab_keys}
@@ -247,7 +246,7 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
                     code = r.get("code", "")
                     name = r.get("name", "")
                     if st.button(
-                        f"Deep Analysis {code} {name}",
+                        f"深度分析 {code} {name}",
                         key=f"deep_{key}_{i}",
                         use_container_width=True,
                     ):
