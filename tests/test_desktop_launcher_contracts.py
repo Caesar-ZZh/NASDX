@@ -372,7 +372,7 @@ model = "example-model"
             env = build_desktop_env(ROOT, {RUNTIME_DIR_ENV: str(runtime_dir)})
 
             self.assertEqual(runtime_dir.resolve(), resolved.resolve())
-            self.assertEqual(str(runtime_dir.resolve()), env[RUNTIME_DIR_ENV])
+            self.assertEqual(runtime_dir.resolve(), Path(env[RUNTIME_DIR_ENV]).resolve())
             self.assertEqual(str(runtime_dir.resolve() / "nasdx_history.db"), env[HISTORY_DB_ENV])
             self.assertEqual(str(runtime_dir.resolve() / "reports"), env[REPORTS_DIR_ENV])
 
