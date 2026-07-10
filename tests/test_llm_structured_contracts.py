@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from nasdx.agents.base import BaseAgent
 from nasdx.agents.chokepoint import ChokepointAgent
@@ -15,6 +16,32 @@ class DummyAgent(BaseAgent):
 
 
 class LLMStructuredContractsTest(unittest.TestCase):
+    def test_remote_provider_without_key_fails_before_http_call(self):
+        import nasdx.llm as llm_module
+
+        class FailingCompletions:
+            calls = 0
+
+            def create(self, **_kwargs):
+                self.calls += 1
+                raise AssertionError("HTTP client must not be called without an API key")
+
+        client = object.__new__(llm_module.LLMClient)
+        completions = FailingCompletions()
+        client.client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
+        client.model = "remote-model"
+        client.max_tokens = 128
+        client.temperature = 0.1
+
+        with (
+            patch.object(llm_module, "API_KEY", ""),
+            patch.object(llm_module, "BASE_URL", "https://notlocalhost.example/v1"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "请先设置 NASDX_API_KEY"):
+                client.ask([{"role": "user", "content": "hello"}], max_retries=1)
+
+        self.assertEqual(completions.calls, 0)
+
     def test_extract_json_payload_from_fenced_model_response(self):
         from nasdx.llm import extract_json_payload
 

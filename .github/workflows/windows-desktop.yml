@@ -21,6 +21,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Run required secret scan
+        shell: pwsh
+        run: |
+          python -B run_security_checks.py --skip-optional
+
       - name: Install dependencies
         shell: pwsh
         run: |

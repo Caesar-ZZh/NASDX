@@ -1,100 +1,71 @@
-"""
-NASDX — 扫描 + 同步一体化脚本
-每次定时任务触发时：
-  1. 运行 ETF50 技术面扫描
-  2. 自动同步最新 JSON 数据到 Streamlit Cloud (deploy 分支)
+"""Run the ETF50 scan and publish one validated report to the deploy branch."""
+from __future__ import annotations
 
-用法：
-  python scan_and_sync.py          # 扫描 + 同步
-  python scan_and_sync.py --no-sync  # 只扫描，不同步
-"""
-import sys, os, subprocess, glob
-from pathlib import Path
+import argparse
 from datetime import datetime
+from pathlib import Path
 
-# 代理 patch
-import requests as _req
-_r = _req.get
-def _p(url, **kw):
-    if 'eastmoney' in url:
-        s = _req.Session(); s.trust_env = True
-        return s.get(url, **kw)
-    return _r(url, **kw)
-_req.get = _p
+from nasdx.cloud_sync import CloudSyncError, publish_latest_etf_report
+from nasdx.paths import get_reports_dir
+
 
 ROOT = Path(__file__).parent
-PYTHON = sys.executable
-
-NO_SYNC = "--no-sync" in sys.argv
 
 
-def run_etf50_scan():
-    """运行 ETF50 技术面扫描"""
-    print(f"\n{'='*55}")
-    print(f"  ETF50 扫描  {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"{'='*55}\n")
+def run_etf50_scan() -> None:
+    """Run the existing scanner without leaving a global requests patch behind."""
+    import requests
 
-    import builtins, io
-    orig = builtins.print
-    scan_src = (ROOT / "scan_etf50.py").read_text(encoding="utf-8")
-    ns = {"__name__": "__scan__", "__file__": str(ROOT / "scan_etf50.py")}
-    exec(compile(scan_src, "scan_etf50.py", "exec"), ns)
+    original_get = requests.get
+
+    def patched_get(url, **kwargs):
+        if "eastmoney" in url:
+            session = requests.Session()
+            session.trust_env = True
+            return session.get(url, **kwargs)
+        return original_get(url, **kwargs)
+
+    print(f"\n{'=' * 55}")
+    print(f"  ETF50 扫描  {datetime.now():%Y-%m-%d %H:%M}")
+    print(f"{'=' * 55}\n")
+    requests.get = patched_get
+    try:
+        scan_path = ROOT / "scan_etf50.py"
+        namespace = {"__name__": "__scan__", "__file__": str(scan_path)}
+        source = scan_path.read_text(encoding="utf-8")
+        exec(compile(source, str(scan_path), "exec"), namespace)
+    finally:
+        requests.get = original_get
 
 
-def sync_to_cloud():
-    """把最新报告 JSON 同步到 deploy 分支"""
-    print(f"\n{'─'*55}")
-    print("  同步数据到 Streamlit Cloud...")
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run ETF50 scan and publish a validated report.")
+    parser.add_argument("--no-sync", action="store_true", help="run the scan without publishing")
+    args = parser.parse_args(argv)
 
     try:
-        # 1. 切换到 deploy 分支
-        subprocess.run(["git", "checkout", "deploy"], cwd=ROOT,
-                       capture_output=True, check=True)
+        run_etf50_scan()
+    except Exception as exc:
+        print(f"[SCAN_FAILED] {str(exc)[:300]}")
+        return 1
+    print("[SCAN_OK] ETF50 scan completed")
 
-        # 2. 添加所有 json 报告
-        json_files = list(ROOT.glob("reports/*.json"))
-        if not json_files:
-            print("  无 JSON 数据可同步")
-            return
+    if args.no_sync:
+        print("[PUBLISH_SKIPPED] --no-sync")
+        return 0
 
-        subprocess.run(["git", "add", "-f"] + [str(f) for f in json_files],
-                       cwd=ROOT, capture_output=True)
+    try:
+        result = publish_latest_etf_report(ROOT, reports_dir=get_reports_dir(create=True))
+    except CloudSyncError as exc:
+        print(f"[PUBLISH_FAILED] {str(exc)[:300]}")
+        return 1
 
-        # 3. 检查是否有变化
-        result = subprocess.run(["git", "diff", "--cached", "--quiet"],
-                                 cwd=ROOT, capture_output=True)
-        if result.returncode == 0:
-            print("  数据无变化，跳过同步")
-            return
-
-        # 4. 提交
-        msg = f"data: 自动同步扫描数据 {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        subprocess.run(["git", "commit", "-m", msg], cwd=ROOT,
-                       capture_output=True, check=True)
-
-        # 5. 推送
-        result = subprocess.run(["git", "push", "origin", "deploy"],
-                                 cwd=ROOT, capture_output=True, text=True)
-        if result.returncode == 0:
-            print("  ✅ 同步成功！Cloud 将在 1-2 分钟内更新")
-        else:
-            print(f"  ❌ 推送失败: {result.stderr[:100]}")
-
-    except subprocess.CalledProcessError as e:
-        print(f"  ❌ Git 操作失败: {e}")
-    finally:
-        # 始终切回 master
-        subprocess.run(["git", "checkout", "master"], cwd=ROOT,
-                       capture_output=True)
-        print("  已切回 master 分支")
+    if result.status == "no_changes":
+        print(f"[PUBLISH_SKIPPED] no changes for {result.artifact}")
+    else:
+        print(f"[PUBLISH_OK] {result.artifact} @ {result.commit[:12] if result.commit else 'unknown'}")
+    return 0
 
 
 if __name__ == "__main__":
-    run_etf50_scan()
-
-    if not NO_SYNC:
-        sync_to_cloud()
-    else:
-        print("\n[--no-sync] 跳过同步")
-
-    print(f"\n完成  {datetime.now().strftime('%H:%M:%S')}\n")
+    raise SystemExit(main())

@@ -7,6 +7,7 @@ import json
 import re
 import time
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 from openai import OpenAI
 
 # 从环境变量读取；不要在仓库中写入真实 API Key。
@@ -76,6 +77,9 @@ class LLMClient:
         max_retries: int = 3,
     ) -> str:
         """同步调用 LLM，失败自动降级备用模型"""
+        if not API_KEY and not _is_local_base_url(BASE_URL):
+            raise RuntimeError("请先设置 NASDX_API_KEY，或切换到 Ollama 本地模型")
+
         full_messages = []
         if system:
             full_messages.append({"role": "system", "content": system})
@@ -86,8 +90,6 @@ class LLMClient:
         for model in models_to_try:
             for attempt in range(max_retries):
                 try:
-                    if not API_KEY and "localhost" not in BASE_URL and "127.0.0.1" not in BASE_URL:
-                        raise RuntimeError("请先设置 NASDX_API_KEY，或切换到 Ollama 本地模型")
                     # 推理模型（如 deepseek-reasoner）temperature 必须为 1
                     is_reasoner = any(x in model for x in ("reasoner", "thinking", "r1"))
                     call_kwargs = dict(
@@ -140,6 +142,11 @@ class LLMClient:
             return extract_json_payload(result)
         except ValueError:
             return {"raw": result}
+
+
+def _is_local_base_url(base_url: str) -> bool:
+    host = (urlparse(base_url).hostname or "").lower()
+    return host in {"localhost", "127.0.0.1", "::1"}
 
 
 # 全局单例
