@@ -6,8 +6,9 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from desktop.config import CONFIG_FILE_ENV, load_desktop_config
+from desktop.config import CONFIG_FILE_ENV, absolute_path, load_desktop_config
 from desktop.paths import (
     APP_ROOT_ENV,
     HISTORY_DB_ENV,
@@ -35,6 +36,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DesktopLauncherContractsTest(unittest.TestCase):
+    def test_absolute_path_preserves_existing_absolute_path_spelling(self):
+        configured = Path(tempfile.gettempdir()) / "not-created" / "config.toml"
+
+        with patch("desktop.config.os.path.abspath", side_effect=AssertionError("must not resolve aliases")):
+            resolved = absolute_path(configured)
+
+        self.assertEqual(configured, resolved)
+
     def test_project_root_detection_uses_existing_streamlit_entry(self):
         root = find_project_root(ROOT / "desktop" / "launcher.py")
 
