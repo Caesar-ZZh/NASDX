@@ -30,16 +30,32 @@ def _new_local_task_id(prefix: str) -> str:
 
 def _register_local_task(task_id: str, thread: _threading.Thread) -> None:
     with _LOCAL_TASK_LOCK:
-        _LOCAL_TASKS[task_id] = thread
+        _LOCAL_TASKS[task_id] = {"thread": thread}
+
+
+def _set_local_task_result(task_id: str, result: dict) -> None:
+    with _LOCAL_TASK_LOCK:
+        item = _LOCAL_TASKS.get(task_id)
+        if item is not None:
+            item["result"] = result
+
+
+def _take_local_task_result(task_id: str | None) -> dict | None:
+    if not task_id:
+        return None
+    with _LOCAL_TASK_LOCK:
+        item = _LOCAL_TASKS.pop(task_id, None)
+    return item.get("result") if item else None
 
 
 def _local_task_alive(task_id: str | None) -> bool:
     if not task_id:
         return False
     with _LOCAL_TASK_LOCK:
-        thread = _LOCAL_TASKS.get(task_id)
+        item = _LOCAL_TASKS.get(task_id)
+    thread = item.get("thread") if item else None
     alive = bool(thread and thread.is_alive())
-    if thread and not alive:
+    if item and not alive and "result" not in item:
         with _LOCAL_TASK_LOCK:
             _LOCAL_TASKS.pop(task_id, None)
     return alive
@@ -99,6 +115,16 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
     new_task_id = helpers.get("new_task_id", _new_local_task_id)
     register_task = helpers.get("register_task", _register_local_task)
     task_alive = helpers.get("task_alive", _local_task_alive)
+    set_task_result = helpers.get("set_task_result", _set_local_task_result)
+    take_task_result = helpers.get("take_task_result", _take_local_task_result)
+
+    def _default_navigate(page: str, stock_code: str | None = None) -> None:
+        if stock_code:
+            st.session_state["_quick"] = stock_code
+        st.session_state.page = page
+        st.query_params["page"] = page
+
+    navigate = helpers.get("navigate", _default_navigate)
 
     st.markdown(
         '<div class="n-page-head">'
@@ -147,27 +173,56 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
                     str(get_reports_dir(create=True)),
                 ]
                 try:
-                    subprocess.run(command, capture_output=True, timeout=int(selector_timeout))
+                    completed = subprocess.run(
+                        command,
+                        capture_output=True,
+                        timeout=int(selector_timeout),
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+                    detail = (completed.stderr or completed.stdout or "").strip()
+                    if completed.returncode == 0:
+                        result = {"ok": True, "message": "今日选股完成，结果已刷新。"}
+                    else:
+                        suffix = detail[-300:] if detail else "无错误输出"
+                        result = {
+                            "ok": False,
+                            "message": f"今日选股失败（返回码 {completed.returncode}）：{suffix}",
+                        }
                 except subprocess.TimeoutExpired:
-                    pass
-                try:
-                    load_stock_selector.clear()
-                except Exception:
-                    pass
+                    result = {
+                        "ok": False,
+                        "message": f"今日选股超时（{int(selector_timeout)} 秒），请缩小抓取范围后重试。",
+                    }
+                except Exception as exc:
+                    result = {"ok": False, "message": f"今日选股失败：{str(exc)[:300]}"}
+                finally:
+                    try:
+                        load_stock_selector.clear()
+                    except Exception:
+                        pass
+                    set_task_result(task_id, result)
 
             _t = _threading.Thread(target=_run_selector, daemon=True)
-            _t.start()
             register_task(task_id, _t)
+            _t.start()
+            sel_running = True
             st.session_state["selector_scan_running"] = True
             st.session_state["selector_scan_task_id"] = task_id
             st.session_state["selector_scan_start"] = time.time()
-            st.rerun()
+            st.session_state["selector_scan_result"] = None
 
     with c_status:
         if sel_running:
             _elapsed = int(time.time() - st.session_state.get("selector_scan_start", time.time()))
-            _done = not task_alive(st.session_state.get("selector_scan_task_id"))
+            _scan_task_id = st.session_state.get("selector_scan_task_id")
+            _done = not task_alive(_scan_task_id)
             if _done:
+                st.session_state["selector_scan_result"] = take_task_result(_scan_task_id) or {
+                    "ok": False,
+                    "message": "今日选股异常结束，未收到任务结果。",
+                }
                 st.session_state["selector_scan_running"] = False
                 st.session_state["selector_scan_task_id"] = None
                 try:
@@ -184,6 +239,13 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
                 )
                 import streamlit.components.v1 as _cv1
                 _cv1.html('<script>setTimeout(()=>window.parent.location.reload(),3000);</script>', height=0)
+
+    scan_result = st.session_state.get("selector_scan_result")
+    if scan_result:
+        if scan_result.get("ok"):
+            st.success(scan_result.get("message", "选股完成。"))
+        else:
+            st.error(scan_result.get("message", "选股失败。"))
 
     d = load_stock_selector()
     if not d:
@@ -245,14 +307,13 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
                 for i, r in enumerate(rows[:5]):
                     code = r.get("code", "")
                     name = r.get("name", "")
-                    if st.button(
+                    st.button(
                         f"深度分析 {code} {name}",
                         key=f"deep_{key}_{i}",
                         use_container_width=True,
-                    ):
-                        st.session_state["_quick"] = code
-                        st.query_params["page"] = "deep"
-                        st.rerun()
+                        on_click=navigate,
+                        args=("deep", code),
+                    )
 
 
 @st.cache_data(ttl=60, show_spinner=False)

@@ -99,9 +99,6 @@ def _run_etf50_bg(days, top_n, freq, log_path):
 #  主页面入口
 # ══════════════════════════════════════════════════════
 def render_quant_page(st):
-    import pandas as pd
-    import numpy as np
-
     # ── 启动时清理僵死线程状态 ──────────────────────────
     for tk in ["etf50q_thread", "conf_thread"]:
         t = st.session_state.get(tk)
@@ -459,6 +456,8 @@ def render_quant_page(st):
                 with col: st.markdown(_metric(lb,v,c), unsafe_allow_html=True)
 
             if not r.equity_curve.empty:
+                import pandas as pd
+
                 eq = r.equity_curve
                 st.line_chart(pd.DataFrame({"净值":eq/eq.iloc[0]}),color=["#3b82f6"],height=200)
 
@@ -728,6 +727,8 @@ def _render_etf50_result(st, data: dict):
 
         eq_list = bt.get("equity_curve",[])
         if eq_list and len(eq_list)>5:
+            import pandas as pd
+
             eq = pd.Series(eq_list)
             st.line_chart(pd.DataFrame({"净值":eq/eq.iloc[0]}),color=["#3b82f6"],height=150)
 

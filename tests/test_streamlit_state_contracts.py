@@ -61,12 +61,83 @@ class StreamlitStateContractsTest(unittest.TestCase):
         self.assertIn('"selector_scan_task_id"', source)
         self.assertNotIn('"selector_scan_thread"', source)
 
+    def test_scan_actions_surface_subprocess_results_without_start_rerun(self):
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        selector_source = (ROOT / "selector_page.py").read_text(encoding="utf-8")
+
+        self.assertIn('"etf50_scan_result"', app_source)
+        self.assertIn('"stocks60_scan_result"', app_source)
+        self.assertIn('"selector_scan_result"', selector_source)
+        self.assertIn("completed.returncode", app_source)
+        self.assertIn("completed.returncode", selector_source)
+        self.assertNotIn(
+            'st.session_state["etf50_scan_start"] = time.time()\n            st.rerun()',
+            app_source,
+        )
+        self.assertNotIn(
+            'st.session_state["stocks60_scan_start"] = time.time()\n            st.rerun()',
+            app_source,
+        )
+        self.assertNotIn(
+            'st.session_state["selector_scan_start"] = time.time()\n            st.rerun()',
+            selector_source,
+        )
+
     def test_report_history_page_is_first_class_route(self):
         source = (ROOT / "app.py").read_text(encoding="utf-8")
 
         self.assertIn('"history"', source)
         self.assertIn("报告历史", source)
         self.assertIn("list_report_history", source)
+
+    def test_navigation_uses_callbacks_without_explicit_rerun(self):
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        selector_source = (ROOT / "selector_page.py").read_text(encoding="utf-8")
+        route_start = app_source.index("def _nav_to")
+        route_end = app_source.index("# ═", route_start)
+        route_source = app_source[route_start:route_end]
+
+        self.assertNotIn("st.rerun()", route_source)
+        self.assertIn("on_click=_nav_to", app_source)
+        self.assertIn('"navigate": _nav_to', app_source)
+        self.assertIn("on_click=navigate", selector_source)
+        self.assertNotIn('st.query_params["page"] = "deep"', selector_source)
+
+    def test_deep_analysis_poll_does_not_block_streamlit_thread(self):
+        source = (ROOT / "app.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("time.sleep(3); st.rerun()", source)
+        self.assertIn("_schedule_refresh(3000)", source)
+
+    def test_home_recent_reports_use_cached_loader(self):
+        source = (ROOT / "app.py").read_text(encoding="utf-8")
+        home_start = source.index('if pg == "home":')
+        home_end = source.index('elif pg == "plan":', home_start)
+        home_source = source[home_start:home_end]
+
+        self.assertIn("all_r = load_recent_reports()", home_source)
+        self.assertNotIn('glob("report_*.json")', home_source)
+
+    def test_quick_stock_picker_does_not_render_one_button_per_symbol(self):
+        source = (ROOT / "app.py").read_text(encoding="utf-8")
+        picker_start = source.index("# 股票快速选择")
+        picker_end = source.index("# API 配置", picker_start)
+        picker_source = source[picker_start:picker_end]
+
+        self.assertIn('key="quick_sector"', picker_source)
+        self.assertIn('key="quick_stock"', picker_source)
+        self.assertIn('key="quick_open"', picker_source)
+        self.assertNotIn('key=f"q_{sector}_{code}"', picker_source)
+
+    def test_quant_page_defers_dataframe_imports_until_chart_rendering(self):
+        source = (ROOT / "quant_page.py").read_text(encoding="utf-8")
+        render_start = source.index("def render_quant_page")
+        startup_end = source.index("# ── 启动时", render_start)
+        startup_source = source[render_start:startup_end]
+
+        self.assertNotIn("import pandas as pd", startup_source)
+        self.assertNotIn("import numpy as np", source)
+        self.assertGreaterEqual(source.count("import pandas as pd"), 2)
 
 
 if __name__ == "__main__":

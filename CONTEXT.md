@@ -1,9 +1,9 @@
 # CONTEXT
 
-- 当前：完成 Streamlit 前端 UI refresh：统一 `static/style.css` token、卡片/表格/Tab/按钮/页面头样式，首页新增扫描-路线-复核-追踪工作流视图，今日选股页中文化并统一数据表。
-- 上次停在：ruff 通过；pytest 相关契约 51 个通过；`run_final_audit.py` 22/22 通过；Playwright 验证 home/selector/quant 页面标题渲染且无错误文本；待提交并推送。
-- 关键决定：继续保留 Streamlit 与现有 CLI，不引入新前端框架；UI 优化集中在样式层和少量 HTML class；顺手修正量化页 `tab6` 缩进导致的页面级错误。
-- 原因：本轮目标是美化前端渲染和可读性，不触碰量化、数据、交易核心逻辑。
+- 当前：完成 Streamlit 响应修复：导航改为 callback 单次 rerun，URL/session 路由统一；首页报告读取缓存；快速选股降为 3 个 widget；扫描任务显示成功/失败/超时；分析轮询不再阻塞 UI；量化页延迟 pandas 导入。
+- 上次停在：pytest 134/134、ruff、`run_final_audit.py` 22/22、desktop doctor 全通过；Playwright 热态页面切换约 0.5-1.6 秒、浏览器错误 0；8502 已重启为单一新实例，待提交推送并关闭 issue #10。
+- 关键决定：保留 Streamlit/CLI 和现有后台 task_id 边界；用 widget callback 更新路由，用任务结果字典向 UI 反馈子进程状态，不把线程放入 session state。
+- 原因：根因是导航显式二次 rerun、阻塞式 sleep、每次渲染数十个股票按钮、扫描错误被吞掉和量化入口无条件重型导入。
 
 ## Desktop Packaging
 

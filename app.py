@@ -40,10 +40,64 @@ def _task_alive(task_id: str | None) -> bool:
         item = RUNNING_TASKS.get(task_id)
     thread = item.get("thread") if item else None
     alive = bool(thread and thread.is_alive())
-    if item and not alive:
+    if item and not alive and "result" not in item:
         with TASK_LOCK:
             RUNNING_TASKS.pop(task_id, None)
     return alive
+
+
+def _set_task_result(task_id: str, result: dict) -> None:
+    with TASK_LOCK:
+        item = RUNNING_TASKS.get(task_id)
+        if item is not None:
+            item["result"] = result
+
+
+def _take_task_result(task_id: str | None) -> dict | None:
+    if not task_id:
+        return None
+    with TASK_LOCK:
+        item = RUNNING_TASKS.pop(task_id, None)
+    return item.get("result") if item else None
+
+
+def _run_command_task(
+    task_id: str,
+    command: list[str],
+    *,
+    timeout: int | None,
+    success_message: str,
+    clear_callback=None,
+) -> None:
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            timeout=timeout,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        detail = (completed.stderr or completed.stdout or "").strip()
+        if completed.returncode == 0:
+            result = {"ok": True, "message": success_message}
+        else:
+            suffix = detail[-300:] if detail else "无错误输出"
+            result = {
+                "ok": False,
+                "message": f"执行失败（返回码 {completed.returncode}）：{suffix}",
+            }
+    except subprocess.TimeoutExpired:
+        result = {"ok": False, "message": f"执行超时（{timeout} 秒），请缩小范围后重试。"}
+    except Exception as exc:
+        result = {"ok": False, "message": f"执行失败：{str(exc)[:300]}"}
+    finally:
+        if clear_callback:
+            try:
+                clear_callback()
+            except Exception:
+                pass
+        _set_task_result(task_id, result)
 
 
 def _build_llm_env(api_key: str, base_url: str, model: str) -> dict:
@@ -162,9 +216,9 @@ def load_pool():
     with open(ROOT / "etf50_pool.json", encoding="utf-8") as f:
         return json.load(f)["etfs"]
 
-@st.cache_resource(show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def load_recent_reports(n=6):
-    """加载最近报告 — 用 cache_resource 避免每次 glob 和序列化开销"""
+    """加载最近报告，减少首页 rerun 时的重复磁盘读取。"""
     files = sorted(get_reports_dir().glob("report_*.json"), key=os.path.getmtime, reverse=True)[:n]
     results = []
     for rp in files:
@@ -203,6 +257,17 @@ def _page_header(title: str, subtitle: str, kicker: str = "NASDX WORKBENCH") -> 
         "</div>"
     )
 
+
+def _schedule_refresh(delay_ms: int = 3000) -> None:
+    """Schedule a browser refresh without blocking the Streamlit script thread."""
+    import streamlit.components.v1 as components
+
+    delay = max(250, int(delay_ms))
+    components.html(
+        f"<script>setTimeout(()=>window.parent.location.reload(),{delay});</script>",
+        height=0,
+    )
+
 def run_analysis_bg(code, rounds, risk_profile, workflow, analysis_mode, log_path, env):
     cmd = [
         sys.executable, "-u", str(ROOT/"run_investment_workflow.py"),
@@ -226,17 +291,25 @@ DEFAULTS = {"running":False,"current_code":"","log_path":None,"task_id":None,"do
 for k, v in DEFAULTS.items():
     if k not in st.session_state: st.session_state[k] = v
 
-# 从 URL 读当前页面（首次加载 / 刷新时恢复）
+# URL 是可分享的路由来源；回调会同时更新 session，避免双重 rerun。
 _qp = st.query_params
 _valid_pages = {"home","plan","history","etf50","stocks60","deep","quant","selector","ths"}
-if "page" not in st.session_state:
-    st.session_state.page = _qp.get("page","home") if _qp.get("page","home") in _valid_pages else "home"
+_url_page = _qp.get("page", "home")
+if isinstance(_url_page, list):
+    _url_page = _url_page[0] if _url_page else "home"
+_url_page = _url_page if _url_page in _valid_pages else "home"
+if st.session_state.get("page") != _url_page:
+    st.session_state.page = _url_page
 
-def _nav_to(page: str):
-    """切换页面：写 session + query_params + rerun 保证内容区立刻更新"""
-    st.session_state.page = page
-    st.query_params["page"] = page
-    st.rerun()  # 必须 rerun，否则主内容区 pg 变量不刷新
+
+def _nav_to(page: str, stock_code: str | None = None) -> None:
+    """Update route state before Streamlit performs the widget's natural rerun."""
+    target = page if page in _valid_pages else "home"
+    if stock_code:
+        st.session_state["_quick"] = stock_code
+    st.session_state.page = target
+    if st.query_params.get("page") != target:
+        st.query_params["page"] = target
 
 # ══════════════════════════════════════════════════════
 #  侧边栏
@@ -279,9 +352,14 @@ with st.sidebar:
                 unsafe_allow_html=True
             )
         else:
-            if st.button(f"{icon}  {label}", key=f"nav_{key}",
-                         use_container_width=True, type="secondary"):
-                _nav_to(key)
+            st.button(
+                f"{icon}  {label}",
+                key=f"nav_{key}",
+                use_container_width=True,
+                type="secondary",
+                on_click=_nav_to,
+                args=(key,),
+            )
 
     st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
 
@@ -319,12 +397,34 @@ with st.sidebar:
 
     # 股票快速选择
     st.markdown('<div class="n-label" style="padding-left:4px;margin-bottom:8px">快速选股</div>', unsafe_allow_html=True)
-    for sector, stocks in POOL.items():
-        with st.expander(sector, expanded=False):
-            for code, name in stocks:
-                if st.button(f"{code}  {name}", key=f"q_{sector}_{code}", use_container_width=True):
-                    st.session_state["_quick"] = code
-                    _nav_to("deep")  # _nav_to 已包含 st.rerun()
+
+    def _reset_quick_stock() -> None:
+        st.session_state.pop("quick_stock", None)
+
+    quick_sector = st.selectbox(
+        "快速选股板块",
+        list(POOL),
+        key="quick_sector",
+        label_visibility="collapsed",
+        on_change=_reset_quick_stock,
+    )
+    quick_options = {
+        f"{code}  {name}": code
+        for code, name in POOL[quick_sector]
+    }
+    quick_stock = st.selectbox(
+        "快速选股股票",
+        list(quick_options),
+        key="quick_stock",
+        label_visibility="collapsed",
+    )
+    st.button(
+        "打开深度分析",
+        key="quick_open",
+        use_container_width=True,
+        on_click=_nav_to,
+        args=("deep", quick_options[quick_stock]),
+    )
 
     st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
 
@@ -340,7 +440,6 @@ with st.sidebar:
         if base: st.session_state.api_base = base
         if models: st.session_state.api_model = models[0]
         st.session_state.api_ok = None
-        st.rerun()
 
     api_key_in = st.text_input("API Key", value=st.session_state.api_key, type="password", label_visibility="collapsed", placeholder="API Key")
     if api_key_in != st.session_state.api_key:
@@ -425,8 +524,8 @@ if pg == "home":
           <div class="n-feature-copy">组合仓位 · ETF主线 · 个股卫星</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("进入 →", key="g_plan", use_container_width=True):
-            _nav_to("plan")
+        st.button("进入 →", key="g_plan", use_container_width=True,
+                  on_click=_nav_to, args=("plan",))
 
     with c1:
         st.markdown("""
@@ -436,8 +535,8 @@ if pg == "home":
           <div class="n-feature-copy">50只主流ETF技术面评分 · 实时溢价率</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("进入 →", key="g_etf", use_container_width=True):
-            _nav_to("etf50")
+        st.button("进入 →", key="g_etf", use_container_width=True,
+                  on_click=_nav_to, args=("etf50",))
 
     with c2:
         st.markdown("""
@@ -447,8 +546,8 @@ if pg == "home":
           <div class="n-feature-copy">10大热门板块龙头 · 技术面综合评分</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("进入 →", key="g_st", use_container_width=True):
-            _nav_to("stocks60")
+        st.button("进入 →", key="g_st", use_container_width=True,
+                  on_click=_nav_to, args=("stocks60",))
 
     with c3:
         st.markdown("""
@@ -458,8 +557,8 @@ if pg == "home":
           <div class="n-feature-copy">5 Agent 并行研究 · Battle 辩论</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("进入 →", key="g_deep", use_container_width=True):
-            _nav_to("deep")
+        st.button("进入 →", key="g_deep", use_container_width=True,
+                  on_click=_nav_to, args=("deep",))
 
     with c0:
         st.markdown("""
@@ -469,8 +568,8 @@ if pg == "home":
           <div class="n-feature-copy">全 A 动态候选池 · 多维度评分</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("进入 →", key="g_sel", use_container_width=True):
-            _nav_to("selector")
+        st.button("进入 →", key="g_sel", use_container_width=True,
+                  on_click=_nav_to, args=("selector",))
 
     st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
 
@@ -512,13 +611,12 @@ if pg == "home":
                     </div>""", unsafe_allow_html=True)
 
     # 历史报告
-    all_r = sorted(get_reports_dir().glob("report_*.json"), key=os.path.getmtime, reverse=True)[:6]
+    all_r = load_recent_reports()
     if all_r:
         st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
         st.markdown('<div class="n-section-title">最近深度分析</div>', unsafe_allow_html=True)
         rc = st.columns(3, gap="medium")
-        for col, rp in zip(rc * 2, all_r):
-            with open(rp, encoding="utf-8") as f: rd = json.load(f)
+        for col, (rp, rd) in zip(rc * 2, all_r):
             sig = rd.get("final_signal","neutral")
             color = sig_color(sig); sl = sig_label(sig); bp = rd.get("bullish_pct",50)
             with col:
@@ -531,9 +629,13 @@ if pg == "home":
                   <div style="font-size:11px;color:rgba(255,255,255,0.40)">{rd.get('date','')} · 看多 {bp:.0f}%</div>
                   {bar(bp)}
                 </div>""", unsafe_allow_html=True)
-                if st.button("查看", key=f"h_{rp.stem}", use_container_width=True):
-                    st.session_state["_quick"] = rd.get("stock_code","")
-                    _nav_to("deep")
+                st.button(
+                    "查看",
+                    key=f"h_{rp.stem}",
+                    use_container_width=True,
+                    on_click=_nav_to,
+                    args=("deep", rd.get("stock_code", "")),
+                )
 
 # ══════════════════════════════════════════════════════
 #  投资路线页
@@ -565,11 +667,11 @@ elif pg == "plan":
             except Exception: pass
             st.toast("投资路线和简报已生成", icon="✅")
     with pc3:
-        if st.button("今日选股", use_container_width=True):
-            _nav_to("selector")
+        st.button("今日选股", use_container_width=True,
+                  on_click=_nav_to, args=("selector",))
     with pc4:
-        if st.button("报告历史", use_container_width=True):
-            _nav_to("history")
+        st.button("报告历史", use_container_width=True,
+                  on_click=_nav_to, args=("history",))
 
     d = load_portfolio_latest()
     b = load_investment_brief_latest()
@@ -1339,24 +1441,34 @@ elif pg == "etf50":
         if st.button("↻  立即扫描", use_container_width=True,
                      disabled=scan_running, key="etf50_scan_btn"):
             task_id = _new_task_id("etf50_scan")
-            def _run_scan():
-                subprocess.run([sys.executable, str(ROOT/"scan_etf50.py")],
-                               capture_output=True)
-                try: load_etf50.clear()
-                except Exception: pass
-            _t = threading.Thread(target=_run_scan, daemon=True)
-            _t.start()
+            _t = threading.Thread(
+                target=_run_command_task,
+                args=(task_id, [sys.executable, str(ROOT / "scan_etf50.py")]),
+                kwargs={
+                    "timeout": 600,
+                    "success_message": "ETF 50 扫描完成，结果已刷新。",
+                    "clear_callback": load_etf50.clear,
+                },
+                daemon=True,
+            )
             _register_task(task_id, _t)
+            _t.start()
+            scan_running = True
             st.session_state["etf50_scan_running"] = True
             st.session_state["etf50_scan_task_id"] = task_id
             st.session_state["etf50_scan_start"] = time.time()
-            st.rerun()
+            st.session_state["etf50_scan_result"] = None
 
     with c_status:
         if scan_running:
             _elapsed  = int(time.time() - st.session_state.get("etf50_scan_start", time.time()))
-            _done     = not _task_alive(st.session_state.get("etf50_scan_task_id"))
+            _scan_task_id = st.session_state.get("etf50_scan_task_id")
+            _done     = not _task_alive(_scan_task_id)
             if _done:
+                st.session_state["etf50_scan_result"] = _take_task_result(_scan_task_id) or {
+                    "ok": False,
+                    "message": "ETF 50 扫描异常结束，未收到任务结果。",
+                }
                 st.session_state["etf50_scan_running"] = False
                 st.session_state["etf50_scan_task_id"] = None
                 try: load_etf50.clear()
@@ -1369,9 +1481,14 @@ elif pg == "etf50":
                     f'⏳ 扫描中... 已用时 {_estr}</div>',
                     unsafe_allow_html=True,
                 )
-                # JS 自动刷新
-                import streamlit.components.v1 as _cv1
-                _cv1.html('<script>setTimeout(()=>window.parent.location.reload(),3000);</script>', height=0)
+                _schedule_refresh(3000)
+
+    _scan_result = st.session_state.get("etf50_scan_result")
+    if _scan_result:
+        if _scan_result.get("ok"):
+            st.success(_scan_result.get("message", "扫描完成。"))
+        else:
+            st.error(_scan_result.get("message", "扫描失败。"))
 
     d = load_etf50()
     if not d:
@@ -1446,26 +1563,34 @@ elif pg == "stocks60":
     with c_btn:
         if st.button("↻  立即扫描", use_container_width=True, key="scan_st", disabled=stocks60_running):
             task_id = _new_task_id("stocks60_scan")
-            def _run_stocks60_scan():
-                try:
-                    subprocess.run([sys.executable, str(ROOT/"scan_stocks_full.py")], capture_output=True, timeout=600)
-                except subprocess.TimeoutExpired:
-                    pass
-                try: load_stocks60.clear()
-                except Exception: pass
-            _t = threading.Thread(target=_run_stocks60_scan, daemon=True)
-            _t.start()
+            _t = threading.Thread(
+                target=_run_command_task,
+                args=(task_id, [sys.executable, str(ROOT / "scan_stocks_full.py")]),
+                kwargs={
+                    "timeout": 600,
+                    "success_message": "个股扫描完成，结果已刷新。",
+                    "clear_callback": load_stocks60.clear,
+                },
+                daemon=True,
+            )
             _register_task(task_id, _t)
+            _t.start()
+            stocks60_running = True
             st.session_state["stocks60_scan_running"] = True
             st.session_state["stocks60_scan_task_id"] = task_id
             st.session_state["stocks60_scan_start"] = time.time()
-            st.rerun()
+            st.session_state["stocks60_scan_result"] = None
 
     with c_status:
         if stocks60_running:
             _elapsed = int(time.time() - st.session_state.get("stocks60_scan_start", time.time()))
-            _done = not _task_alive(st.session_state.get("stocks60_scan_task_id"))
+            _scan_task_id = st.session_state.get("stocks60_scan_task_id")
+            _done = not _task_alive(_scan_task_id)
             if _done:
+                st.session_state["stocks60_scan_result"] = _take_task_result(_scan_task_id) or {
+                    "ok": False,
+                    "message": "个股扫描异常结束，未收到任务结果。",
+                }
                 st.session_state["stocks60_scan_running"] = False
                 st.session_state["stocks60_scan_task_id"] = None
                 try: load_stocks60.clear()
@@ -1478,8 +1603,14 @@ elif pg == "stocks60":
                     f'⏳ 扫描中... 已用时 {_estr}</div>',
                     unsafe_allow_html=True,
                 )
-                import streamlit.components.v1 as _cv1
-                _cv1.html('<script>setTimeout(()=>window.parent.location.reload(),3000);</script>', height=0)
+                _schedule_refresh(3000)
+
+    _scan_result = st.session_state.get("stocks60_scan_result")
+    if _scan_result:
+        if _scan_result.get("ok"):
+            st.success(_scan_result.get("message", "扫描完成。"))
+        else:
+            st.error(_scan_result.get("message", "扫描失败。"))
 
     d = load_stocks60()
     if not d:
@@ -1577,8 +1708,6 @@ elif pg == "deep":
             "workflow_label": workflow_label,
             "analysis_mode": analysis_mode_key,
         })
-        st.rerun()
-
     # 运行中
     if st.session_state.running:
         code = st.session_state.current_code
@@ -1612,7 +1741,7 @@ elif pg == "deep":
         if "✅ 分析完成" in log_text or (report and not thread_alive):
             st.session_state.update({"running":False,"done":True,"task_id":None}); st.rerun()
         else:
-            time.sleep(3); st.rerun()
+            _schedule_refresh(3000)
 
     # 展示报告
     def show_report(data):
@@ -1790,6 +1919,9 @@ elif pg == "selector":
                 "new_task_id": _new_task_id,
                 "register_task": _register_task,
                 "task_alive": _task_alive,
+                "set_task_result": _set_task_result,
+                "take_task_result": _take_task_result,
+                "navigate": _nav_to,
             },
         )
     except Exception as _e:
