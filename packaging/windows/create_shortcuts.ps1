@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$AppDir = "",
     [string]$Name = "NASDX Desktop",
     [switch]$Desktop,

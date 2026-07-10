@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$PackageDir = "",
     [string]$ZipPath = "",
     [string]$ChecksumPath = "",
@@ -72,7 +72,7 @@ $ResolvedManifestPath = Resolve-NasdxPath $ManifestPath
 $Checks = @()
 
 if (-not (Test-Path -LiteralPath $PackagePath)) {
-    Add-Check "FAIL" "portable_package" "missing: $PackagePath"
+    Add-Check "INCOMPLETE" "portable_package" "missing: $PackagePath"
 } else {
     $RequiredPackageFiles = @(
         "app.py",

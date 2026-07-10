@@ -14,6 +14,7 @@ class DesktopCiContractsTest(unittest.TestCase):
         for marker in [
             "windows-latest",
             "PYTHONIOENCODING: utf-8",
+            'PYTHONUTF8: "1"',
             "actions/checkout@v4",
             "actions/setup-python@v5",
             'python-version: "3.11"',

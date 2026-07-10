@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$OutputDir = "",
     [switch]$SkipDependencyInstall,
     [switch]$IncludeWebView,
