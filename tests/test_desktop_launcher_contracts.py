@@ -373,8 +373,11 @@ model = "example-model"
 
             self.assertEqual(runtime_dir.resolve(), resolved.resolve())
             self.assertEqual(runtime_dir.resolve(), Path(env[RUNTIME_DIR_ENV]).resolve())
-            self.assertEqual(str(runtime_dir.resolve() / "nasdx_history.db"), env[HISTORY_DB_ENV])
-            self.assertEqual(str(runtime_dir.resolve() / "reports"), env[REPORTS_DIR_ENV])
+            self.assertEqual(
+                (runtime_dir / "nasdx_history.db").resolve(),
+                Path(env[HISTORY_DB_ENV]).resolve(),
+            )
+            self.assertEqual((runtime_dir / "reports").resolve(), Path(env[REPORTS_DIR_ENV]).resolve())
 
     def test_existing_history_db_env_is_preserved(self):
         with tempfile.TemporaryDirectory() as temp_dir:
