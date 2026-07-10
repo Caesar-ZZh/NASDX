@@ -129,9 +129,9 @@ reports_dir = "runtime/reports"
             self.assertEqual("nasdx-test-token", env["NASDX_API_KEY"])
             self.assertEqual("https://example.invalid/v1", env["NASDX_BASE_URL"])
             self.assertEqual("example-model", env["NASDX_MODEL"])
-            self.assertEqual(str((temp_path / "runtime").resolve()), env[RUNTIME_DIR_ENV])
-            self.assertEqual(str((temp_path / "runtime" / "history.db").resolve()), env[HISTORY_DB_ENV])
-            self.assertEqual(str((temp_path / "runtime" / "reports").resolve()), env[REPORTS_DIR_ENV])
+            self.assertEqual((temp_path / "runtime").resolve(), Path(env[RUNTIME_DIR_ENV]).resolve())
+            self.assertEqual((temp_path / "runtime" / "history.db").resolve(), Path(env[HISTORY_DB_ENV]).resolve())
+            self.assertEqual((temp_path / "runtime" / "reports").resolve(), Path(env[REPORTS_DIR_ENV]).resolve())
 
     def test_parent_environment_wins_over_local_config(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -371,7 +371,7 @@ model = "example-model"
             resolved = resolve_runtime_dir(ROOT, {RUNTIME_DIR_ENV: str(runtime_dir)})
             env = build_desktop_env(ROOT, {RUNTIME_DIR_ENV: str(runtime_dir)})
 
-            self.assertEqual(runtime_dir.resolve(), resolved)
+            self.assertEqual(runtime_dir.resolve(), resolved.resolve())
             self.assertEqual(str(runtime_dir.resolve()), env[RUNTIME_DIR_ENV])
             self.assertEqual(str(runtime_dir.resolve() / "nasdx_history.db"), env[HISTORY_DB_ENV])
             self.assertEqual(str(runtime_dir.resolve() / "reports"), env[REPORTS_DIR_ENV])
