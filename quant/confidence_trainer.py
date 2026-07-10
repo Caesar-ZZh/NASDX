@@ -15,7 +15,7 @@ NASDX V2 — 数据置信度训练器
   VnPy  → 实盘级别的信号准确率统计
 """
 from __future__ import annotations
-import quant.patch_requests  # noqa
+from quant.patch_requests import configure_requests
 import json
 import glob
 import time
@@ -25,9 +25,12 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from nasdx.paths import get_reports_dir
+
 ROOT = Path(__file__).parent.parent
 CONF_PATH = ROOT / "models" / "signal_confidence.json"
 CONF_PATH.parent.mkdir(exist_ok=True)
+configure_requests()
 
 
 # ══════════════════════════════════════════
@@ -104,7 +107,7 @@ def weight_from_performance(hit_rate: float, ic: float,
 # ══════════════════════════════════════════
 #  历史报告解析器
 # ══════════════════════════════════════════
-def parse_historical_signals(report_dir: Path = ROOT / "reports") -> pd.DataFrame:
+def parse_historical_signals(report_dir: Path | None = None) -> pd.DataFrame:
     """
     从历史 ETF50 扫描报告中提取信号时序
 
@@ -112,6 +115,7 @@ def parse_historical_signals(report_dir: Path = ROOT / "reports") -> pd.DataFram
       index: datetime
       columns: code, tech_score, signal, premium, spot_chg
     """
+    report_dir = Path(report_dir) if report_dir else get_reports_dir()
     rows = []
     pattern = str(report_dir / "etf50_*.json")
     files = sorted(glob.glob(pattern))

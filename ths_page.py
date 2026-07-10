@@ -2,13 +2,14 @@
 
 
 def render_ths_page(st, ROOT):
-    import glob as _g
     from pathlib import Path
+    from nasdx.paths import get_reports_dir
 
     st.markdown(
-        '<div style="padding:24px 0 20px">'
-        '<div style="font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.02em">同花顺接入</div>'
-        '<div style="font-size:13px;color:#6b6b6b;margin-top:4px">持仓同步 · 实时行情 · 自动交易</div>'
+        '<div class="n-page-head">'
+        '<div class="n-head-kicker">Broker Bridge</div>'
+        '<div class="n-page-title">同花顺接入</div>'
+        '<div class="n-page-sub">持仓同步 · 实时行情 · 自动交易</div>'
         "</div>",
         unsafe_allow_html=True,
     )
@@ -178,7 +179,7 @@ def render_ths_page(st, ROOT):
             unsafe_allow_html=True,
         )
 
-    etf_files = sorted(_g.glob(str(ROOT / "reports/etf50_*.json")))
+    etf_files = sorted(str(path) for path in get_reports_dir().glob("etf50_*.json"))
     if etf_files:
         latest_etf = etf_files[-1]
         st.caption(f"基于：{Path(latest_etf).name}")

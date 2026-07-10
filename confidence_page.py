@@ -6,6 +6,8 @@ import sys, threading, time, json
 from pathlib import Path
 # pandas/numpy 延迟导入，避免 import confidence_page 时阻塞 500ms
 
+from nasdx.paths import get_reports_dir
+
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
@@ -224,9 +226,9 @@ def render_confidence_page(st):
             key="conf_codes",
         )
 
-    import glob as _gl
-    n_reports = len(_gl.glob(str(ROOT / "reports/etf50_*.json")))
-    n_quant   = len(_gl.glob(str(ROOT / "reports/etf50_quant_*.json")))
+    reports_dir = get_reports_dir()
+    n_reports = len(list(reports_dir.glob("etf50_*.json")))
+    n_quant   = len(list(reports_dir.glob("etf50_quant_*.json")))
     st.caption(f"可用数据：{n_reports} 份 ETF50 扫描报告 + {n_quant} 份量化报告 · "
                f"预计耗时 3-8 分钟")
 

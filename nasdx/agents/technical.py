@@ -60,39 +60,26 @@ class TechnicalAgent(BaseAgent):
 【信号】bullish 或 bearish 或 neutral
 【置信度】0.75
 """
-        response = self._ask(prompt)
+        response, payload = self._ask_analysis(prompt)
 
         # 解析信号和置信度
-        signal, confidence = self._parse_signal(response)
+        signal, confidence = self._parse_structured_signal(response, payload)
 
         # 提取关键点
-        key_points = self._extract_key_points(indicators)
+        key_points = self._merge_key_points(
+            self._structured_key_points(payload),
+            self._extract_key_points(indicators),
+        )
 
         return AnalysisResult(
             agent_name=self.name,
             dimension=self.dimension,
-            conclusion=response,
+            conclusion=self._structured_conclusion(response, payload),
             signal=signal,
             confidence=confidence,
             key_points=key_points,
             raw_data_summary=summary,
         )
-
-    def _parse_signal(self, text: str):
-        signal = "neutral"
-        confidence = 0.5
-        for line in text.split("\n"):
-            if "【信号】" in line:
-                if "bullish" in line.lower():
-                    signal = "bullish"
-                elif "bearish" in line.lower():
-                    signal = "bearish"
-            if "【置信度】" in line:
-                try:
-                    confidence = float(line.split("】")[-1].strip())
-                except:
-                    pass
-        return signal, confidence
 
     def _extract_key_points(self, indicators: Dict) -> list:
         from nasdx.data_loader import _get

@@ -1,0 +1,15 @@
+# Windows packaging constraints for the portable NASDX environment.
+# These are top-level pins verified in the current Windows development
+# environment; transitive dependencies remain resolved by pip.
+
+akshare==1.18.64
+mootdx==0.11.7
+pandas==2.3.2
+numpy==2.2.6
+requests==2.32.5
+openai==2.38.0
+tenacity==8.5.0
+streamlit==1.52.2
+pydantic==2.12.5
+tomli==2.4.1
+rich==15.0.0

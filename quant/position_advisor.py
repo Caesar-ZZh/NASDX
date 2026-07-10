@@ -10,7 +10,7 @@ NASDX V2 — 持仓调仓顾问
   - 候选替换标的（来自 ETF50 量化结果）
 """
 from __future__ import annotations
-import quant.patch_requests  # 必须最先
+from quant.patch_requests import configure_requests
 import json, time
 from pathlib import Path
 from datetime import datetime
@@ -18,7 +18,10 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from nasdx.paths import get_reports_dir
+
 ROOT = Path(__file__).parent.parent
+configure_requests()
 
 
 # ══════════════════════════════════════════
@@ -492,13 +495,13 @@ class PositionAdvisor:
 
         # 优先从最新 ETF50 量化结果取
         if etf50_json is None:
-            files = sorted(ROOT.glob("reports/etf50_quant_*.json"))
+            files = sorted(get_reports_dir().glob("etf50_quant_*.json"))
             if files:
                 etf50_json = str(files[-1])
 
         # 备选：ETF50 技术面扫描结果
         if etf50_json is None:
-            files = sorted(ROOT.glob("reports/etf50_*.json"))
+            files = sorted(get_reports_dir().glob("etf50_*.json"))
             if files:
                 etf50_json = str(files[-1])
 

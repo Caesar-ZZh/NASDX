@@ -1,0 +1,7 @@
+# Optional NASDX desktop-shell dependencies
+# Install only when you want the native WebView window:
+#   pip install -r requirements_desktop.txt
+
+-r requirements_nasdx.txt
+
+pywebview>=5.0

@@ -54,14 +54,17 @@ class SectorAgent(BaseAgent):
         self.memory.messages.append(
             type("Msg", (), {"role": type("R", (), {"value": "user"})(), "content": context, "to_dict": lambda s: {"role":"user","content":context}})()
         )
-        response = self._ask(prompt)
-        signal, confidence = self._parse_signal(response)
-        key_points = self._extract_sector_points(sector_data)
+        response, payload = self._ask_analysis(prompt)
+        signal, confidence = self._parse_structured_signal(response, payload)
+        key_points = self._merge_key_points(
+            self._structured_key_points(payload),
+            self._extract_sector_points(sector_data),
+        )
 
         return AnalysisResult(
             agent_name=self.name,
             dimension=self.dimension,
-            conclusion=response,
+            conclusion=self._structured_conclusion(response, payload),
             signal=signal,
             confidence=confidence,
             key_points=key_points,
@@ -86,15 +89,18 @@ class SectorAgent(BaseAgent):
 【信号】neutral
 【置信度】0.50
 """
-        response = self._ask(prompt)
-        signal, confidence = self._parse_signal(response)
+        response, payload = self._ask_analysis(prompt)
+        signal, confidence = self._parse_structured_signal(response, payload)
         return AnalysisResult(
             agent_name=self.name,
             dimension=self.dimension,
-            conclusion=response,
+            conclusion=self._structured_conclusion(response, payload),
             signal=signal,
             confidence=confidence,
-            key_points=[f"所属板块：{sector_name}"],
+            key_points=self._merge_key_points(
+                self._structured_key_points(payload),
+                [f"所属板块：{sector_name}"],
+            ),
         )
 
     def _build_sector_context(
@@ -141,19 +147,3 @@ class SectorAgent(BaseAgent):
         if stocks:
             points.append(f"板块内{up_count}/{len(stocks)}只股票上涨")
         return points
-
-    def _parse_signal(self, text: str):
-        signal = "neutral"
-        confidence = 0.5
-        for line in text.split("\n"):
-            if "【信号】" in line:
-                if "bullish" in line.lower():
-                    signal = "bullish"
-                elif "bearish" in line.lower():
-                    signal = "bearish"
-            if "【置信度】" in line:
-                try:
-                    confidence = float(line.split("】")[-1].strip())
-                except:
-                    pass
-        return signal, confidence

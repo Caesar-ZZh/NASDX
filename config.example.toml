@@ -1,9 +1,12 @@
 # NASDX 配置文件示例
-# 复制为 config.toml 并填写真实值
+# 推荐复制到 Windows 用户配置目录：
+#   %APPDATA%\NASDX\config.toml
+# 也可以通过 NASDX_CONFIG_FILE 指定其它本地路径。
+# 不要把真实 config.toml、.env 或 API Key 提交到 Git。
 
 [llm]
 # 支持任何 OpenAI 兼容接口：DeepSeek / Qwen / GPT-4o / Ollama
-api_key   = "sk-your-api-key-here"
+api_key   = ""
 base_url  = "https://api.deepseek.com"    # DeepSeek（推荐，低成本）
 # base_url = "https://api.openai.com/v1" # OpenAI
 # base_url = "http://localhost:11434/v1"  # Ollama 本地
@@ -21,3 +24,9 @@ battle_delay  = 0.5  # 辩论间隔秒数
 
 [output]
 dir = "./reports"    # 报告输出目录
+
+[paths]
+# 可选：桌面/便携包运行目录。留空时源码 checkout 使用项目目录，便携包使用用户本地数据目录。
+runtime_dir = ""
+history_db  = ""
+reports_dir = ""

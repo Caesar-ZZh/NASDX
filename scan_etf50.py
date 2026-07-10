@@ -2,12 +2,7 @@
 50只ETF全量扫描 — 工作日早10点/下午2:30自动运行
 输出：终端排行榜 + HTML报告（自动打开）+ JSON数据
 """
-import os
-# 绕过系统代理，让 akshare/requests 直连国内数据源
-for _k in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']:
-    os.environ.pop(_k, None)
-
-import sys, json, time, os
+import sys, json, time
 from pathlib import Path
 from datetime import datetime
 
@@ -16,6 +11,9 @@ import pandas as pd
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
+
+from nasdx.history_store import record_daily_scan, record_etf_pool
+from nasdx.paths import get_reports_dir
 
 NOW   = datetime.now()
 TODAY = NOW.strftime('%Y%m%d')
@@ -365,33 +363,37 @@ tr:hover td{{background:#161b22!important;}}
 </div>
 </body></html>"""
 
-out = ROOT / 'reports' / f'etf50_{TODAY}_{HHMM}.html'
+reports_dir = get_reports_dir(create=True)
+out = reports_dir / f'etf50_{TODAY}_{HHMM}.html'
 out.parent.mkdir(exist_ok=True)
 with open(out,'w',encoding='utf-8') as f:
     f.write(html)
 
 # 同时更新 latest 链接（覆盖）
-latest = ROOT / 'reports' / 'etf50_latest.html'
+latest = reports_dir / 'etf50_latest.html'
 with open(latest,'w',encoding='utf-8') as f:
     f.write(html)
 
 # 保存JSON
-json_out = ROOT / 'reports' / f'etf50_{TODAY}_{HHMM}.json'
+json_out = reports_dir / f'etf50_{TODAY}_{HHMM}.json'
+json_payload = {
+    'datetime': NOW.isoformat(),
+    'total': len(valid),
+    'bullish':len(bull),'neutral':len(neut),'bearish':len(bear),
+    'top3': [{'code':r['code'],'name':r['name'],
+              'score':r['score'], 'quant_score':r['score'],  # quant_page 兼容
+              'signal':r['signal'],'premium':r['premium'],
+              'category':r.get('category',''),
+              'reasons':r.get('reasons',[]),
+              'has_data':True} for r in top3],
+    'results': [{**{k:v for k,v in r.items() if k!='ind'},
+                 'has_data': True,
+                 'quant_score': r.get('score', 0)} for r in valid],
+}
 with open(json_out,'w',encoding='utf-8') as f:
-    json.dump({
-        'datetime': NOW.isoformat(),
-        'total': len(valid),
-        'bullish':len(bull),'neutral':len(neut),'bearish':len(bear),
-        'top3': [{'code':r['code'],'name':r['name'],
-                  'score':r['score'], 'quant_score':r['score'],  # quant_page 兼容
-                  'signal':r['signal'],'premium':r['premium'],
-                  'category':r.get('category',''),
-                  'reasons':r.get('reasons',[]),
-                  'has_data':True} for r in top3],
-        'results': [{**{k:v for k,v in r.items() if k!='ind'},
-                     'has_data': True,
-                     'quant_score': r.get('score', 0)} for r in valid],
-    }, f, ensure_ascii=False, indent=2)
+    json.dump(json_payload, f, ensure_ascii=False, indent=2)
+record_daily_scan('etf50', TODAY, json_payload, source_path=json_out, generated_at=NOW.isoformat())
+record_etf_pool('etf50', {'etfs': pool}, source_path=ROOT / 'etf50_pool.json', loaded_at=NOW.isoformat())
 
 print(f'\n📁 HTML: {out}')
 print(f'📁 JSON: {json_out}')

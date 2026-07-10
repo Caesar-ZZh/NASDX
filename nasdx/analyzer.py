@@ -14,11 +14,9 @@ from nasdx.environments.battle import BattleEnvironment
 from nasdx.agents.synthesis import SynthesisAgent
 from nasdx.data_quality import assess_data_quality
 from nasdx.decision import build_decision_plan, format_decision_plan
+from nasdx.history_store import record_report_history
+from nasdx.paths import get_reports_dir
 from nasdx.report import generate_html_report
-
-
-PROJECT_DIR = Path(__file__).parent.parent
-
 
 class NasdxAnalyzer:
     """
@@ -42,8 +40,8 @@ class NasdxAnalyzer:
         self.max_steps = max_steps
         self.debate_rounds = debate_rounds
         self.risk_profile = risk_profile
-        self.output_dir = Path(output_dir) if output_dir else PROJECT_DIR / "reports"
-        self.output_dir.mkdir(exist_ok=True)
+        self.output_dir = Path(output_dir) if output_dir else get_reports_dir(create=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # 初始化环境
         self.research_env = ResearchEnvironment(
@@ -206,6 +204,13 @@ class NasdxAnalyzer:
             }
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+            record_report_history(
+                report.stock_code,
+                report.date,
+                data,
+                source_path=path,
+                generated_at=report.date,
+            )
 
         else:
             raise ValueError(f"不支持的格式：{fmt}，请用 html 或 json")
