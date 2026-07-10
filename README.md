@@ -63,11 +63,13 @@ NASDX
 │   ├── external_review.py   # 外部复核包（公告/行情/交易所入口与通过条件）
 │   ├── review_snapshot.py   # 复盘快照包导出（ZIP/manifest/CSV）
 │   ├── history_store.py     # SQLite 历史库（报告/扫描/ETF池/简报索引）
+│   ├── cloud_sync.py        # ETF50 白名单校验、并发锁与隔离发布
 │   ├── rule_based_analysis.py # 无API规则深度报告
 │   ├── analyzer.py          # 主分析器（三阶段管道）
 │   └── report.py            # HTML 报告生成
 │
 ├── scan_etf50.py            # ETF50 全量扫描（纯规则，无需API）
+├── scan_and_sync.py         # 扫描后通过独立临时 clone 安全发布 deploy
 ├── scan_stocks_full.py      # 60只个股完整扫描
 ├── fetch_stock_data.py      # AkShare 数据抓取
 ├── run_analysis.py          # 单只股票多智能体分析
@@ -177,6 +179,15 @@ python -B desktop\launcher.py --page plan
 ```bash
 python fetch_stock_data.py
 ```
+
+定时 ETF50 扫描与云端数据同步使用：
+
+```powershell
+python scan_and_sync.py
+python scan_and_sync.py --no-sync
+```
+
+同步过程不会切换当前工作树分支。它会先确认当前跟踪文件无未提交修改，再通过跨进程锁和独立临时 clone 发布到 `deploy`；仅最新的 `etf50_YYYYMMDD_HHMM.json` 可进入发布流程，并在提交前校验 JSON schema、2 MB 大小上限、6 小时时效和敏感字段。扫描成功与发布成功分别返回状态，任何 Git 提交或推送失败都会使脚本返回非零退出码。
 
 ### 3. 运行扫描（无需 API Key）
 

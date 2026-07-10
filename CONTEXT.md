@@ -1,9 +1,9 @@
 # CONTEXT
 
-- 当前：修复“今日选股”启动后状态丢失；扫描与深度分析改用 fragment 轮询，任务注册表迁入 `nasdx.ui_tasks`；新增 Agnes AI / `agnes-2.0-flash` 预设。
-- 上次停在：pytest 139/139、ruff、`run_final_audit.py` 22/22、desktop doctor 和安全扫描通过；Playwright 验证扫描状态跨多次刷新保持、Agnes UI 已连接、浏览器错误 0；8502 已加载本地用户配置。
-- 关键决定：Streamlit session 只保存 task_id，进程内任务表由独立模块持久化；Agnes 密钥只存用户目录 `config.toml`，仓库仅保存公开端点和模型名。
-- 原因：整页 JS 刷新会创建新 session，且 `app.py` 每次 rerun 会重建模块级任务表；模型密钥不能进入源码或 Git 历史。
+- 当前：修复 issue #13：`scan_and_sync.py` 不再切换当前分支，改由 `nasdx.cloud_sync` 用独立临时 clone、跨进程锁和 ETF50 严格白名单发布；补强 issue #12 的无 Key 前置失败与 CI 密钥扫描。
+- 上次停在：pytest 150/150、ruff、`run_final_audit.py` 22/22、desktop doctor 和安全扫描通过；待提交推送、合并 PR #1、关闭 #13，并在 #12 记录仍需供应商撤销旧密钥及授权后才能重写历史。
+- 关键决定：只发布最新 `etf50_YYYYMMDD_HHMM.json`，提交前校验 schema、2 MB 上限、6 小时时效和递归敏感字段；任何 Git 失败均返回非零。
+- 原因：原脚本原地 checkout、通配符 `git add -f`、无并发锁且吞掉 push 失败，会干扰用户工作树并可能误上传报告；已进入历史的密钥不能靠删除当前代码完成撤销。
 
 ## Desktop Packaging
 
