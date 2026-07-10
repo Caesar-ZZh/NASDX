@@ -1079,6 +1079,7 @@ def check_review_snapshot_contract() -> str:
 
 def check_streamlit_state_boundaries() -> str:
     source = _read_text(ROOT / "app.py")
+    task_source = _read_text(ROOT / "nasdx" / "ui_tasks.py")
     forbidden = [
         'os.environ["NASDX_API_KEY"]',
         'os.environ["NASDX_BASE_URL"]',
@@ -1089,12 +1090,13 @@ def check_streamlit_state_boundaries() -> str:
         '"etf50_scan_thread"',
         'st.session_state["etf50_scan_thread"]',
         'ROOT / f"nasdx_log_{code}.txt"',
+        "RUNNING_TASKS = {}",
     ]
     found = [item for item in forbidden if item in source]
     if found:
         raise AssertionError("Streamlit 状态边界存在风险标记: " + ", ".join(found))
     required = [
-        "RUNNING_TASKS",
+        "from nasdx.ui_tasks import",
         "_build_llm_env",
         'subprocess.run(cmd, stdout=f, stderr=f, env=env)',
         "nasdx_log_{code}_{task_id}.txt",
@@ -1104,7 +1106,11 @@ def check_streamlit_state_boundaries() -> str:
     missing = [item for item in required if item not in source]
     if missing:
         raise AssertionError("Streamlit 状态边界缺少实现: " + ", ".join(missing))
-    return "API配置进子进程env，后台任务以task_id追踪，session不保存线程对象"
+    task_required = ["_TASKS", "def register_task", "def task_alive", "def set_task_result"]
+    task_missing = [item for item in task_required if item not in task_source]
+    if task_missing:
+        raise AssertionError("持久任务注册表缺少实现: " + ", ".join(task_missing))
+    return "API配置进子进程env，后台任务注册表跨rerun持久化，session不保存线程对象"
 
 
 def check_history_store_contract() -> str:

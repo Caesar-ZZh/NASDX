@@ -13,52 +13,13 @@ sys.path.insert(0, str(ROOT))
 
 from nasdx.paths import get_reports_dir
 from nasdx.report_history import list_report_history
-
-# ── 后台任务状态：只把 task_id 放入 session_state ───────
-RUNNING_TASKS = {}
-TASK_LOCK = threading.Lock()
-
-
-def _new_task_id(prefix: str) -> str:
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    return f"{prefix}_{stamp}"
-
-
-def _register_task(task_id: str, thread: threading.Thread, log_path: Path | None = None) -> None:
-    with TASK_LOCK:
-        RUNNING_TASKS[task_id] = {
-            "thread": thread,
-            "log_path": str(log_path) if log_path else None,
-            "started_at": time.time(),
-        }
-
-
-def _task_alive(task_id: str | None) -> bool:
-    if not task_id:
-        return False
-    with TASK_LOCK:
-        item = RUNNING_TASKS.get(task_id)
-    thread = item.get("thread") if item else None
-    alive = bool(thread and thread.is_alive())
-    if item and not alive and "result" not in item:
-        with TASK_LOCK:
-            RUNNING_TASKS.pop(task_id, None)
-    return alive
-
-
-def _set_task_result(task_id: str, result: dict) -> None:
-    with TASK_LOCK:
-        item = RUNNING_TASKS.get(task_id)
-        if item is not None:
-            item["result"] = result
-
-
-def _take_task_result(task_id: str | None) -> dict | None:
-    if not task_id:
-        return None
-    with TASK_LOCK:
-        item = RUNNING_TASKS.pop(task_id, None)
-    return item.get("result") if item else None
+from nasdx.ui_tasks import (
+    new_task_id as _new_task_id,
+    register_task as _register_task,
+    set_task_result as _set_task_result,
+    take_task_result as _take_task_result,
+    task_alive as _task_alive,
+)
 
 
 def _run_command_task(
@@ -147,11 +108,20 @@ POOL = {
 
 PRESETS = {
     "DeepSeek": ("https://api.deepseek.com", ["deepseek-chat","deepseek-reasoner"]),
+    "Agnes AI": ("https://apihub.agnes-ai.com/v1", ["agnes-2.0-flash"]),
     "阿里通义":  ("https://dashscope.aliyuncs.com/compatible-mode/v1", ["qwen-plus","qwen-turbo","qwen-max"]),
     "月之暗面":  ("https://api.moonshot.cn/v1", ["moonshot-v1-8k","moonshot-v1-32k"]),
     "Ollama 本地": ("http://localhost:11434/v1", ["qwen2.5:14b","deepseek-r1:7b","llama3.1:8b"]),
     "自定义":    ("", []),
 }
+
+
+def _preset_for_config(base_url: str, model: str) -> str:
+    normalized_base = (base_url or "").rstrip("/")
+    for name, (preset_base, models) in PRESETS.items():
+        if preset_base.rstrip("/") == normalized_base and model in models:
+            return name
+    return "自定义"
 
 # ══════════════════════════════════════════════════════
 #  工具函数（全部加 cache_data 缓存，60s TTL）
@@ -258,15 +228,52 @@ def _page_header(title: str, subtitle: str, kicker: str = "NASDX WORKBENCH") -> 
     )
 
 
-def _schedule_refresh(delay_ms: int = 3000) -> None:
-    """Schedule a browser refresh without blocking the Streamlit script thread."""
-    import streamlit.components.v1 as components
-
-    delay = max(250, int(delay_ms))
-    components.html(
-        f"<script>setTimeout(()=>window.parent.location.reload(),{delay});</script>",
-        height=0,
+def _start_etf50_scan() -> None:
+    if st.session_state.get("etf50_scan_running", False):
+        return
+    task_id = _new_task_id("etf50_scan")
+    thread = threading.Thread(
+        target=_run_command_task,
+        args=(task_id, [sys.executable, str(ROOT / "scan_etf50.py")]),
+        kwargs={
+            "timeout": 600,
+            "success_message": "ETF 50 扫描完成，结果已刷新。",
+            "clear_callback": load_etf50.clear,
+        },
+        daemon=True,
     )
+    _register_task(task_id, thread)
+    thread.start()
+    st.session_state.update({
+        "etf50_scan_running": True,
+        "etf50_scan_task_id": task_id,
+        "etf50_scan_start": time.time(),
+        "etf50_scan_result": None,
+    })
+
+
+def _start_stocks60_scan() -> None:
+    if st.session_state.get("stocks60_scan_running", False):
+        return
+    task_id = _new_task_id("stocks60_scan")
+    thread = threading.Thread(
+        target=_run_command_task,
+        args=(task_id, [sys.executable, str(ROOT / "scan_stocks_full.py")]),
+        kwargs={
+            "timeout": 600,
+            "success_message": "个股扫描完成，结果已刷新。",
+            "clear_callback": load_stocks60.clear,
+        },
+        daemon=True,
+    )
+    _register_task(task_id, thread)
+    thread.start()
+    st.session_state.update({
+        "stocks60_scan_running": True,
+        "stocks60_scan_task_id": task_id,
+        "stocks60_scan_start": time.time(),
+        "stocks60_scan_result": None,
+    })
 
 def run_analysis_bg(code, rounds, risk_profile, workflow, analysis_mode, log_path, env):
     cmd = [
@@ -284,10 +291,13 @@ def run_analysis_bg(code, rounds, risk_profile, workflow, analysis_mode, log_pat
 #  Session State  +  URL query_params 驱动导航
 #  用 query_params 而非 st.rerun() 切换页面 → 更快
 # ══════════════════════════════════════════════════════
+_default_api_base = os.environ.get("NASDX_BASE_URL", "https://api.deepseek.com")
+_default_api_model = os.environ.get("NASDX_MODEL", "deepseek-chat")
 DEFAULTS = {"running":False,"current_code":"","log_path":None,"task_id":None,"done":False,
-            "api_preset":"DeepSeek","api_key":os.environ.get("NASDX_API_KEY",""),
-            "api_base":os.environ.get("NASDX_BASE_URL","https://api.deepseek.com"),
-            "api_model":os.environ.get("NASDX_MODEL","deepseek-chat"),"api_ok":None}
+            "api_preset":_preset_for_config(_default_api_base, _default_api_model),
+            "api_key":os.environ.get("NASDX_API_KEY",""),
+            "api_base":_default_api_base,
+            "api_model":_default_api_model,"api_ok":None}
 for k, v in DEFAULTS.items():
     if k not in st.session_state: st.session_state[k] = v
 
@@ -465,7 +475,12 @@ with st.sidebar:
             with st.spinner(""):
                 try:
                     import openai as _oa
-                    c = _oa.OpenAI(api_key=st.session_state.api_key, base_url=st.session_state.api_base, timeout=10)
+                    c = _oa.OpenAI(
+                        api_key=st.session_state.api_key,
+                        base_url=st.session_state.api_base,
+                        timeout=30,
+                        max_retries=0,
+                    )
                     c.chat.completions.create(model=st.session_state.api_model, messages=[{"role":"user","content":"hi"}], max_tokens=5)
                     st.session_state.api_ok = True
                     st.toast("✅ 连接成功", icon="✅")
@@ -1435,32 +1450,19 @@ elif pg == "history":
 elif pg == "etf50":
     st.markdown(_page_header("ETF 50 扫描", "50只主流ETF技术面评分 · 实时溢价率", "ETF Radar"), unsafe_allow_html=True)
 
-    scan_running = st.session_state.get("etf50_scan_running", False)
-    c_btn, c_status, _ = st.columns([1, 2, 3])
+    c_btn, _ = st.columns([1, 5])
     with c_btn:
-        if st.button("↻  立即扫描", use_container_width=True,
-                     disabled=scan_running, key="etf50_scan_btn"):
-            task_id = _new_task_id("etf50_scan")
-            _t = threading.Thread(
-                target=_run_command_task,
-                args=(task_id, [sys.executable, str(ROOT / "scan_etf50.py")]),
-                kwargs={
-                    "timeout": 600,
-                    "success_message": "ETF 50 扫描完成，结果已刷新。",
-                    "clear_callback": load_etf50.clear,
-                },
-                daemon=True,
-            )
-            _register_task(task_id, _t)
-            _t.start()
-            scan_running = True
-            st.session_state["etf50_scan_running"] = True
-            st.session_state["etf50_scan_task_id"] = task_id
-            st.session_state["etf50_scan_start"] = time.time()
-            st.session_state["etf50_scan_result"] = None
+        st.button(
+            "↻  立即扫描",
+            use_container_width=True,
+            disabled=st.session_state.get("etf50_scan_running", False),
+            key="etf50_scan_btn",
+            on_click=_start_etf50_scan,
+        )
 
-    with c_status:
-        if scan_running:
+    @st.fragment(run_every=3)
+    def _render_etf50_scan_status():
+        if st.session_state.get("etf50_scan_running", False):
             _elapsed  = int(time.time() - st.session_state.get("etf50_scan_start", time.time()))
             _scan_task_id = st.session_state.get("etf50_scan_task_id")
             _done     = not _task_alive(_scan_task_id)
@@ -1481,14 +1483,14 @@ elif pg == "etf50":
                     f'⏳ 扫描中... 已用时 {_estr}</div>',
                     unsafe_allow_html=True,
                 )
-                _schedule_refresh(3000)
+        _scan_result = st.session_state.get("etf50_scan_result")
+        if _scan_result:
+            if _scan_result.get("ok"):
+                st.success(_scan_result.get("message", "扫描完成。"))
+            else:
+                st.error(_scan_result.get("message", "扫描失败。"))
 
-    _scan_result = st.session_state.get("etf50_scan_result")
-    if _scan_result:
-        if _scan_result.get("ok"):
-            st.success(_scan_result.get("message", "扫描完成。"))
-        else:
-            st.error(_scan_result.get("message", "扫描失败。"))
+    _render_etf50_scan_status()
 
     d = load_etf50()
     if not d:
@@ -1558,31 +1560,19 @@ elif pg == "etf50":
 elif pg == "stocks60":
     st.markdown(_page_header("60 只个股扫描", "10大热门板块龙头 · 技术面综合评分", "Stock Radar"), unsafe_allow_html=True)
 
-    stocks60_running = st.session_state.get("stocks60_scan_running", False)
-    c_btn, c_status, _ = st.columns([1,2,3])
+    c_btn, _ = st.columns([1,5])
     with c_btn:
-        if st.button("↻  立即扫描", use_container_width=True, key="scan_st", disabled=stocks60_running):
-            task_id = _new_task_id("stocks60_scan")
-            _t = threading.Thread(
-                target=_run_command_task,
-                args=(task_id, [sys.executable, str(ROOT / "scan_stocks_full.py")]),
-                kwargs={
-                    "timeout": 600,
-                    "success_message": "个股扫描完成，结果已刷新。",
-                    "clear_callback": load_stocks60.clear,
-                },
-                daemon=True,
-            )
-            _register_task(task_id, _t)
-            _t.start()
-            stocks60_running = True
-            st.session_state["stocks60_scan_running"] = True
-            st.session_state["stocks60_scan_task_id"] = task_id
-            st.session_state["stocks60_scan_start"] = time.time()
-            st.session_state["stocks60_scan_result"] = None
+        st.button(
+            "↻  立即扫描",
+            use_container_width=True,
+            key="scan_st",
+            disabled=st.session_state.get("stocks60_scan_running", False),
+            on_click=_start_stocks60_scan,
+        )
 
-    with c_status:
-        if stocks60_running:
+    @st.fragment(run_every=3)
+    def _render_stocks60_scan_status():
+        if st.session_state.get("stocks60_scan_running", False):
             _elapsed = int(time.time() - st.session_state.get("stocks60_scan_start", time.time()))
             _scan_task_id = st.session_state.get("stocks60_scan_task_id")
             _done = not _task_alive(_scan_task_id)
@@ -1603,14 +1593,14 @@ elif pg == "stocks60":
                     f'⏳ 扫描中... 已用时 {_estr}</div>',
                     unsafe_allow_html=True,
                 )
-                _schedule_refresh(3000)
+        _scan_result = st.session_state.get("stocks60_scan_result")
+        if _scan_result:
+            if _scan_result.get("ok"):
+                st.success(_scan_result.get("message", "扫描完成。"))
+            else:
+                st.error(_scan_result.get("message", "扫描失败。"))
 
-    _scan_result = st.session_state.get("stocks60_scan_result")
-    if _scan_result:
-        if _scan_result.get("ok"):
-            st.success(_scan_result.get("message", "扫描完成。"))
-        else:
-            st.error(_scan_result.get("message", "扫描失败。"))
+    _render_stocks60_scan_status()
 
     d = load_stocks60()
     if not d:
@@ -1695,8 +1685,8 @@ elif pg == "deep":
         analysis_mode_key = analysis_mode_map.get(analysis_mode_label, "auto")
         env = _build_llm_env(st.session_state.api_key, st.session_state.api_base, st.session_state.api_model)
         t = threading.Thread(target=run_analysis_bg, args=(code, rounds, profile_key, workflow_key, analysis_mode_key, log_path, env), daemon=True)
-        t.start()
         _register_task(task_id, t, log_path)
+        t.start()
         st.session_state.update({
             "running": True,
             "current_code": code,
@@ -1708,16 +1698,19 @@ elif pg == "deep":
             "workflow_label": workflow_label,
             "analysis_mode": analysis_mode_key,
         })
-    # 运行中
-    if st.session_state.running:
+    @st.fragment(run_every=3)
+    def _render_analysis_progress():
+        if not st.session_state.running:
+            return
+
         code = st.session_state.current_code
         workflow_display = st.session_state.get("workflow_label", "仅深度分析")
         log_path = Path(st.session_state.log_path)
         log_text = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
         lines = [l for l in log_text.splitlines() if l.strip() and "[LLM]" not in l]
-        STEPS = ["刷新行情","ETF50","60只个股","技术面","资金流","风险","板块","瓶颈","辩论","综合","完成"]
-        done_n = sum(1 for s in STEPS if any(s in l for l in lines))
-        pct = min(done_n/len(STEPS), 0.95)
+        steps = ["刷新行情","ETF50","60只个股","技术面","资金流","风险","板块","瓶颈","辩论","综合","完成"]
+        done_n = sum(1 for step in steps if any(step in line for line in lines))
+        pct = min(done_n / len(steps), 0.95)
 
         st.markdown(f"""
         <div class="n-card n-card-accent-blue" style="margin-bottom:20px">
@@ -1739,9 +1732,11 @@ elif pg == "deep":
         report = load_report(code)
         thread_alive = _task_alive(st.session_state.get("task_id"))
         if "✅ 分析完成" in log_text or (report and not thread_alive):
-            st.session_state.update({"running":False,"done":True,"task_id":None}); st.rerun()
-        else:
-            _schedule_refresh(3000)
+            load_report.clear()
+            st.session_state.update({"running":False,"done":True,"task_id":None})
+            st.rerun()
+
+    _render_analysis_progress()
 
     # 展示报告
     def show_report(data):
