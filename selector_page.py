@@ -136,7 +136,7 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
     )
 
     sel_running = st.session_state.get("selector_scan_running", False)
-    c_limit, c_timeout, c_btn, c_status = st.columns([1, 1, 1, 3])
+    c_limit, c_timeout, c_btn, _ = st.columns([1, 1, 1, 3])
 
     with c_limit:
         selector_limit = st.number_input(
@@ -157,64 +157,76 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
             key="selector_timeout",
         )
 
-    with c_btn:
-        if st.button("开始选股", use_container_width=True,
-                     disabled=sel_running, key="selector_scan_btn"):
-            task_id = new_task_id("selector_scan")
-            def _run_selector():
-                command = [
-                    sys.executable,
-                    str(root / "run_stock_selector.py"),
-                    "--top",
-                    "20",
-                    "--limit",
-                    str(int(selector_limit)),
-                    "--output-dir",
-                    str(get_reports_dir(create=True)),
-                ]
-                try:
-                    completed = subprocess.run(
-                        command,
-                        capture_output=True,
-                        timeout=int(selector_timeout),
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                    )
-                    detail = (completed.stderr or completed.stdout or "").strip()
-                    if completed.returncode == 0:
-                        result = {"ok": True, "message": "今日选股完成，结果已刷新。"}
-                    else:
-                        suffix = detail[-300:] if detail else "无错误输出"
-                        result = {
-                            "ok": False,
-                            "message": f"今日选股失败（返回码 {completed.returncode}）：{suffix}",
-                        }
-                except subprocess.TimeoutExpired:
+    def _start_selector_scan() -> None:
+        if st.session_state.get("selector_scan_running", False):
+            return
+        task_id = new_task_id("selector_scan")
+
+        def _run_selector():
+            command = [
+                sys.executable,
+                str(root / "run_stock_selector.py"),
+                "--top",
+                "20",
+                "--limit",
+                str(int(selector_limit)),
+                "--output-dir",
+                str(get_reports_dir(create=True)),
+            ]
+            try:
+                completed = subprocess.run(
+                    command,
+                    capture_output=True,
+                    timeout=int(selector_timeout),
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                detail = (completed.stderr or completed.stdout or "").strip()
+                if completed.returncode == 0:
+                    result = {"ok": True, "message": "今日选股完成，结果已刷新。"}
+                else:
+                    suffix = detail[-300:] if detail else "无错误输出"
                     result = {
                         "ok": False,
-                        "message": f"今日选股超时（{int(selector_timeout)} 秒），请缩小抓取范围后重试。",
+                        "message": f"今日选股失败（返回码 {completed.returncode}）：{suffix}",
                     }
-                except Exception as exc:
-                    result = {"ok": False, "message": f"今日选股失败：{str(exc)[:300]}"}
-                finally:
-                    try:
-                        load_stock_selector.clear()
-                    except Exception:
-                        pass
-                    set_task_result(task_id, result)
+            except subprocess.TimeoutExpired:
+                result = {
+                    "ok": False,
+                    "message": f"今日选股超时（{int(selector_timeout)} 秒），请缩小抓取范围后重试。",
+                }
+            except Exception as exc:
+                result = {"ok": False, "message": f"今日选股失败：{str(exc)[:300]}"}
+            finally:
+                try:
+                    load_stock_selector.clear()
+                except Exception:
+                    pass
+                set_task_result(task_id, result)
 
-            _t = _threading.Thread(target=_run_selector, daemon=True)
-            register_task(task_id, _t)
-            _t.start()
-            sel_running = True
-            st.session_state["selector_scan_running"] = True
-            st.session_state["selector_scan_task_id"] = task_id
-            st.session_state["selector_scan_start"] = time.time()
-            st.session_state["selector_scan_result"] = None
+        thread = _threading.Thread(target=_run_selector, daemon=True)
+        register_task(task_id, thread)
+        thread.start()
+        st.session_state.update({
+            "selector_scan_running": True,
+            "selector_scan_task_id": task_id,
+            "selector_scan_start": time.time(),
+            "selector_scan_result": None,
+        })
 
-    with c_status:
-        if sel_running:
+    with c_btn:
+        st.button(
+            "开始选股",
+            use_container_width=True,
+            disabled=sel_running,
+            key="selector_scan_btn",
+            on_click=_start_selector_scan,
+        )
+
+    @st.fragment(run_every=3)
+    def _render_selector_scan_status():
+        if st.session_state.get("selector_scan_running", False):
             _elapsed = int(time.time() - st.session_state.get("selector_scan_start", time.time()))
             _scan_task_id = st.session_state.get("selector_scan_task_id")
             _done = not task_alive(_scan_task_id)
@@ -237,15 +249,14 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
                     f'<span class="n-status-dot"></span><span>扫描中 · 已用时 {estr}</span></div>',
                     unsafe_allow_html=True,
                 )
-                import streamlit.components.v1 as _cv1
-                _cv1.html('<script>setTimeout(()=>window.parent.location.reload(),3000);</script>', height=0)
+        scan_result = st.session_state.get("selector_scan_result")
+        if scan_result:
+            if scan_result.get("ok"):
+                st.success(scan_result.get("message", "选股完成。"))
+            else:
+                st.error(scan_result.get("message", "选股失败。"))
 
-    scan_result = st.session_state.get("selector_scan_result")
-    if scan_result:
-        if scan_result.get("ok"):
-            st.success(scan_result.get("message", "选股完成。"))
-        else:
-            st.error(scan_result.get("message", "选股失败。"))
+    _render_selector_scan_status()
 
     d = load_stock_selector()
     if not d:

@@ -36,8 +36,24 @@ class StreamlitStateContractsTest(unittest.TestCase):
         for marker in forbidden:
             self.assertNotIn(marker, source)
 
-        self.assertIn("RUNNING_TASKS", source)
+        self.assertIn("from nasdx.ui_tasks import", source)
         self.assertIn("task_id", source)
+
+    def test_task_registry_survives_streamlit_script_reruns(self):
+        source = (ROOT / "app.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("RUNNING_TASKS = {}", source)
+        self.assertIn("register_task as _register_task", source)
+        self.assertIn("task_alive as _task_alive", source)
+        self.assertIn("set_task_result as _set_task_result", source)
+        self.assertIn("take_task_result as _take_task_result", source)
+
+    def test_final_audit_checks_persistent_task_registry_module(self):
+        source = (ROOT / "run_final_audit.py").read_text(encoding="utf-8")
+
+        self.assertNotIn('"RUNNING_TASKS",', source)
+        self.assertIn('ROOT / "nasdx" / "ui_tasks.py"', source)
+        self.assertIn('"_TASKS"', source)
 
     def test_analysis_logs_are_unique_per_task(self):
         source = (ROOT / "app.py").read_text(encoding="utf-8")
@@ -50,7 +66,7 @@ class StreamlitStateContractsTest(unittest.TestCase):
 
         self.assertIn('"stocks60_scan_task_id"', source)
         self.assertIn('_new_task_id("stocks60_scan")', source)
-        self.assertIn("_register_task(task_id, _t)", source)
+        self.assertIn("_register_task(task_id, thread)", source)
         self.assertNotIn('with st.spinner("扫描中，约 5 分钟...")', source)
 
     def test_selector_scan_exposes_limit_timeout_without_session_thread(self):
@@ -107,7 +123,31 @@ class StreamlitStateContractsTest(unittest.TestCase):
         source = (ROOT / "app.py").read_text(encoding="utf-8")
 
         self.assertNotIn("time.sleep(3); st.rerun()", source)
-        self.assertIn("_schedule_refresh(3000)", source)
+        self.assertNotIn("_schedule_refresh", source)
+        self.assertIn("@st.fragment(run_every=3)", source)
+
+    def test_background_task_polling_preserves_streamlit_session(self):
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        selector_source = (ROOT / "selector_page.py").read_text(encoding="utf-8")
+        combined = app_source + "\n" + selector_source
+
+        self.assertNotIn("window.parent.location.reload()", combined)
+        self.assertGreaterEqual(app_source.count("@st.fragment(run_every=3)"), 3)
+        self.assertIn("@st.fragment(run_every=3)", selector_source)
+        self.assertIn("on_click=_start_selector_scan", selector_source)
+
+    def test_agnes_preset_uses_environment_config_without_embedded_key(self):
+        source = (ROOT / "app.py").read_text(encoding="utf-8")
+
+        self.assertIn(
+            '"Agnes AI": ("https://apihub.agnes-ai.com/v1", ["agnes-2.0-flash"])',
+            source,
+        )
+        self.assertIn("def _preset_for_config", source)
+        self.assertIn('"api_preset":_preset_for_config(', source)
+        self.assertIn("timeout=30", source)
+        self.assertIn("max_retries=0", source)
+        self.assertNotRegex(source, r"sk-[A-Za-z0-9_-]{20,}")
 
     def test_home_recent_reports_use_cached_loader(self):
         source = (ROOT / "app.py").read_text(encoding="utf-8")
