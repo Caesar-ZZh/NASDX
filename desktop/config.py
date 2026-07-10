@@ -65,17 +65,17 @@ def resolve_config_file(app_root: Path, env: Mapping[str, str] | None = None) ->
     source = dict(env) if env is not None else dict(os.environ)
     configured = source.get(CONFIG_FILE_ENV)
     if configured:
-        return Path(os.path.expandvars(configured)).expanduser().resolve(), True
+        return absolute_path(Path(os.path.expandvars(configured)).expanduser()), True
 
     user_config = user_config_dir(source) / "config.toml"
     if user_config.exists():
-        return user_config.resolve(), False
+        return absolute_path(user_config), False
 
-    source_config = app_root.resolve() / "config.toml"
+    source_config = absolute_path(app_root) / "config.toml"
     if source_config.exists():
-        return source_config.resolve(), False
+        return absolute_path(source_config), False
 
-    return user_config.resolve(), False
+    return absolute_path(user_config), False
 
 
 def user_config_dir(env: Mapping[str, str] | None = None) -> Path:
@@ -144,7 +144,12 @@ def _expand_config_path(value: str, env: Mapping[str, str], base_dir: Path) -> s
     path = Path(os.path.expandvars(expanded)).expanduser()
     if not path.is_absolute():
         path = base_dir / path
-    return str(path.resolve())
+    return str(absolute_path(path))
+
+
+def absolute_path(path: str | Path) -> Path:
+    """Make a path absolute without rewriting Windows long names to 8.3 aliases."""
+    return Path(os.path.abspath(os.fspath(path)))
 
 
 def _looks_like_placeholder(value: str) -> bool:

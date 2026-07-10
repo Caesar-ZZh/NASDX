@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Mapping
 
-from desktop.config import load_desktop_config
+from desktop.config import absolute_path, load_desktop_config
 
 
 APP_ROOT_ENV = "NASDX_APP_ROOT"
@@ -17,7 +17,7 @@ def resolve_app_root(start: Path | None = None, env: Mapping[str, str] | None = 
     source = env if env is not None else os.environ
     configured = source.get(APP_ROOT_ENV)
     if configured:
-        root = Path(configured).expanduser().resolve()
+        root = absolute_path(Path(configured).expanduser())
         if _looks_like_app_root(root):
             return root
         raise FileNotFoundError(f"{APP_ROOT_ENV} does not point to a NASDX app root: {root}")
@@ -34,7 +34,7 @@ def resolve_runtime_dir(app_root: Path, env: Mapping[str, str] | None = None) ->
     source = env if env is not None else os.environ
     configured = source.get(RUNTIME_DIR_ENV)
     if configured:
-        return Path(configured).expanduser().resolve()
+        return absolute_path(Path(configured).expanduser())
 
     if is_source_checkout(app_root):
         return app_root.resolve()
@@ -53,7 +53,7 @@ def build_desktop_env(app_root: Path, parent_env: Mapping[str, str] | None = Non
     runtime_dir = resolve_runtime_dir(app_root, env)
 
     env["PYTHONIOENCODING"] = "utf-8"
-    env[APP_ROOT_ENV] = str(app_root.resolve())
+    env[APP_ROOT_ENV] = str(absolute_path(app_root))
     env[RUNTIME_DIR_ENV] = str(runtime_dir)
     env.setdefault(HISTORY_DB_ENV, str(runtime_dir / "nasdx_history.db"))
     env.setdefault(REPORTS_DIR_ENV, str(runtime_dir / "reports"))

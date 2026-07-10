@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$InstallDir = "",
     [string]$PythonExe = "",
     [int]$Timeout = 60,

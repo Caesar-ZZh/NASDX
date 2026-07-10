@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ZipPath = "",
     [string]$ChecksumPath = "",
     [string]$ManifestPath = "",

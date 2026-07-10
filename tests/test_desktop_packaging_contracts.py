@@ -361,6 +361,21 @@ class DesktopPackagingContractsTest(unittest.TestCase):
         self.assertIn("Pass -Apply", proc.stdout)
         self.assertIn("Would create shortcuts", proc.stdout)
 
+    def test_windows_powershell_scripts_with_unicode_use_utf8_bom(self):
+        scripts = [
+            "build_installer.ps1",
+            "build_portable.ps1",
+            "build_portable_zip.ps1",
+            "create_shortcuts.ps1",
+            "preflight_installer_release.ps1",
+            "smoke_installed.ps1",
+            "smoke_portable.ps1",
+            "smoke_portable_zip.ps1",
+        ]
+        for name in scripts:
+            path = ROOT / "packaging" / "windows" / name
+            self.assertTrue(path.read_bytes().startswith(b"\xef\xbb\xbf"), name)
+
     def test_installer_roundtrip_script_requires_explicit_install_permission(self):
         self.assertTrue(ROUNDTRIP_SMOKE_SCRIPT.exists(), "smoke_installer_roundtrip.ps1 is missing")
         text = ROUNDTRIP_SMOKE_SCRIPT.read_text(encoding="utf-8")
@@ -457,22 +472,26 @@ class DesktopPackagingContractsTest(unittest.TestCase):
         self.assertNotIn("sk-", text)
 
     def test_installer_release_preflight_default_is_non_mutating(self):
-        proc = subprocess.run(
-            [
-                "powershell",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(INSTALLER_PREFLIGHT_SCRIPT),
-                "-RequireVenv",
-            ],
-            cwd=str(ROOT),
-            text=True,
-            capture_output=True,
-            check=True,
-        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            proc = subprocess.run(
+                [
+                    "powershell",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(INSTALLER_PREFLIGHT_SCRIPT),
+                    "-PackageDir",
+                    str(Path(temp_dir) / "not-built-yet"),
+                    "-RequireVenv",
+                ],
+                cwd=str(ROOT),
+                text=True,
+                capture_output=True,
+                check=True,
+            )
 
         self.assertIn("NASDX installer release preflight", proc.stdout)
+        self.assertIn("[INCOMPLETE] portable_package", proc.stdout)
         self.assertIn("Next compile command", proc.stdout)
         self.assertIn("Next roundtrip command", proc.stdout)
         self.assertIn("Expected roundtrip proof", proc.stdout)
