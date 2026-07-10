@@ -1,0 +1,14 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: python -m ruff check --no-cache
+        language: system
+        types_or: [python, pyi]
+
+      - id: pytest-core
+        name: pytest core contracts
+        entry: python -m pytest tests/test_quant_core_contracts.py tests/test_delivery_assets_contracts.py tests/test_desktop_launcher_contracts.py tests/test_desktop_control_contracts.py tests/test_desktop_packaging_contracts.py tests/test_desktop_release_check_contracts.py tests/test_desktop_release_evidence_contracts.py tests/test_desktop_ci_contracts.py tests/test_security_checks_contracts.py tests/test_desktop_doctor_contracts.py tests/test_desktop_completion_audit_contracts.py
+        language: system
+        pass_filenames: false

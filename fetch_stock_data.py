@@ -9,19 +9,6 @@
   vol_ratio, up_days_20, kline_last5
 """
 
-import os
-for _k in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']:
-    os.environ.pop(_k, None)
-
-# Clash 通过 Windows 注册表注入代理，清环境变量不够。
-# patch requests.get，强制每次请求直连，绕过代理配置。
-import requests as _requests
-_orig_get = _requests.get
-def _direct_get(url, **kw):
-    kw['proxies'] = {'http': None, 'https': None}
-    return _orig_get(url, **kw)
-_requests.get = _direct_get
-
 import json
 import time
 import traceback
@@ -31,11 +18,14 @@ from pathlib import Path
 import akshare as ak
 import pandas as pd
 
+from nasdx.market_sources import fetch_stock_hist, last_trade_date
+from nasdx.paths import get_market_data_dir
+
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_FILE = SCRIPT_DIR / "stocks.json"
 TODAY      = datetime.now().strftime("%Y%m%d")
 START_DATE = (datetime.now() - timedelta(days=90)).strftime("%Y%m%d")
-OUTPUT_FILE = SCRIPT_DIR / f"stock_data_{TODAY}.json"
+OUTPUT_FILE = get_market_data_dir(create=True) / f"stock_data_{TODAY}.json"
 
 
 def safe(fn, *args, **kwargs):
@@ -125,13 +115,16 @@ def fetch_stock(item: dict) -> dict:
     print(f"    {code} {name}", flush=True)
     result = {"code": code, "name": name, "note": item.get("note", ""), "type": "stock"}
 
-    hist = safe(ak.stock_zh_a_hist, symbol=code, period="daily",
-                start_date=START_DATE, end_date=TODAY, adjust="qfq")
+    hist, source = fetch_stock_hist(code, START_DATE, TODAY, min_rows=5)
     if isinstance(hist, pd.DataFrame) and not hist.empty:
         result["indicators"] = compute_indicators(hist)
         result["kline_days"] = len(hist)
+        result["data_source"] = source
+        result["data_date"] = last_trade_date(hist)
     else:
         result["indicators"] = {}
+        result["data_source"] = None
+        result["data_date"] = None
 
     # 科创板 688xxx 资金流接口不支持
     if not code.startswith("688"):
@@ -160,20 +153,17 @@ def fetch_etf(item: dict) -> dict:
         "main_net_3d": [],
     }
 
-    # ETF：fund_etf_hist_em；LOF：fund_lof_hist_em（接口一样）
-    hist = safe(ak.fund_etf_hist_em, symbol=code, period="daily",
-                start_date=START_DATE, end_date=TODAY, adjust="")
-
-    # 部分 LOF/场内基金用 stock_zh_a_hist 反而能拿到
-    if hist is None or (isinstance(hist, pd.DataFrame) and hist.empty):
-        hist = safe(ak.stock_zh_a_hist, symbol=code, period="daily",
-                    start_date=START_DATE, end_date=TODAY, adjust="qfq")
+    hist, source = fetch_stock_hist(code, START_DATE, TODAY, min_rows=5)
 
     if isinstance(hist, pd.DataFrame) and not hist.empty:
         result["indicators"] = compute_indicators(hist)
         result["kline_days"] = len(hist)
+        result["data_source"] = source
+        result["data_date"] = last_trade_date(hist)
     else:
         result["indicators"] = {}
+        result["data_source"] = None
+        result["data_date"] = None
 
     time.sleep(0.4)
     return result

@@ -74,16 +74,16 @@ class ChokepointAgent(BaseAgent):
 【信号】bullish 或 bearish 或 neutral
 【置信度】0.60
 """
-        response = self._ask(prompt, temperature=0.25)
-        signal, confidence = self._parse_signal(response)
+        response, payload = self._ask_analysis(prompt, temperature=0.25)
+        signal, confidence = self._parse_structured_signal(response, payload)
 
         return AnalysisResult(
             agent_name=self.name,
             dimension=self.dimension,
-            conclusion=response,
+            conclusion=self._structured_conclusion(response, payload),
             signal=signal,
             confidence=confidence,
-            key_points=key_points,
+            key_points=self._merge_key_points(self._structured_key_points(payload), key_points),
             raw_data_summary=f"需求冲击={demand_shock}；候选节点={supply_node}",
         )
 
@@ -137,23 +137,3 @@ class ChokepointAgent(BaseAgent):
             points.append(f"项目备注：{note}")
         points.append("公告/客户/订单/产能：当前项目未接入实时核验")
         return points
-
-    def _parse_signal(self, text: str):
-        signal = "neutral"
-        confidence = 0.5
-        for line in text.split("\n"):
-            if "【信号】" in line:
-                lower = line.lower()
-                if "bullish" in lower:
-                    signal = "bullish"
-                elif "bearish" in lower:
-                    signal = "bearish"
-                elif "neutral" in lower:
-                    signal = "neutral"
-            if "【置信度】" in line:
-                try:
-                    confidence = float(line.split("】")[-1].strip())
-                except Exception:
-                    pass
-        confidence = min(1.0, max(0.0, confidence))
-        return signal, confidence

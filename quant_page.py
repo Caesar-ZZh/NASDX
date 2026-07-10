@@ -19,8 +19,8 @@ sys.path.insert(0, str(ROOT))
 def _sc(v):   return "#22c55e" if v>=60 else "#ef4444" if v<=40 else "#f59e0b"
 def _bar(v,h=4):
     c=_sc(v)
-    return(f'<div style="background:rgba(255,255,255,0.06);border-radius:2px;height:{h}px;overflow:hidden">'
-           f'<div style="width:{min(v,100):.0f}%;height:100%;background:{c};border-radius:2px"></div></div>')
+    return(f'<div class="bar-wrap" style="height:{h}px">'
+           f'<div style="width:{min(v,100):.0f}%;height:100%;background:{c};border-radius:999px"></div></div>')
 def _sig(sig):
     cfg={"bullish":("#22c55e","rgba(34,197,94,0.12)","↑ 看多"),
          "bearish":("#ef4444","rgba(239,68,68,0.12)","↓ 看空"),
@@ -29,16 +29,14 @@ def _sig(sig):
     return(f'<span style="color:{c};background:{bg};border:1px solid {c}40;'
            f'border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600">{lb}</span>')
 def _card(body,accent=None):
-    top=f"background:linear-gradient(90deg,transparent,{accent},transparent)" if accent else "none"
-    return(f'<div style="background:#111;border:1px solid rgba(255,255,255,0.06);border-radius:8px;'
-           f'padding:14px 16px;position:relative;overflow:hidden">'
-           f'<div style="position:absolute;top:0;left:0;right:0;height:1px;{top}"></div>'
-           f'{body}</div>')
+    cls = "n-card n-card-accent-line" if accent else "n-card"
+    accent_style = f' style="--accent-line:{accent}"' if accent else ""
+    return f'<div class="{cls}"{accent_style}>{body}</div>'
 def _metric(label,value,color="#fff",sub=""):
-    sub_html = f'<div style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:2px">{sub}</div>' if sub else ''
-    return(f'<div style="background:#111;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:12px;text-align:center">'
-           f'<div style="font-size:18px;font-weight:700;color:{color};font-variant-numeric:tabular-nums">{value}</div>'
-           f'<div style="font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.05em;margin-top:3px">{label}</div>'
+    sub_html = f'<div class="n-kpi-sub">{sub}</div>' if sub else ''
+    return(f'<div class="n-card n-kpi" style="--kpi-color:{color}">'
+           f'<div class="n-kpi-value">{value}</div>'
+           f'<div class="n-kpi-label">{label}</div>'
            f'{sub_html}</div>')
 
 # ── 缓存 etf50_pool.json 的 ETF 列表 ──────────────────────
@@ -101,9 +99,6 @@ def _run_etf50_bg(days, top_n, freq, log_path):
 #  主页面入口
 # ══════════════════════════════════════════════════════
 def render_quant_page(st):
-    import pandas as pd
-    import numpy as np
-
     # ── 启动时清理僵死线程状态 ──────────────────────────
     for tk in ["etf50q_thread", "conf_thread"]:
         t = st.session_state.get(tk)
@@ -114,11 +109,11 @@ def render_quant_page(st):
                 st.session_state[running_key] = False
 
     st.markdown(
-        '<div style="padding:20px 0 14px">'
-        '<div style="font-size:22px;font-weight:700;color:#fff">量化策略引擎</div>'
-        '<div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:3px">'
-        'QLib Alpha158 因子 &nbsp;·&nbsp; VnPy 回测引擎 &nbsp;·&nbsp; '
-        'FinRL 强化学习 &nbsp;·&nbsp; ETF50 全量分析</div></div>',
+        '<div class="n-page-head">'
+        '<div class="n-head-kicker">Quant Lab</div>'
+        '<div class="n-page-title">量化策略引擎</div>'
+        '<div class="n-page-sub">QLib Alpha158 因子 · VnPy 回测引擎 · FinRL 强化学习 · ETF50 全量分析</div>'
+        "</div>",
         unsafe_allow_html=True,
     )
 
@@ -240,7 +235,7 @@ def render_quant_page(st):
                   </div>
                 </div>
                 <div style="font-size:28px;font-weight:800;color:{bar_color};
-                            font-variant-numeric:tabular-nums;letter-spacing:-0.02em">
+                            font-variant-numeric:tabular-nums;letter-spacing:0">
                   {pct_display}<span style="font-size:14px;color:rgba(255,255,255,0.3)">%</span>
                 </div>
               </div>
@@ -253,7 +248,7 @@ def render_quant_page(st):
 
               <!-- 最近扫描的 ETF -->
               <div style="font-size:10px;color:rgba(255,255,255,0.25);text-transform:uppercase;
-                          letter-spacing:.06em;margin-bottom:8px">最近扫描</div>
+                          letter-spacing:0;margin-bottom:8px">最近扫描</div>
               <div style="display:flex;flex-wrap:wrap;gap:6px">
                 {_build_recent_chips(progress_lines[-8:])}
               </div>
@@ -320,7 +315,7 @@ def render_quant_page(st):
     #  Tab2: 单只因子分析
     # ════════════════════════════════════════
     with tab2:
-        st.markdown('<div style="font-size:11px;font-weight:600;letter-spacing:.06em;'
+        st.markdown('<div style="font-size:11px;font-weight:600;letter-spacing:0;'
                     'text-transform:uppercase;color:rgba(255,255,255,0.3);padding:0 0 10px">'
                     'Alpha158 单只因子诊断</div>', unsafe_allow_html=True)
 
@@ -370,15 +365,14 @@ def render_quant_page(st):
                             if not cols: continue
                             vals = latest[cols].sort_values(ascending=False)
                             st.markdown(f'<div style="font-size:11px;color:rgba(255,255,255,0.3);'
-                                        f'text-transform:uppercase;letter-spacing:.05em;padding:10px 0 6px">'
+                                        f'text-transform:uppercase;letter-spacing:0;padding:10px 0 6px">'
                                         f'{gname}</div>', unsafe_allow_html=True)
                             gcols = st.columns(min(len(vals),6))
                             for col,(fn,fv) in zip(gcols*10, vals.items()):
                                 fc="#22c55e" if fv>0.5 else "#ef4444" if fv<-0.5 else "rgba(255,255,255,0.5)"
                                 with col:
                                     st.markdown(
-                                        f'<div style="background:#161616;border:1px solid rgba(255,255,255,0.06);'
-                                        f'border-radius:6px;padding:8px;text-align:center">'
+                                        f'<div class="n-card n-kpi" style="padding:8px;min-height:66px">'
                                         f'<div style="font-size:10px;color:rgba(255,255,255,0.3);margin-bottom:4px">{fn}</div>'
                                         f'<div style="font-size:15px;font-weight:700;color:{fc}">{fv:.2f}</div></div>',
                                         unsafe_allow_html=True,
@@ -442,7 +436,7 @@ def render_quant_page(st):
             perf = st.session_state.get("bt_perf_vn", {})
             st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
             st.markdown('<div style="font-size:11px;color:rgba(255,255,255,0.3);'
-                        'text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">'
+                        'text-transform:uppercase;letter-spacing:0;margin-bottom:8px">'
                         'VnPy 绩效分析</div>', unsafe_allow_html=True)
 
             m = st.columns(6)
@@ -462,6 +456,8 @@ def render_quant_page(st):
                 with col: st.markdown(_metric(lb,v,c), unsafe_allow_html=True)
 
             if not r.equity_curve.empty:
+                import pandas as pd
+
                 eq = r.equity_curve
                 st.line_chart(pd.DataFrame({"净值":eq/eq.iloc[0]}),color=["#3b82f6"],height=200)
 
@@ -538,7 +534,7 @@ def render_quant_page(st):
             df = st.session_state["opt_result"]
             st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
             st.markdown('<div style="font-size:11px;color:rgba(255,255,255,0.3);'
-                        'text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">'
+                        'text-transform:uppercase;letter-spacing:0;margin-bottom:8px">'
                         '参数优化结果（按目标指标排序）</div>', unsafe_allow_html=True)
 
             if "error" not in df.columns:
@@ -594,7 +590,7 @@ def render_quant_page(st):
     #  Tab5: 过拟合诊断
     # ════════════════════════════════════════
     with tab5:
-        st.markdown('<div style="font-size:11px;font-weight:600;letter-spacing:.06em;'
+        st.markdown('<div style="font-size:11px;font-weight:600;letter-spacing:0;'
                     'text-transform:uppercase;color:rgba(255,255,255,0.3);padding:0 0 10px">'
                     '过拟合风险诊断</div>', unsafe_allow_html=True)
         st.markdown(_card(
@@ -653,7 +649,7 @@ def render_quant_page(st):
                         st.markdown(
                             f'<div style="background:#111;border:1px solid rgba(255,255,255,0.06);'
                             f'border-radius:6px;padding:14px 16px"><div style="font-size:11px;'
-                            f'color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:.05em;'
+                            f'color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0;'
                             f'margin-bottom:10px">{lb}</div>{rows}</div>',
                             unsafe_allow_html=True,
                         )
@@ -675,6 +671,18 @@ def render_quant_page(st):
                         f'border-radius:4px;padding:8px 12px;margin:4px 0;font-size:12px;color:#ef4444">'
                         f'{issue}</div>', unsafe_allow_html=True,
                     )
+
+    # ════════════════════════════════════════
+    #  Tab6: 置信度训练
+    # ════════════════════════════════════════
+    with tab6:
+        try:
+            from confidence_page import render_confidence_page
+            render_confidence_page(st)
+        except Exception as _e:
+            import traceback
+            st.error(f"置信度训练加载失败：{_e}")
+            st.code(traceback.format_exc())
 
 
 # ══════════════════════════════════════════
@@ -719,6 +727,8 @@ def _render_etf50_result(st, data: dict):
 
         eq_list = bt.get("equity_curve",[])
         if eq_list and len(eq_list)>5:
+            import pandas as pd
+
             eq = pd.Series(eq_list)
             st.line_chart(pd.DataFrame({"净值":eq/eq.iloc[0]}),color=["#3b82f6"],height=150)
 
@@ -727,7 +737,7 @@ def _render_etf50_result(st, data: dict):
     if top3:
         st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
         st.markdown('<div style="font-size:11px;color:rgba(255,255,255,0.3);'
-                    'text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">'
+                    'text-transform:uppercase;letter-spacing:0;margin-bottom:8px">'
                     '🏆 量化前三名</div>', unsafe_allow_html=True)
         t1,t2,t3 = st.columns(3)
         for col,r,medal,acc in zip([t1,t2,t3],top3,["🥇","🥈","🥉"],["#22c55e","#3b82f6","#f59e0b"]):
@@ -772,7 +782,7 @@ def _render_etf50_result(st, data: dict):
     st.markdown(
         '<div style="display:grid;grid-template-columns:44px 70px 1fr 110px 64px 80px 110px 80px;'
         'gap:6px;padding:6px 12px;font-size:10px;color:rgba(255,255,255,0.25);'
-        'text-transform:uppercase;letter-spacing:.05em;'
+        'text-transform:uppercase;letter-spacing:0;'
         'border-bottom:1px solid rgba(255,255,255,0.06);margin-top:8px">'
         '<div>#</div><div>代码</div><div>名称</div><div>类别</div>'
         '<div style="text-align:right">量化分</div><div style="text-align:center">信号</div>'
@@ -803,16 +813,3 @@ def _render_etf50_result(st, data: dict):
             f'</div>',
             unsafe_allow_html=True,
         )
-
-
-    # ════════════════════════════════════════
-    #  Tab6: 置信度训练
-    # ════════════════════════════════════════
-    with tab6:
-        try:
-            from confidence_page import render_confidence_page
-            render_confidence_page(st)
-        except Exception as _e:
-            import traceback
-            st.error(f'置信度训练加载失败：{_e}')
-            st.code(traceback.format_exc())

@@ -1,0 +1,46 @@
+name: Windows Desktop Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  desktop-release-check:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run required secret scan
+        shell: pwsh
+        run: |
+          python -B run_security_checks.py --skip-optional
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install -U pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Run desktop release check without installer compile
+        shell: pwsh
+        run: |
+          python -B run_desktop_release_check.py --skip-final-audit --fail-fast
+
+      - name: Run delivery asset contracts
+        shell: pwsh
+        run: |
+          python -m pytest tests/test_delivery_assets_contracts.py tests/test_desktop_release_check_contracts.py

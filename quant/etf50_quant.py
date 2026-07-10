@@ -9,7 +9,7 @@ NASDX V2 — ETF50 量化全量分析
   6. 输出完整排行 + HTML 报告
 
 ⚡ 优化：将重量级 import 延迟到 run_etf50_quant() 内部执行
-  - quant.patch_requests：~200ms
+  - quant.patch_requests：兼容层，无导入期 HTTP 副作用
   - quant.data：~440ms
   - quant.factors：~8ms
   - quant.backtest 等：~20ms
@@ -20,6 +20,8 @@ import json, time
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+
+from nasdx.paths import get_reports_dir
 
 ROOT = Path(__file__).parent.parent
 
@@ -82,11 +84,13 @@ def run_etf50_quant(
         }
     """
     # ⚡ 延迟导入：在真正执行时才加载重量级依赖
+    global np, pd
     import numpy as np
     import pandas as pd
-    import quant.patch_requests  # 代理 patch，必须最先
+    from quant.patch_requests import configure_requests
     from quant.data import get_ohlcv
     from quant.factors import compute_alpha158
+    configure_requests()
 
     # 加载 ETF 池
     with open(ROOT / "etf50_pool.json", encoding="utf-8") as f:
@@ -171,25 +175,26 @@ def run_etf50_quant(
         for r, rank in zip(valid, ranks):
             r.factor_rank = rank
 
-    # ── Phase 3: 组合回测（Top N 等权）───────────────────
+    # ── Phase 3: 组合回测（滚动 Top N 等权）──────────────
     bt_result = None
     portfolio_weights = {}
 
     if len(price_cache) >= 3:
         if verbose:
-            print(f"\n  ⚡ 回测 Top{top_n} 组合...")
+            print(f"\n  ⚡ 回测滚动 Top{top_n} 组合...")
         try:
-            top_codes = [r.code for r in sorted(valid, key=lambda x: -x.factor_score)[:top_n]]
-            top_prices = {c: price_cache[c] for c in top_codes if c in price_cache}
+            current_top_codes = [r.code for r in sorted(valid, key=lambda x: -x.factor_score)[:top_n]]
+            backtest_prices = {r.code: price_cache[r.code] for r in valid if r.code in price_cache}
 
             from quant.backtest import Backtester, strategy_factor_rank
             bt = Backtester(initial_capital=100_000)
 
-            def _top_n_signal(date, pdata):
-                return {c: 1.0 / len(top_codes) for c in top_codes if c in pdata}
+            def _rolling_top_n_signal(date, pdata):
+                return strategy_factor_rank(date, pdata, top_n=top_n)
 
-            bt_result = bt.run(top_prices, _top_n_signal, rebalance_freq=rebalance_freq)
-            portfolio_weights = {c: 1.0 / len(top_codes) for c in top_codes}
+            bt_result = bt.run(backtest_prices, _rolling_top_n_signal, rebalance_freq=rebalance_freq)
+            if current_top_codes:
+                portfolio_weights = {c: 1.0 / len(current_top_codes) for c in current_top_codes}
 
             if verbose:
                 print(f"  组合回测: 收益={bt_result.total_return:.1%} 夏普={bt_result.sharpe_ratio:.2f} 回撤={bt_result.max_drawdown:.1%}")
@@ -244,8 +249,8 @@ def run_etf50_quant(
     }
 
     # 保存 JSON
-    out_path = ROOT / "reports" / f"etf50_quant_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
-    out_path.parent.mkdir(exist_ok=True)
+    out_path = get_reports_dir(create=True) / f"etf50_quant_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         import copy
         json.dump(output, f, ensure_ascii=False, indent=2, default=str)
@@ -351,7 +356,7 @@ def _build_quant_score(results: list[ETFQuantResult], bt_result=None):
 
 def load_latest_quant() -> Optional[dict]:
     """加载最新的量化结果 JSON"""
-    files = sorted((ROOT / "reports").glob("etf50_quant_*.json"))
+    files = sorted(get_reports_dir().glob("etf50_quant_*.json"))
     if not files:
         return None
     with open(files[-1], encoding="utf-8") as f:
