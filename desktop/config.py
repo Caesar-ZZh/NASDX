@@ -149,7 +149,10 @@ def _expand_config_path(value: str, env: Mapping[str, str], base_dir: Path) -> s
 
 def absolute_path(path: str | Path) -> Path:
     """Make a path absolute without rewriting Windows long names to 8.3 aliases."""
-    return Path(os.path.abspath(os.fspath(path)))
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    return Path(os.path.normpath(os.fspath(candidate)))
 
 
 def _looks_like_placeholder(value: str) -> bool:
