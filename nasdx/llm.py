@@ -4,9 +4,13 @@ LLM 客户端 — 支持 OpenAI 兼容接口（DeepSeek / Qwen / GPT-4o 等）
 """
 import os
 import json
+import math
+import queue
 import random
 import re
+import threading
 import time
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 from openai import (
@@ -23,11 +27,67 @@ from openai import (
 API_KEY    = os.environ.get("NASDX_API_KEY", "")
 BASE_URL   = os.environ.get("NASDX_BASE_URL", "https://api.deepseek.com")
 MODEL_NAME = os.environ.get("NASDX_MODEL", "deepseek-chat")
-MAX_TOKENS = int(os.environ.get("NASDX_MAX_TOKENS", "4096"))
-TEMPERATURE = float(os.environ.get("NASDX_TEMPERATURE", "0.3"))
-MAX_TOTAL_ATTEMPTS = int(os.environ.get("NASDX_LLM_MAX_ATTEMPTS", "5"))
-MAX_ELAPSED_SECONDS = float(os.environ.get("NASDX_LLM_MAX_ELAPSED_SECONDS", "30"))
-MAX_RETRY_DELAY_SECONDS = float(os.environ.get("NASDX_LLM_MAX_RETRY_DELAY_SECONDS", "30"))
+DEFAULT_MAX_TOKENS = 4096
+DEFAULT_TEMPERATURE = 0.3
+DEFAULT_MAX_TOTAL_ATTEMPTS = 5
+DEFAULT_MAX_ELAPSED_SECONDS = 30.0
+DEFAULT_MAX_RETRY_DELAY_SECONDS = 30.0
+
+
+class LLMConfigurationError(RuntimeError):
+    """Raised on first LLM use when optional numeric settings are invalid."""
+
+
+class LLMRequestTimeout(TimeoutError):
+    """Raised when one provider request exceeds its remaining total budget."""
+
+
+@dataclass(frozen=True)
+class LLMSettings:
+    max_tokens: int
+    temperature: float
+    max_total_attempts: int
+    max_elapsed_seconds: float
+    max_retry_delay_seconds: float
+
+
+def load_llm_settings(environ: Dict[str, str] | None = None) -> LLMSettings:
+    env = os.environ if environ is None else environ
+    return LLMSettings(
+        max_tokens=_parse_int_setting(env, "NASDX_MAX_TOKENS", DEFAULT_MAX_TOKENS, 1, 1_000_000),
+        temperature=_parse_float_setting(env, "NASDX_TEMPERATURE", DEFAULT_TEMPERATURE, 0.0, 2.0),
+        max_total_attempts=_parse_int_setting(env, "NASDX_LLM_MAX_ATTEMPTS", DEFAULT_MAX_TOTAL_ATTEMPTS, 1, 20),
+        max_elapsed_seconds=_parse_float_setting(
+            env, "NASDX_LLM_MAX_ELAPSED_SECONDS", DEFAULT_MAX_ELAPSED_SECONDS, 0.05, 3600.0
+        ),
+        max_retry_delay_seconds=_parse_float_setting(
+            env, "NASDX_LLM_MAX_RETRY_DELAY_SECONDS", DEFAULT_MAX_RETRY_DELAY_SECONDS, 0.01, 600.0
+        ),
+    )
+
+
+def _parse_int_setting(env: Dict[str, str], key: str, default: int, minimum: int, maximum: int) -> int:
+    raw = env.get(key, str(default))
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        raise LLMConfigurationError(f"{key} 必须是 {minimum} 到 {maximum} 之间的整数") from None
+    if not minimum <= value <= maximum:
+        raise LLMConfigurationError(f"{key} 必须是 {minimum} 到 {maximum} 之间的整数")
+    return value
+
+
+def _parse_float_setting(
+    env: Dict[str, str], key: str, default: float, minimum: float, maximum: float
+) -> float:
+    raw = env.get(key, str(default))
+    try:
+        value = float(str(raw).strip())
+    except (TypeError, ValueError):
+        raise LLMConfigurationError(f"{key} 必须是 {minimum:g} 到 {maximum:g} 之间的有限数值") from None
+    if not math.isfinite(value) or not minimum <= value <= maximum:
+        raise LLMConfigurationError(f"{key} 必须是 {minimum:g} 到 {maximum:g} 之间的有限数值")
+    return value
 
 
 def extract_json_payload(text: str) -> Dict[str, Any]:
@@ -82,15 +142,22 @@ class LLMClient:
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._init()
+            instance = super().__new__(cls)
+            instance._init()
+            cls._instance = instance
         return cls._instance
 
     def _init(self):
+        settings = load_llm_settings()
         self.client = OpenAI(api_key=API_KEY or "nasdx-local-placeholder", base_url=BASE_URL)
+        self.api_key = API_KEY
+        self.base_url = BASE_URL
         self.model = MODEL_NAME
-        self.max_tokens = MAX_TOKENS
-        self.temperature = TEMPERATURE
+        self.max_tokens = settings.max_tokens
+        self.temperature = settings.temperature
+        self.max_total_attempts = settings.max_total_attempts
+        self.max_elapsed_seconds = settings.max_elapsed_seconds
+        self.max_retry_delay_seconds = settings.max_retry_delay_seconds
 
     # 主模型失败时的备用模型列表
     FALLBACK_MODELS = _configured_fallback_models(BASE_URL, MODEL_NAME)
@@ -105,7 +172,9 @@ class LLMClient:
         max_elapsed_seconds: float | None = None,
     ) -> str:
         """Call the LLM with typed, bounded retries and explicit fallback logs."""
-        if not API_KEY and not _is_local_base_url(BASE_URL):
+        api_key = getattr(self, "api_key", API_KEY)
+        base_url = getattr(self, "base_url", BASE_URL)
+        if not api_key and not _is_local_base_url(base_url):
             raise RuntimeError("请先设置 NASDX_API_KEY，或切换到 Ollama 本地模型")
 
         full_messages = []
@@ -115,8 +184,9 @@ class LLMClient:
 
         models_to_try = _ordered_unique([self.model, *self.FALLBACK_MODELS])
         retries_per_model = max(1, int(max_retries))
-        attempt_budget = max(1, int(max_total_attempts or MAX_TOTAL_ATTEMPTS))
-        elapsed_budget = max(0.1, float(max_elapsed_seconds or MAX_ELAPSED_SECONDS))
+        attempt_budget = max(1, int(max_total_attempts or getattr(self, "max_total_attempts", DEFAULT_MAX_TOTAL_ATTEMPTS)))
+        elapsed_budget = max(0.05, float(max_elapsed_seconds or getattr(self, "max_elapsed_seconds", DEFAULT_MAX_ELAPSED_SECONDS)))
+        max_retry_delay = getattr(self, "max_retry_delay_seconds", DEFAULT_MAX_RETRY_DELAY_SECONDS)
         started_at = time.monotonic()
         total_attempts = 0
         last_classification = "none"
@@ -127,16 +197,29 @@ class LLMClient:
                     break
                 total_attempts += 1
                 try:
+                    remaining = elapsed_budget - (time.monotonic() - started_at)
+                    if remaining <= 0:
+                        last_classification = "elapsed_budget_exhausted"
+                        print(
+                            f"[LLM] model={model} attempt={total_attempts} "
+                            "class=elapsed_budget_exhausted action=fail"
+                        )
+                        break
                     # 推理模型（如 deepseek-reasoner）temperature 必须为 1
                     is_reasoner = any(x in model for x in ("reasoner", "thinking", "r1"))
                     call_kwargs = dict(
                         model=model,
                         messages=full_messages,
                         max_tokens=self.max_tokens,
+                        timeout=remaining,
                     )
                     if not is_reasoner:
                         call_kwargs["temperature"] = temperature if temperature is not None else self.temperature
-                    resp = self.client.chat.completions.create(**call_kwargs)
+                    resp = _call_with_deadline(
+                        self.client.chat.completions.create,
+                        call_kwargs,
+                        timeout=remaining,
+                    )
                     msg = resp.choices[0].message
                     # 优先取 content，推理模型 content 为空时取 reasoning_content
                     content = msg.content or ""
@@ -161,7 +244,7 @@ class LLMClient:
                     can_retry_model = attempt < retries_per_model
                     can_retry_total = total_attempts < attempt_budget
                     if can_retry_model and can_retry_total:
-                        wait = _retry_delay(exc, attempt)
+                        wait = _retry_delay(exc, attempt, max_retry_delay)
                         elapsed = time.monotonic() - started_at
                         if elapsed + wait <= elapsed_budget:
                             print(
@@ -170,13 +253,17 @@ class LLMClient:
                             )
                             time.sleep(wait)
                             continue
-                    if model_index + 1 < len(models_to_try) and can_retry_total:
+                    has_time = time.monotonic() - started_at < elapsed_budget
+                    if model_index + 1 < len(models_to_try) and can_retry_total and has_time:
                         print(
                             f"[LLM] model={model} attempt={total_attempts} "
                             f"class={classification} action=fallback"
                         )
                     break
 
+        if time.monotonic() - started_at >= elapsed_budget:
+            last_classification = "elapsed_budget_exhausted" if last_classification != "request_timeout" else last_classification
+            print("[LLM] class=elapsed_budget_exhausted action=fail")
         raise RuntimeError(f"所有模型均不可用（错误分类：{last_classification}）")
 
     def ask_json(
@@ -223,25 +310,65 @@ def _classify_api_error(exc: Exception) -> str:
         return "invalid_request"
     if isinstance(exc, RateLimitError) or status == 429:
         return "rate_limit"
-    if isinstance(exc, (APITimeoutError, APIConnectionError)):
+    if isinstance(exc, (LLMRequestTimeout, APITimeoutError, TimeoutError)):
+        return "request_timeout"
+    if isinstance(exc, APIConnectionError):
         return "transient"
     if status in {408, 409, 425} or (status is not None and 500 <= status <= 599):
         return "transient"
     return "fatal"
 
 
-def _retry_delay(exc: Exception, attempt: int) -> float:
+def _retry_delay(exc: Exception, attempt: int, max_delay: float = DEFAULT_MAX_RETRY_DELAY_SECONDS) -> float:
     headers = getattr(getattr(exc, "response", None), "headers", {}) or {}
     retry_after = headers.get("retry-after") or headers.get("Retry-After")
     try:
         if retry_after is not None:
-            return min(MAX_RETRY_DELAY_SECONDS, max(0.0, float(retry_after)))
+            return min(max_delay, max(0.0, float(retry_after)))
     except (TypeError, ValueError):
         pass
-    exponential = min(MAX_RETRY_DELAY_SECONDS, float(2 ** (attempt - 1)))
+    exponential = min(max_delay, float(2 ** (attempt - 1)))
     jitter = random.uniform(0.0, min(1.0, exponential * 0.25))
-    return min(MAX_RETRY_DELAY_SECONDS, exponential + jitter)
+    return min(max_delay, exponential + jitter)
 
 
-# 全局单例
-llm = LLMClient()
+def _call_with_deadline(call, kwargs: Dict[str, Any], *, timeout: float):
+    outcome: queue.Queue = queue.Queue(maxsize=1)
+
+    def invoke() -> None:
+        try:
+            outcome.put((True, call(**kwargs)))
+        except BaseException as exc:
+            outcome.put((False, exc))
+
+    worker = threading.Thread(target=invoke, name="nasdx-llm-request", daemon=True)
+    worker.start()
+    worker.join(max(0.01, timeout))
+    if worker.is_alive():
+        raise LLMRequestTimeout("request exceeded remaining elapsed budget")
+    ok, value = outcome.get_nowait()
+    if ok:
+        return value
+    raise value
+
+
+class _LazyLLMClient:
+    def __init__(self):
+        self._client: LLMClient | None = None
+        self._lock = threading.Lock()
+
+    def _get_client(self) -> LLMClient:
+        if self._client is None:
+            with self._lock:
+                if self._client is None:
+                    self._client = LLMClient()
+        return self._client
+
+    def ask(self, *args, **kwargs):
+        return self._get_client().ask(*args, **kwargs)
+
+    def ask_json(self, *args, **kwargs):
+        return self._get_client().ask_json(*args, **kwargs)
+
+
+llm = _LazyLLMClient()
