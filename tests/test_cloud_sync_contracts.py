@@ -72,6 +72,10 @@ class CloudSyncContractsTest(unittest.TestCase):
     def _write_report(self, *, extra=None) -> Path:
         payload = {
             "datetime": self.now.isoformat(),
+            "pool_total": 2,
+            "success_count": 2,
+            "no_data_count": 0,
+            "scan_status": "success",
             "total": 2,
             "bullish": 1,
             "neutral": 1,
@@ -87,6 +91,28 @@ class CloudSyncContractsTest(unittest.TestCase):
         path = self.reports / f"etf50_{self.now:%Y%m%d_%H%M}.json"
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         return path
+
+    def test_empty_or_low_coverage_reports_are_not_publishable(self):
+        module = self._module()
+        cases = [
+            {"pool_total": 50, "success_count": 0, "no_data_count": 50, "scan_status": "failed", "total": 0, "bullish": 0, "neutral": 0, "bearish": 0, "results": [], "top3": []},
+            {"pool_total": 50, "success_count": 5, "no_data_count": 45, "scan_status": "partial", "total": 5, "bullish": 1, "neutral": 4, "bearish": 0, "results": [{"code": f"51{i:04d}", "signal": "neutral"} for i in range(5)], "top3": []},
+        ]
+        for extra in cases:
+            with self.subTest(status=extra["scan_status"]):
+                report = self._write_report(extra=extra)
+                with self.assertRaises(module.ArtifactValidationError):
+                    module.validate_publishable_report(report, now=self.now)
+
+    def test_publishable_report_rejects_inconsistent_counts_and_top3(self):
+        module = self._module()
+        report = self._write_report(extra={"bullish": 2, "neutral": 1})
+        with self.assertRaises(module.ArtifactValidationError):
+            module.validate_publishable_report(report, now=self.now)
+
+        report = self._write_report(extra={"top3": [{"code": "599999"}]})
+        with self.assertRaises(module.ArtifactValidationError):
+            module.validate_publishable_report(report, now=self.now)
 
     def test_publish_uses_isolated_clone_and_keeps_non_main_branch_unchanged(self):
         module = self._module()
