@@ -1,3 +1,7 @@
+import os
+import subprocess
+import sys
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -161,6 +165,97 @@ class LLMStructuredContractsTest(unittest.TestCase):
             ["deepseek-reasoner", "deepseek-chat"],
             _default_fallback_models("https://api.deepseek.com", "deepseek-chat"),
         )
+
+    def test_invalid_numeric_environment_does_not_break_module_import(self):
+        env = os.environ.copy()
+        env["NASDX_LLM_MAX_ATTEMPTS"] = "three"
+        proc = subprocess.run(
+            [sys.executable, "-c", "import nasdx.llm; print('imported')"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+            timeout=15,
+        )
+
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertIn("imported", proc.stdout)
+
+    def test_numeric_settings_reject_malformed_non_finite_and_out_of_range_values(self):
+        import nasdx.llm as llm_module
+
+        invalid = {
+            "NASDX_MAX_TOKENS": ["", "0", "1000001"],
+            "NASDX_TEMPERATURE": ["nan", "inf", "-0.1", "2.1"],
+            "NASDX_LLM_MAX_ATTEMPTS": ["abc", "0"],
+            "NASDX_LLM_MAX_ELAPSED_SECONDS": ["-1", "nan"],
+            "NASDX_LLM_MAX_RETRY_DELAY_SECONDS": ["0", "inf"],
+        }
+        for key, values in invalid.items():
+            for value in values:
+                with self.subTest(key=key, value=value):
+                    with self.assertRaisesRegex(llm_module.LLMConfigurationError, key):
+                        llm_module.load_llm_settings({key: value})
+
+        settings = llm_module.load_llm_settings(
+            {
+                "NASDX_MAX_TOKENS": "2048",
+                "NASDX_TEMPERATURE": "0.7",
+                "NASDX_LLM_MAX_ATTEMPTS": "3",
+                "NASDX_LLM_MAX_ELAPSED_SECONDS": "12.5",
+                "NASDX_LLM_MAX_RETRY_DELAY_SECONDS": "4",
+            }
+        )
+        self.assertEqual(2048, settings.max_tokens)
+        self.assertEqual(3, settings.max_total_attempts)
+
+    def test_stalled_request_is_bounded_by_remaining_elapsed_budget(self):
+        import nasdx.llm as llm_module
+
+        def stalled(_kwargs):
+            time.sleep(1)
+            return SimpleNamespace(choices=[])
+
+        client, _calls = self._client(llm_module, stalled)
+        client.FALLBACK_MODELS = []
+        started = time.monotonic()
+        with patch.object(llm_module, "API_KEY", "configured"):
+            with self.assertRaisesRegex(RuntimeError, "request_timeout|elapsed_budget_exhausted"):
+                client.ask(
+                    [{"role": "user", "content": "hello"}],
+                    max_retries=1,
+                    max_total_attempts=1,
+                    max_elapsed_seconds=0.15,
+                )
+        self.assertLess(time.monotonic() - started, 0.5)
+
+    def test_request_timeout_can_fallback_when_budget_remains(self):
+        import nasdx.llm as llm_module
+
+        observed_timeouts = []
+
+        def response(kwargs):
+            observed_timeouts.append(kwargs.get("timeout"))
+            if kwargs["model"] == "deepseek-chat":
+                raise llm_module.LLMRequestTimeout("stalled")
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="fallback-ok"))]
+            )
+
+        client, calls = self._client(llm_module, response)
+        client.FALLBACK_MODELS = ["deepseek-reasoner"]
+        with patch.object(llm_module, "API_KEY", "configured"):
+            result = client.ask(
+                [{"role": "user", "content": "hello"}],
+                max_retries=1,
+                max_total_attempts=2,
+                max_elapsed_seconds=2,
+            )
+
+        self.assertEqual("fallback-ok", result)
+        self.assertEqual(["deepseek-chat", "deepseek-reasoner"], calls)
+        self.assertTrue(all(timeout and 0 < timeout <= 2 for timeout in observed_timeouts))
 
     def test_technical_agent_uses_structured_payload_when_available(self):
         agent = TechnicalAgent()
