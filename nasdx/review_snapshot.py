@@ -10,6 +10,8 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
+import tempfile
 import zipfile
 from datetime import datetime
 from io import StringIO
@@ -21,13 +23,20 @@ from nasdx.paths import get_reports_dir
 from nasdx.recommendation_review import build_recommendation_review, format_recommendation_review
 from nasdx.recommendation_tracker import build_recommendation_tracker, format_recommendation_tracker
 
+
+class SnapshotValidationError(ValueError):
+    """Raised when a required snapshot source is missing or invalid."""
+
+
+BRIEF_LIST_FIELDS = ("candidate_audits", "execution_queue", "external_review_pack")
+
 def build_review_snapshot(
     risk_profile: str = "balanced",
     output_dir: str | Path | None = None,
     refresh: bool = False,
 ) -> Dict[str, Any]:
     """Build a zipped review snapshot from latest NASDX investment artifacts."""
-    if refresh or not _latest_brief_json().exists():
+    if refresh:
         build_and_save_investment_brief(risk_profile=risk_profile)
 
     reports_dir = get_reports_dir()
@@ -36,31 +45,43 @@ def build_review_snapshot(
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     zip_path = snapshot_dir / f"nasdx_review_snapshot_{stamp}.zip"
-    brief = _load_json(_latest_brief_json())
-    plan = _load_json(reports_dir / "portfolio_plan_latest.json")
+    brief = _load_required_json(_latest_brief_json(), "investment brief")
+    plan = _load_required_json(reports_dir / "portfolio_plan_latest.json", "portfolio plan")
+    _validate_brief(brief)
+    _validate_plan(plan)
     tracker = build_recommendation_tracker(reports_dir=reports_dir)
     review = build_recommendation_review(reports_dir=reports_dir)
     manifest = _manifest(brief, plan, tracker, review)
 
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        _write_if_exists(archive, reports_dir / "investment_brief_latest.md", "investment_brief_latest.md")
-        _write_if_exists(archive, reports_dir / "investment_brief_latest.json", "investment_brief_latest.json")
-        _write_if_exists(archive, reports_dir / "portfolio_plan_latest.md", "portfolio_plan_latest.md")
-        _write_if_exists(archive, reports_dir / "portfolio_plan_latest.json", "portfolio_plan_latest.json")
-        archive.writestr("recommendation_tracker.md", format_recommendation_tracker(tracker))
-        archive.writestr(
-            "recommendation_tracker.json",
-            json.dumps({k: v for k, v in tracker.items() if k != "markdown"}, ensure_ascii=False, indent=2),
-        )
-        archive.writestr("recommendation_review.md", format_recommendation_review(review))
-        archive.writestr(
-            "recommendation_review.json",
-            json.dumps({k: v for k, v in review.items() if k != "markdown"}, ensure_ascii=False, indent=2),
-        )
-        archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-        archive.writestr("candidate_audits.csv", _table_csv(brief.get("candidate_audits", []), _audit_columns()))
-        archive.writestr("execution_queue.csv", _table_csv(brief.get("execution_queue", []), _queue_columns()))
-        archive.writestr("external_review_pack.csv", _external_review_csv(brief.get("external_review_pack", [])))
+    descriptor, temp_name = tempfile.mkstemp(prefix=f".{zip_path.stem}-", suffix=".tmp", dir=snapshot_dir)
+    os.close(descriptor)
+    temp_path = Path(temp_name)
+    try:
+        with zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            _write_if_exists(archive, reports_dir / "investment_brief_latest.md", "investment_brief_latest.md")
+            archive.write(reports_dir / "investment_brief_latest.json", "investment_brief_latest.json")
+            _write_if_exists(archive, reports_dir / "portfolio_plan_latest.md", "portfolio_plan_latest.md")
+            archive.write(reports_dir / "portfolio_plan_latest.json", "portfolio_plan_latest.json")
+            archive.writestr("recommendation_tracker.md", format_recommendation_tracker(tracker))
+            archive.writestr(
+                "recommendation_tracker.json",
+                json.dumps({k: v for k, v in tracker.items() if k != "markdown"}, ensure_ascii=False, indent=2),
+            )
+            archive.writestr("recommendation_review.md", format_recommendation_review(review))
+            archive.writestr(
+                "recommendation_review.json",
+                json.dumps({k: v for k, v in review.items() if k != "markdown"}, ensure_ascii=False, indent=2),
+            )
+            archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+            archive.writestr("candidate_audits.csv", _table_csv(brief["candidate_audits"], _audit_columns()))
+            archive.writestr("execution_queue.csv", _table_csv(brief["execution_queue"], _queue_columns()))
+            archive.writestr("external_review_pack.csv", _external_review_csv(brief["external_review_pack"]))
+        with zipfile.ZipFile(temp_path, "r") as archive:
+            if archive.testzip() is not None:
+                raise OSError("snapshot ZIP integrity check failed")
+        os.replace(temp_path, zip_path)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
     return {
         "zip_path": str(zip_path),
@@ -74,14 +95,33 @@ def _latest_brief_json() -> Path:
     return get_reports_dir() / "investment_brief_latest.json"
 
 
-def _load_json(path: Path) -> Dict[str, Any]:
+def _load_required_json(path: Path, label: str) -> Dict[str, Any]:
     if not path.exists():
-        return {}
+        raise SnapshotValidationError(f"required {label} is missing: {path}")
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise SnapshotValidationError(f"required {label} is unreadable or malformed: {path}") from exc
+    if not isinstance(data, dict):
+        raise SnapshotValidationError(f"required {label} must be a JSON object: {path}")
+    return data
+
+
+def _validate_brief(brief: Dict[str, Any]) -> None:
+    if not isinstance(brief.get("generated_at"), str) or not brief["generated_at"].strip():
+        raise SnapshotValidationError("investment brief generated_at must be a non-empty string")
+    for field in BRIEF_LIST_FIELDS:
+        if not isinstance(brief.get(field), list):
+            raise SnapshotValidationError(f"investment brief {field} must be a list")
+    if not isinstance(brief.get("source_files"), dict):
+        raise SnapshotValidationError("investment brief source_files must be an object")
+
+
+def _validate_plan(plan: Dict[str, Any]) -> None:
+    if not isinstance(plan.get("generated_at"), str) or not plan["generated_at"].strip():
+        raise SnapshotValidationError("portfolio plan generated_at must be a non-empty string")
+    if not isinstance(plan.get("source_files"), dict):
+        raise SnapshotValidationError("portfolio plan source_files must be an object")
 
 
 def _manifest(
@@ -99,7 +139,8 @@ def _manifest(
     tracker_counts = tracker.get("counts", {})
     review_counts = review.get("counts", {})
     return {
-        "schema": "nasdx_review_snapshot.v1",
+        "schema": "nasdx_review_snapshot.v2",
+        "validation_status": "valid",
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "brief_generated_at": brief.get("generated_at"),
         "plan_generated_at": plan.get("generated_at"),
@@ -210,12 +251,23 @@ def _flatten_row(row: Dict[str, Any], columns: List[str]) -> Dict[str, str]:
     for column in columns:
         value = row.get(column, "")
         if isinstance(value, list):
-            flat[column] = "；".join(str(x) for x in value)
+            flattened = "；".join(str(x) for x in value)
         elif isinstance(value, dict):
-            flat[column] = json.dumps(value, ensure_ascii=False, sort_keys=True)
+            flattened = json.dumps(value, ensure_ascii=False, sort_keys=True)
         else:
-            flat[column] = str(value)
+            flattened = value
+        flat[column] = _safe_csv_cell(flattened)
     return flat
+
+
+def _safe_csv_cell(value: Any) -> Any:
+    """Keep numeric values numeric and neutralize formula-like text for spreadsheets."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value
+    text = str(value)
+    if text.lstrip("\t\r\n ").startswith(("=", "+", "-", "@")):
+        return "'" + text
+    return text
 
 
 def _audit_columns() -> List[str]:

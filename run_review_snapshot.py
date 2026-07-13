@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from nasdx.review_snapshot import build_review_snapshot
+from nasdx.review_snapshot import SnapshotValidationError, build_review_snapshot
 
 
 def main() -> int:
@@ -24,11 +24,15 @@ def main() -> int:
     parser.add_argument("--refresh", action="store_true", help="导出前刷新最终简报")
     args = parser.parse_args()
 
-    snapshot = build_review_snapshot(
-        risk_profile=args.risk_profile,
-        output_dir=args.output_dir,
-        refresh=args.refresh,
-    )
+    try:
+        snapshot = build_review_snapshot(
+            risk_profile=args.risk_profile,
+            output_dir=args.output_dir,
+            refresh=args.refresh,
+        )
+    except (SnapshotValidationError, OSError) as exc:
+        print(f"❌ 复盘快照生成失败：{exc}")
+        return 2
     manifest = snapshot.get("manifest", {})
     print("✅ NASDX 复盘快照包已生成")
     print(f"   ZIP: {snapshot['zip_path']}")
