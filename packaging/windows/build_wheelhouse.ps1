@@ -4,7 +4,8 @@ param(
     [int]$PipTimeout = 60,
     [int]$PipRetries = 2,
     [string]$PipIndexUrl = "",
-    [string]$ConstraintsFile = ""
+    [string]$ConstraintsFile = "",
+    [string]$LockFile = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,8 +25,18 @@ if ([System.IO.Path]::IsPathRooted($OutputDir)) {
 }
 
 $DefaultConstraints = Join-Path $ScriptDir "constraints-win.txt"
+$CoreLock = Join-Path $ScriptDir "requirements-win-core.lock"
+$WebViewLock = Join-Path $ScriptDir "requirements-win-webview.lock"
 if ([string]::IsNullOrWhiteSpace($ConstraintsFile) -and (Test-Path -LiteralPath $DefaultConstraints)) {
     $ConstraintsFile = $DefaultConstraints
+}
+
+if ([string]::IsNullOrWhiteSpace($LockFile)) {
+    $LockFile = if ($IncludeWebView) { $WebViewLock } else { $CoreLock }
+}
+$LockFile = [System.IO.Path]::GetFullPath($LockFile)
+if (-not (Test-Path -LiteralPath $LockFile)) {
+    throw "Dependency lockfile does not exist: $LockFile"
 }
 
 if (-not [string]::IsNullOrWhiteSpace($ConstraintsFile)) {
@@ -67,17 +78,11 @@ $WheelArgs = @(
     $Target
 )
 
-if (-not [string]::IsNullOrWhiteSpace($ConstraintsFile)) {
-    $WheelArgs += @("--constraint", $ConstraintsFile)
-}
 if (-not [string]::IsNullOrWhiteSpace($PipIndexUrl)) {
     $WheelArgs += @("--index-url", $PipIndexUrl)
 }
 
-Invoke-Checked -FilePath "python" -Arguments ($WheelArgs + @("-r", (Join-Path $RepoRootPath "requirements_nasdx.txt")))
-if ($IncludeWebView) {
-    Invoke-Checked -FilePath "python" -Arguments ($WheelArgs + @("-r", (Join-Path $RepoRootPath "requirements_desktop.txt")))
-}
+Invoke-Checked -FilePath "python" -Arguments ($WheelArgs + @("--require-hashes", "-r", $LockFile))
 
 Write-Host "NASDX wheelhouse prepared: $Target"
 Write-Host "WebView dependency included: $([bool]$IncludeWebView)"

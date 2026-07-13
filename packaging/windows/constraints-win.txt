@@ -1,6 +1,6 @@
-# Windows packaging constraints for the portable NASDX environment.
-# These are top-level pins verified in the current Windows development
-# environment; transitive dependencies remain resolved by pip.
+# Legacy top-level constraints retained for command compatibility only.
+# Release builds use requirements-win-core.lock or requirements-win-webview.lock,
+# which pin the complete transitive graph and require artifact hashes.
 
 akshare==1.18.64
 mootdx==0.11.7

@@ -1,9 +1,9 @@
 # CONTEXT
 
-- 当前：修复 issue #13：`scan_and_sync.py` 不再切换当前分支，改由 `nasdx.cloud_sync` 用独立临时 clone、跨进程锁和 ETF50 严格白名单发布；补强 issue #12 的无 Key 前置失败与 CI 密钥扫描。
-- 上次停在：pytest 152/152、ruff、`run_final_audit.py` 22/22、安全扫描、desktop release check 10/10 和 GitHub Actions 全通过；待合并 PR #1、关闭 #13，并在 #12 记录仍需供应商撤销旧密钥及授权后才能重写历史。
-- 关键决定：只发布最新 `etf50_YYYYMMDD_HHMM.json`，提交前校验 schema、2 MB 上限、6 小时时效和递归敏感字段；任何 Git 失败均返回非零。
-- 原因：原脚本原地 checkout、通配符 `git add -f`、无并发锁且吞掉 push 失败，会干扰用户工作树并可能误上传报告；已进入历史的密钥不能靠删除当前代码完成撤销。
+- 当前：GitHub issue #14-#20 的代码修复已完成，覆盖 ETF 扫描发布门禁、HTML/URL 安全、Windows 依赖锁、历史库事务、CSV 注入、快照校验与 LLM 重试预算。
+- 上次停在：全量 pytest、ruff、安全扫描、`run_final_audit.py` 22/22、desktop release check 10/10、依赖锁检查 2/2 均通过。
+- 关键决定：不发布低于 80% 覆盖率的 ETF 扫描；历史记录采用单份规范 payload + 外键事务；快照先校验再原子替换；Windows 构建固定 Python/pip/uv 和带哈希依赖锁；LLM 重试按错误类型、次数和总耗时共同限流。
+- 原因：把失败显式化并在发布、落盘和外部调用边界阻断，可同时减少错误结果、重复数据、界面卡顿和供应链漂移。
 
 ## Desktop Packaging
 
