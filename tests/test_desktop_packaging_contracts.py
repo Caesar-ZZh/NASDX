@@ -23,6 +23,24 @@ CONSTRAINTS_FILE = ROOT / "packaging" / "windows" / "constraints-win.txt"
 INSTALLER_SCRIPT = ROOT / "packaging" / "windows" / "NASDX-Desktop.iss"
 
 
+def run_checked(args: list[str]) -> subprocess.CompletedProcess[str]:
+    proc = subprocess.run(
+        args,
+        cwd=str(ROOT),
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            f"command failed ({proc.returncode}): {' '.join(args)}\n"
+            f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        )
+    return proc
+
+
 class DesktopPackagingContractsTest(unittest.TestCase):
     def test_root_desktop_batch_opens_control_panel_with_launcher_fallback(self):
         self.assertTrue(ROOT_DESKTOP_BAT.exists(), "启动NASDX桌面.bat is missing")
@@ -582,7 +600,7 @@ class DesktopPackagingContractsTest(unittest.TestCase):
             temp_path = Path(temp_dir)
             package_dir = temp_path / "NASDX-Desktop"
             installer_dir = temp_path / "installer"
-            subprocess.run(
+            run_checked(
                 [
                     "powershell",
                     "-ExecutionPolicy",
@@ -593,10 +611,6 @@ class DesktopPackagingContractsTest(unittest.TestCase):
                     str(package_dir),
                     "-SkipDependencyInstall",
                 ],
-                cwd=str(ROOT),
-                text=True,
-                capture_output=True,
-                check=True,
             )
 
             proc = subprocess.run(
@@ -628,7 +642,7 @@ class DesktopPackagingContractsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             package_dir = temp_path / "NASDX-Desktop"
-            subprocess.run(
+            run_checked(
                 [
                     "powershell",
                     "-ExecutionPolicy",
@@ -639,10 +653,6 @@ class DesktopPackagingContractsTest(unittest.TestCase):
                     str(package_dir),
                     "-SkipDependencyInstall",
                 ],
-                cwd=str(ROOT),
-                text=True,
-                capture_output=True,
-                check=True,
             )
             cache_dir = package_dir / "nasdx" / "__pycache__"
             cache_dir.mkdir(parents=True)
@@ -708,7 +718,7 @@ class DesktopPackagingContractsTest(unittest.TestCase):
     def test_skip_dependency_build_copies_runtime_allowlist_and_excludes_artifacts(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir) / "NASDX-Desktop"
-            subprocess.run(
+            run_checked(
                 [
                     "powershell",
                     "-ExecutionPolicy",
@@ -719,10 +729,6 @@ class DesktopPackagingContractsTest(unittest.TestCase):
                     str(output_dir),
                     "-SkipDependencyInstall",
                 ],
-                cwd=str(ROOT),
-                text=True,
-                capture_output=True,
-                check=True,
             )
 
             self.assertTrue((output_dir / "app.py").exists())
