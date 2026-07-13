@@ -31,6 +31,8 @@ $DefaultConstraints = Join-Path $ScriptDir "constraints-win.txt"
 $CoreLock = Join-Path $ScriptDir "requirements-win-core.lock"
 $WebViewLock = Join-Path $ScriptDir "requirements-win-webview.lock"
 $ToolchainFile = Join-Path $ScriptDir "toolchain-win.json"
+$HashUtilsScript = Join-Path $ScriptDir "hash_utils.ps1"
+. $HashUtilsScript
 
 if ([string]::IsNullOrWhiteSpace($ConstraintsFile) -and (Test-Path -LiteralPath $DefaultConstraints)) {
     $ConstraintsFile = $DefaultConstraints
@@ -47,7 +49,7 @@ if (-not (Test-Path -LiteralPath $ToolchainFile)) {
     throw "Windows toolchain definition does not exist: $ToolchainFile"
 }
 $Toolchain = Get-Content -LiteralPath $ToolchainFile -Encoding UTF8 | ConvertFrom-Json
-$LockHash = (Get-FileHash -LiteralPath $LockFile -Algorithm SHA256).Hash.ToLowerInvariant()
+$LockHash = Get-NasdxSha256 -PathValue $LockFile
 
 if (-not [string]::IsNullOrWhiteSpace($ConstraintsFile)) {
     if ([System.IO.Path]::IsPathRooted($ConstraintsFile)) {
@@ -293,6 +295,7 @@ foreach ($file in @(
     "packaging/windows/requirements-win-webview.lock",
     "packaging/windows/toolchain-win.json",
     "packaging/windows/refresh_dependency_locks.ps1",
+    "packaging/windows/hash_utils.ps1",
     "packaging/windows/create_shortcuts.ps1",
     "packaging/windows/inno_paths.ps1",
     "packaging/windows/smoke_installed.ps1",

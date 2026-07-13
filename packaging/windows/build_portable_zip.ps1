@@ -10,6 +10,7 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
+. (Join-Path $ScriptDir "hash_utils.ps1")
 
 function Resolve-NasdxPath {
     param(
@@ -166,7 +167,7 @@ if ($ZipItem.Length -le 0) {
     throw "Portable zip is empty: $ZipPath"
 }
 
-$ZipHash = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$ZipHash = Get-NasdxSha256 -PathValue $ZipPath
 $ZipName = Split-Path -Leaf $ZipPath
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText(
