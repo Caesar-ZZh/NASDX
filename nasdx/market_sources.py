@@ -7,13 +7,15 @@ Chinese-column DataFrame contract while trying several AkShare sources.
 """
 from __future__ import annotations
 
-from typing import Callable
+import json
+from typing import Callable, Sequence
 
 import akshare as ak
 import pandas as pd
+import requests
 
 
-HistFetcher = Callable[[str, str, str], pd.DataFrame | None]
+HistFetcher = Callable[[str, str, str, float], pd.DataFrame | None]
 
 
 def fetch_stock_hist(
@@ -21,15 +23,20 @@ def fetch_stock_hist(
     start_date: str,
     end_date: str,
     min_rows: int = 10,
+    request_timeout: float = 6.0,
+    sources: Sequence[str] = ("tencent_hist_tx", "eastmoney_hist"),
 ) -> tuple[pd.DataFrame | None, str | None]:
     """Fetch A-share daily K-line data and normalize it to Chinese columns."""
-    for source, fetcher in (
-        ("tencent_hist_tx", _fetch_tencent_hist),
-        ("sina_daily", _fetch_sina_daily),
-        ("eastmoney_hist", _fetch_eastmoney_hist),
-    ):
+    fetchers = {
+        "tencent_hist_tx": _fetch_tencent_hist,
+        "eastmoney_hist": _fetch_eastmoney_hist,
+    }
+    for source in sources:
+        fetcher = fetchers.get(source)
+        if fetcher is None:
+            continue
         try:
-            df = fetcher(code, start_date, end_date)
+            df = fetcher(code, start_date, end_date, request_timeout)
         except Exception:
             continue
         if _is_usable(df, min_rows):
@@ -48,15 +55,31 @@ def last_trade_date(df: pd.DataFrame | None) -> str | None:
         return str(value)
 
 
-def _fetch_tencent_hist(code: str, start_date: str, end_date: str) -> pd.DataFrame | None:
-    df = ak.stock_zh_a_hist_tx(
-        symbol=_prefixed_symbol(code),
-        start_date=start_date,
-        end_date=end_date,
-        adjust="qfq",
+def _fetch_tencent_hist(code: str, start_date: str, end_date: str, timeout: float) -> pd.DataFrame | None:
+    symbol = _prefixed_symbol(code)
+    year = start_date[:4]
+    response = requests.get(
+        "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get",
+        params={
+            "_var": f"kline_dayqfq{year}",
+            "param": f"{symbol},day,{year}-01-01,{int(year) + 2}-12-31,640,qfq",
+            "r": "0.8205512681390605",
+        },
+        timeout=timeout,
     )
+    response.raise_for_status()
+    payload = json.loads(response.text.split("=", 1)[-1])
+    symbol_payload = payload.get("data", {}).get(symbol, {})
+    rows = symbol_payload.get("qfqday") or symbol_payload.get("day") or symbol_payload.get("hfqday") or []
+    df = pd.DataFrame(rows)
     if not isinstance(df, pd.DataFrame) or df.empty:
         return None
+    df = df.iloc[:, :6]
+    df.columns = ["date", "open", "close", "high", "low", "amount"]
+    dates = pd.to_datetime(df["date"], errors="coerce")
+    start = pd.to_datetime(start_date)
+    end = pd.to_datetime(end_date)
+    df = df.loc[dates.between(start, end)].reset_index(drop=True)
     normalized = pd.DataFrame(
         {
             "日期": pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d"),
@@ -70,37 +93,14 @@ def _fetch_tencent_hist(code: str, start_date: str, end_date: str) -> pd.DataFra
     return _finalize(normalized)
 
 
-def _fetch_sina_daily(code: str, start_date: str, end_date: str) -> pd.DataFrame | None:
-    df = ak.stock_zh_a_daily(
-        symbol=_prefixed_symbol(code),
-        start_date=start_date,
-        end_date=end_date,
-        adjust="qfq",
-    )
-    if not isinstance(df, pd.DataFrame) or df.empty:
-        return None
-    normalized = pd.DataFrame(
-        {
-            "日期": pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d"),
-            "开盘": pd.to_numeric(df["open"], errors="coerce"),
-            "收盘": pd.to_numeric(df["close"], errors="coerce"),
-            "最高": pd.to_numeric(df["high"], errors="coerce"),
-            "最低": pd.to_numeric(df["low"], errors="coerce"),
-            "成交量": pd.to_numeric(df["volume"], errors="coerce"),
-            "成交额": pd.to_numeric(df.get("amount"), errors="coerce"),
-            "换手率": pd.to_numeric(df.get("turnover"), errors="coerce") * 100,
-        }
-    )
-    return _finalize(normalized)
-
-
-def _fetch_eastmoney_hist(code: str, start_date: str, end_date: str) -> pd.DataFrame | None:
+def _fetch_eastmoney_hist(code: str, start_date: str, end_date: str, timeout: float) -> pd.DataFrame | None:
     df = ak.stock_zh_a_hist(
         symbol=code,
         period="daily",
         start_date=start_date,
         end_date=end_date,
         adjust="qfq",
+        timeout=timeout,
     )
     if not isinstance(df, pd.DataFrame) or df.empty:
         return None
@@ -108,6 +108,8 @@ def _fetch_eastmoney_hist(code: str, start_date: str, end_date: str) -> pd.DataF
 
 
 def _prefixed_symbol(code: str) -> str:
+    if code.lower().startswith(("sh", "sz", "bj")):
+        return code.lower()
     return f"sh{code}" if code.startswith(("5", "6", "9")) else f"sz{code}"
 
 

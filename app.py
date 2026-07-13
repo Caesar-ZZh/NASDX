@@ -237,7 +237,7 @@ def _start_etf50_scan() -> None:
         target=_run_command_task,
         args=(task_id, [sys.executable, str(ROOT / "scan_etf50.py")]),
         kwargs={
-            "timeout": 600,
+            "timeout": 240,
             "success_message": "ETF 50 扫描完成，结果已刷新。",
             "clear_callback": load_etf50.clear,
         },
@@ -548,7 +548,7 @@ if pg == "home":
         <div class="n-card n-feature n-card-accent-green">
           <div class="n-feature-icon">📊</div>
           <div class="n-feature-title">ETF 50 扫描</div>
-          <div class="n-feature-copy">50只主流ETF技术面评分 · 实时溢价率</div>
+          <div class="n-feature-copy">50只主流ETF技术面评分 · 实时价格</div>
         </div>
         """, unsafe_allow_html=True)
         st.button("进入 →", key="g_etf", use_container_width=True,
@@ -1452,7 +1452,7 @@ elif pg == "history":
 #  ETF50 页
 # ══════════════════════════════════════════════════════
 elif pg == "etf50":
-    st.markdown(_page_header("ETF 50 扫描", "50只主流ETF技术面评分 · 实时溢价率", "ETF Radar"), unsafe_allow_html=True)
+    st.markdown(_page_header("ETF 50 扫描", "50只主流ETF技术面评分 · 实时价格", "ETF Radar"), unsafe_allow_html=True)
 
     c_btn, _ = st.columns([1, 5])
     with c_btn:
@@ -1515,6 +1515,7 @@ elif pg == "etf50":
                 sc=r.get("score",0); color=sc_color(sc)
                 prem=r.get("premium"); prem_s=f'{prem:+.2f}%' if prem is not None else "-"
                 prem_c="#ef4444" if prem and prem>2 else "#22c55e" if prem and prem<-0.5 else "rgba(255,255,255,0.40)"
+                basis_text = f"溢价 {prem_s}" if prem is not None else f"实时 {r.get('spot_price', '-')}"
                 with col:
                     st.markdown(f"""
                     <div class="n-card">
@@ -1529,7 +1530,7 @@ elif pg == "etf50":
                       {bar(sc)}
                       <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px">
                         <span class="{sig_cls(r.get('signal',''))}">{sig_label(r.get('signal',''))}</span>
-                        <span style="color:{prem_c}">溢价 {prem_s}</span>
+                        <span style="color:{prem_c}">{basis_text}</span>
                       </div>
                     </div>""", unsafe_allow_html=True)
 
@@ -1546,15 +1547,16 @@ elif pg == "etf50":
             chg_c="#22c55e" if today_chg and today_chg>0 else "#ef4444" if today_chg and today_chg<0 else "rgba(255,255,255,0.40)"
             prem=r.get("premium"); prem_s=f"{prem:+.2f}%" if prem is not None else "-"
             prem_c="#ef4444" if prem and prem>2 else "#22c55e" if prem and prem<-0.5 else "rgba(255,255,255,0.40)"
+            basis_text = f"溢价 {prem_s}" if prem is not None else f"实时 {r.get('spot_price', '-')}"
             medal={1:"🥇",2:"🥈",3:"🥉"}.get(i,"")
             reasons=r.get("reasons",[])
             pills="".join(f'<span class="n-pill">{escape_html(x)}</span>' for x in reasons[:3])
-            with st.expander(f"{medal}  {r['code']}  {r['name']}  ·  {sc} 分  ·  今日 {chg_s}  ·  溢价 {prem_s}", expanded=(i<=3)):
+            with st.expander(f"{medal}  {r['code']}  {r['name']}  ·  {sc} 分  ·  今日 {chg_s}  ·  {basis_text}", expanded=(i<=3)):
                 ec1,ec2,ec3,ec4,ec5 = st.columns(5)
                 ec1.metric("评分",f"{sc}")
                 ec2.metric("今日涨跌",chg_s)
                 ec3.metric("场内价",f"{r.get('spot_price','-')}")
-                ec4.metric("溢价率",prem_s)
+                ec4.metric("数据基准", prem_s if prem is not None else "场内K线")
                 ec5.metric("类别",r.get("category",""))
                 if pills: st.markdown(pills, unsafe_allow_html=True)
 

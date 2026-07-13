@@ -1,9 +1,9 @@
 # CONTEXT
 
-- 当前：GitHub issue #14-#20 的代码修复已完成，覆盖 ETF 扫描发布门禁、HTML/URL 安全、Windows 依赖锁、历史库事务、CSV 注入、快照校验与 LLM 重试预算。
-- 上次停在：全量 pytest、ruff、安全扫描、`run_final_audit.py` 22/22、desktop release check 10/10、依赖锁检查 2/2 均通过。
-- 关键决定：不发布低于 80% 覆盖率的 ETF 扫描；历史记录采用单份规范 payload + 外键事务；快照先校验再原子替换；Windows 构建固定 Python/pip/uv 和带哈希依赖锁；LLM 重试按错误类型、次数和总耗时共同限流。
-- 原因：把失败显式化并在发布、落盘和外部调用边界阻断，可同时减少错误结果、重复数据、界面卡顿和供应链漂移。
+- 当前：网页“今日选股”和 ETF50 超时/失败已修复；GitHub issue #21、#22 的 LLM 请求时限与数值配置校验已实现。
+- 上次停在：真实浏览器已完成今日选股和 ETF50 按钮到结果的闭环验证，ETF 覆盖 50/50；pytest 189/189、final audit 22/22、desktop release check 10/10 均通过，待推送并关闭 issues。
+- 关键决定：交互扫描统一走腾讯批量报价和直接 K 线接口，缺失项有界重试；股票列表缓存 7 天，历史 K 线缓存 10 分钟；LLM 配置延迟校验且每次底层请求受剩余总预算约束。
+- 原因：原 AkShare 接口已移除且 Eastmoney 请求会无界阻塞；把超时、并发、缓存放在统一边界能同时避免崩溃、空报告和重复等待。
 
 ## Desktop Packaging
 

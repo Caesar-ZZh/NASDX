@@ -2,11 +2,10 @@
 50只ETF全量扫描 — 工作日早10点/下午2:30自动运行
 输出：终端排行榜 + HTML报告（自动打开）+ JSON数据
 """
-import sys, json, time
+import sys, json
 from pathlib import Path
 from datetime import datetime
 
-import akshare as ak
 import pandas as pd
 
 ROOT = Path(__file__).parent
@@ -15,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 from nasdx.history_store import record_daily_scan, record_etf_pool
 from nasdx.paths import get_reports_dir
 from nasdx.etf_scan_contract import summarize_scan_results
+from nasdx.fast_market import fetch_histories, fetch_tencent_quotes
 
 NOW   = datetime.now()
 TODAY = NOW.strftime('%Y%m%d')
@@ -31,45 +31,49 @@ print(f'  共 {len(pool)} 只 ETF')
 print(f'{"="*65}\n')
 
 # ── 获取实时行情（场内价）— 这是今日真实涨跌 ──────────────
-print('📡 获取实时行情...', end=' ', flush=True)
+print('📡 获取腾讯批量实时行情...', end=' ', flush=True)
 data_source_errors = []
 try:
-    spot_df = ak.fund_etf_spot_em()
-    spot_df['成交额'] = spot_df['成交额'].astype(float)
-    spot_map = {}
-    for _, r in spot_df.iterrows():
-        try:
-            spot_map[r['代码']] = {
-                'price':  float(r['最新价']),
-                'chg':    float(r['涨跌幅']),    # ← 今日实际涨跌幅
-                'vol':    float(r['成交额']),
-                'name':   r['名称'],
-            }
-        except (KeyError, TypeError, ValueError):
-            continue
+    quote_map = fetch_tencent_quotes([item['code'] for item in pool], request_timeout=4.0)
+    spot_map = {
+        code: {
+            'price': quote.get('close'),
+            'chg': quote.get('change_pct'),
+            'vol': quote.get('amount', 0),
+            'name': quote.get('name', code),
+        }
+        for code, quote in quote_map.items()
+    }
     print(f'✅ {len(spot_map)} 只')
 except Exception as e:
     spot_map = {}
-    data_source_errors.append({'source':'akshare_etf_spot','error_type':type(e).__name__})
+    data_source_errors.append({'source':'tencent_quote','error_type':type(e).__name__})
     print(f'❌ {e}')
 
-# ── 获取天天基金净值（历史序列）────────────────────────
-def fetch_nav(code):
-    try:
-        df = ak.fund_etf_fund_info_em(fund=code, start_date=START, end_date=TODAY)
-        if isinstance(df, pd.DataFrame) and len(df) >= 5:
-            df = df.sort_values('净值日期').reset_index(drop=True)
-            return df
-    except Exception as exc:
-        data_source_errors.append(
-            {'source':'akshare_etf_nav','code':code,'error_type':type(exc).__name__}
-        )
+# ── 并发获取腾讯历史 K 线（单请求硬超时）──────────────
+print('📡 并发获取 ETF 历史 K 线...', end=' ', flush=True)
+history_map = fetch_histories(
+    [item['code'] for item in pool],
+    START,
+    TODAY,
+    request_timeout=4.0,
+    max_workers=20,
+    min_rows=20,
+)
+history_success = sum(1 for frame, _source in history_map.values() if isinstance(frame, pd.DataFrame))
+print(f'✅ {history_success} 只')
+
+def fetch_history(code):
+    df, source = history_map.get(code, (None, None))
+    if isinstance(df, pd.DataFrame) and len(df) >= 5:
+        return df
+    data_source_errors.append({'source':source or 'tencent_hist_tx','code':code,'error_type':'NoData'})
     return None
 
 # ── 计算技术指标 ─────────────────────────────────────
 def calc(df):
-    close    = df['单位净值'].astype(float)
-    chg_pct  = df['日增长率'].astype(float)
+    close    = df['收盘'].astype(float)
+    chg_pct  = df['涨跌幅'].astype(float)
     n = len(close)
     if n < 5: return {}
 
@@ -105,7 +109,7 @@ def calc(df):
 
 # ── 评分 (0-100) ──────────────────────────────────────
 def score(ind, spot_price=None):
-    if not ind: return 0, 'neutral', []
+    if not ind: return 0, 'neutral', [], None
     pts=0; reasons=[]
     ma5=ind.get('ma5'); ma20=ind.get('ma20'); ma60=ind.get('ma60')
     nav=ind['nav']; rsi=ind.get('rsi',50) or 50
@@ -180,14 +184,14 @@ for i, etf in enumerate(pool, 1):
     spot_chg   = spot.get('chg')     # 今日实际涨跌幅（这才是对的）
     spot_vol   = spot.get('vol', 0)  # 成交额
 
-    # 净值历史
-    df = fetch_nav(code)
+    # 场内历史 K 线
+    df = fetch_history(code)
     if df is None:
-        print('❌ 无净值数据')
+        print('❌ 无 K 线数据')
         results.append({'code':code,'name':name,'category':cat,
                         'score':0,'signal':'no_data','premium':None,
                         'spot_price':spot_price,'spot_chg':spot_chg,'ind':{},'reasons':[]})
-        time.sleep(0.1); continue
+        continue
 
     ind = calc(df)
     if not ind:
@@ -195,13 +199,14 @@ for i, etf in enumerate(pool, 1):
         results.append({'code':code,'name':name,'category':cat,
                         'score':0,'signal':'no_data','premium':None,
                         'spot_price':spot_price,'spot_chg':spot_chg,'ind':{},'reasons':[]})
-        time.sleep(0.1); continue
+        continue
 
-    sc, sig, rsns, prem = score(ind, spot_price)
+    # 腾讯历史数据是场内 K 线，不是基金净值，不能据此计算折溢价。
+    sc, sig, rsns, prem = score(ind, None)
     emoji = {'bullish':'📈','bearish':'📉','neutral':'➡️'}.get(sig,'')
     prem_s = f'溢价{prem:+.2f}%' if prem is not None else ''
-    # 优先显示实时涨跌，没有则用净值涨跌
-    real_chg_s = f'今日{spot_chg:+.2f}%' if spot_chg is not None else f'净值{ind.get("nav_chg",0):+.2f}%'
+    # 优先显示实时涨跌，没有则用 K 线涨跌
+    real_chg_s = f'今日{spot_chg:+.2f}%' if spot_chg is not None else f'K线{ind.get("nav_chg",0):+.2f}%'
     spot_s2 = f'场内{spot_price:.3f}' if spot_price is not None else '场内N/A'
     rsi_v = ind.get('rsi') or 0; macd_v = ind.get('macd_bar') or 0
     print(f'{emoji}{sc}分 {sig}  {real_chg_s}  {spot_s2}  RSI={rsi_v:.0f}  MACD={macd_v:+.4f}  {prem_s}')
@@ -209,7 +214,6 @@ for i, etf in enumerate(pool, 1):
     results.append({'code':code,'name':name,'category':cat,
                     'score':sc,'signal':sig,'premium':prem,
                     'spot_price':spot_price,'spot_chg':spot_chg,'ind':ind,'reasons':rsns})
-    time.sleep(0.15)
 
 # ── 排行榜 ───────────────────────────────────────────
 valid = sorted([r for r in results if r['signal']!='no_data'], key=lambda r:-r['score'])
@@ -223,16 +227,16 @@ print(f'\n{"="*70}')
 print(f'  🏆 ETF50 评分排行榜  {NOW.strftime("%H:%M")}')
 print(f'  📈看多:{len(bull)}  ➡️中性:{len(neut)}  📉看空:{len(bear)}  ❌无数据:{len(no_data)}')
 print(f'{"="*70}')
-print(f'  {"排名":<4}{"代码":<8}{"名称":<22}{"类别":<14}{"净值":>7}{"涨跌":>7}{"场内":>8}{"溢价":>7}  {"分":>3}  信号')
+print(f'  {"排名":<4}{"代码":<8}{"名称":<22}{"类别":<14}{"K线价":>7}{"涨跌":>7}{"实时":>8}{"基准":>7}  {"分":>3}  信号')
 print(f'  {"-"*70}')
 for i,r in enumerate(valid[:20],1):
     ind=r['ind']
     nav_s   = f"{ind.get('nav',''):.3f}" if ind.get('nav') else '-'
-    # 优先用今日实时涨跌，fallback到净值涨跌
+    # 优先用今日实时涨跌，fallback 到 K 线涨跌
     today_chg = r.get('spot_chg')
     chg_s   = f"{today_chg:+.2f}%" if today_chg is not None else (f"{ind.get('nav_chg',0):+.2f}%*" if ind.get('nav_chg') is not None else '-')
     spot_s  = f"{r['spot_price']:.3f}" if r['spot_price'] else '-'
-    prem_s  = f"{r['premium']:+.2f}%" if r['premium'] is not None else '-'
+    prem_s  = f"{r['premium']:+.2f}%" if r['premium'] is not None else '场内K线'
     emoji   = {'bullish':'📈','bearish':'📉','neutral':'➡️'}.get(r['signal'],'')
     star    = '⭐' if i<=3 else '  '
     print(f'  {star}{i:<3} {r["code"]:<8}{r["name"]:<22}{r["category"]:<14}{nav_s:>7}{chg_s:>8}{spot_s:>8}{prem_s:>7}  {r["score"]:>3}  {emoji}{r["signal"]}')
@@ -262,7 +266,7 @@ for i,r in enumerate(valid,1):
     em={'bullish':'📈','bearish':'📉','neutral':'➡️'}.get(sig,'')
     sl={'bullish':'看多','bearish':'看空','neutral':'中性'}.get(sig,sig)
     nav_s=f"{ind.get('nav',''):.3f}" if ind.get('nav') else '-'
-    # 今日真实涨跌 = 实时行情，不是净值
+    # 今日真实涨跌来自实时行情。
     today_chg = r.get('spot_chg')
     display_chg = today_chg if today_chg is not None else (ind.get('nav_chg') or 0)
     chg_label = f"{display_chg:+.2f}%" if display_chg is not None else '-'
@@ -270,7 +274,7 @@ for i,r in enumerate(valid,1):
     spot_s=f"{r['spot_price']:.3f}" if r['spot_price'] else '-'
     spot_chg_v=r.get('spot_chg') or 0
     sc2='#00C853' if spot_chg_v>0 else '#FF1744' if spot_chg_v<0 else '#8b949e'
-    prem_s=f"{r['premium']:+.2f}%" if r['premium'] is not None else '-'
+    prem_s=f"{r['premium']:+.2f}%" if r['premium'] is not None else '场内K线'
     prem_c='#FF1744' if (r['premium'] or 0)>1.5 else '#00C853' if (r['premium'] or 0)<-0.5 else '#8b949e'
     rsi_v=ind.get('rsi',50) or 50
     rsi_c='#FF1744' if rsi_v>70 else '#00C853' if rsi_v<30 else '#58a6ff'
@@ -313,7 +317,7 @@ for i,r in enumerate(top3,1):
   <div style="font-size:16px;font-weight:bold;color:#fff;margin:4px 0;">{r["code"]} {r["name"]}</div>
   <div style="font-size:12px;color:#58a6ff;">{r["category"]}</div>
   <div style="font-size:24px;font-weight:bold;color:{sc_c};margin:8px 0;">{r["score"]}分</div>
-  <div style="font-size:13px;color:#8b949e;">净值 {ind.get("nav","N/A")}  {prem_tip}</div>
+  <div style="font-size:13px;color:#8b949e;">K线价 {ind.get("nav","N/A")}  {prem_tip}</div>
   <div style="font-size:12px;color:#8b949e;margin-top:4px;">RSI={ind.get("rsi","-"):.0f}  MACD={ind.get("macd_bar",0):+.4f}</div>
 </div>'''
 
@@ -358,8 +362,8 @@ tr:hover td{{background:#161b22!important;}}
 <table>
 <thead><tr>
   <th>排名</th><th>代码</th><th>名称</th><th>类别</th>
-  <th style="text-align:right">昨日净值</th><th style="text-align:right">今日涨跌↑实时</th>
-  <th style="text-align:right">场内实时价</th><th style="text-align:right">溢价率</th>
+  <th style="text-align:right">K线收盘</th><th style="text-align:right">今日涨跌↑实时</th>
+  <th style="text-align:right">场内实时价</th><th style="text-align:right">数据基准</th>
   <th style="text-align:right">RSI</th><th style="text-align:right">MACD</th>
   <th style="text-align:center">评分</th><th>信号</th><th>关键指标</th>
 </tr></thead>
@@ -367,7 +371,7 @@ tr:hover td{{background:#161b22!important;}}
 </table>
 
 <div style="margin-top:24px;padding-top:12px;border-top:1px solid #30363d;color:#555;font-size:11px;text-align:center;">
-  ⚠️ 技术规则评分，净值T+1，溢价率仅供参考，不构成投资建议 · NASDX · {NOW.strftime('%Y-%m-%d %H:%M:%S')}
+  ⚠️ 技术规则评分基于场内行情；当前数据源不提供基金净值，未计算折溢价，不构成投资建议 · NASDX · {NOW.strftime('%Y-%m-%d %H:%M:%S')}
 </div>
 </body></html>"""
 
