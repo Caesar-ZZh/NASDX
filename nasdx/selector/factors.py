@@ -9,22 +9,18 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-import akshare as ak
 import pandas as pd
 
-from nasdx.selector.sector_strength import get_top_sectors
-
-
-def _safe(fn, *args, **kwargs):
-    try:
-        return fn(*args, **kwargs)
-    except Exception:
-        return None
+from nasdx.fast_market import fetch_histories
 
 
 def compute_factors_for_stocks(
     stocks: List[Dict[str, Any]],
     sector_map: Optional[Dict[str, str]] = None,
+    *,
+    history_fetcher=fetch_histories,
+    request_timeout: float = 4.0,
+    max_workers: int = 20,
 ) -> List[Dict[str, Any]]:
     """
     批量计算股票因子。
@@ -38,26 +34,32 @@ def compute_factors_for_stocks(
         ma5, ma10, ma20, ma60, rsi, macd_bar, vol_ratio, boll_position,
         momentum_5d, momentum_20d, relative_strength, trend_score, etc.
     """
-    top_sectors = get_top_sectors(10)  # 缓存板块强度，避免重复请求
-    sector_scores = {s["board_name"]: s["strength_score"] for s in top_sectors}
+    sector_scores = _sector_scores_from_quotes(stocks)
+    start_date = (datetime.now() - timedelta(days=120)).strftime("%Y%m%d")
+    end_date = datetime.now().strftime("%Y%m%d")
+    histories = history_fetcher(
+        [stock.get("code", "") for stock in stocks],
+        start_date,
+        end_date,
+        request_timeout=request_timeout,
+        max_workers=max_workers,
+    )
 
     results = []
-    for i, stock in enumerate(stocks):
+    for stock in stocks:
         code = stock.get("code", "")
         try:
-            # 获取 K 线数据（90 日）
-            hist = _safe(ak.stock_zh_a_hist, symbol=code, period="daily",
-                         start_date=(datetime.now() - timedelta(days=90)).strftime("%Y%m%d"),
-                         end_date=datetime.now().strftime("%Y%m%d"), adjust="qfq")
+            hist, source = histories.get(code, (None, None))
 
             factors = {}
             if isinstance(hist, pd.DataFrame) and len(hist) >= 20:
                 factors = _compute_technical_factors(hist, code)
-                # 关联板块强度
-                sector = _find_sector_for_stock(code, hist, sector_scores)
-                factors["sector_score"] = sector.get("strength_score", 50) if sector else 50
+                sector_name = sector_map.get(code) if sector_map else stock.get("sector")
+                factors["sector_score"] = sector_scores.get(str(sector_name), 50)
             else:
                 factors = _fallback_factors(stock)
+                factors["sector_score"] = 50
+            factors["data_source"] = source or "quote_fallback"
 
             factors["code"] = code
             factors["name"] = stock.get("name", code)
@@ -65,6 +67,8 @@ def compute_factors_for_stocks(
             factors["change_pct"] = stock.get("change_pct", 0)
             factors["amount"] = stock.get("amount", 0)
             factors["turnover"] = stock.get("turnover", 0)
+            factors["pe_ttm"] = stock.get("pe_ttm")
+            factors["pb"] = stock.get("pb")
 
             # 综合评分（在 scoring.py 中计算，这里先放占位）
             results.append(factors)
@@ -83,12 +87,20 @@ def compute_factors_for_stocks(
                 "final_score": 50,
             })
 
-        # 限速，避免被东方财富封 IP
-        if i % 10 == 0 and i > 0:
-            import time
-            time.sleep(0.3)
-
     return results
+
+
+def _sector_scores_from_quotes(stocks: List[Dict[str, Any]]) -> Dict[str, float]:
+    changes: Dict[str, List[float]] = {}
+    for stock in stocks:
+        sector = str(stock.get("sector", "")).strip()
+        if sector:
+            changes.setdefault(sector, []).append(float(stock.get("change_pct", 0) or 0))
+    return {
+        sector: round(max(0.0, min(100.0, 50 + (sum(values) / len(values)) * 5)), 2)
+        for sector, values in changes.items()
+        if values
+    }
 
 
 def _compute_technical_factors(

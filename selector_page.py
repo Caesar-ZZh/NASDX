@@ -141,10 +141,10 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
     with c_limit:
         selector_limit = st.number_input(
             "最多抓取",
-            min_value=50,
-            max_value=5000,
-            value=int(st.session_state.get("selector_limit", 500)),
-            step=50,
+            min_value=30,
+            max_value=1000,
+            value=int(st.session_state.get("selector_limit", 50)),
+            step=10,
             key="selector_limit",
         )
     with c_timeout:
@@ -152,7 +152,7 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
             "超时秒数",
             min_value=60,
             max_value=3600,
-            value=int(st.session_state.get("selector_timeout", 900)),
+            value=int(st.session_state.get("selector_timeout", 180)),
             step=60,
             key="selector_timeout",
         )

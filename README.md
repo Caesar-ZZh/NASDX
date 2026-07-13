@@ -1,7 +1,7 @@
 # NASDX — A股热门板块多智能体量化分析系统
 
 > 基于 [FinGenius](https://github.com/HuaYaoAI/FinGenius) 架构设计  
-> 无需付费 API，数据源 AkShare（免费），支持任意 OpenAI 兼容接口
+> 无需付费行情 API，使用腾讯行情与 AkShare 免费数据源，支持任意 OpenAI 兼容接口
 
 ---
 
@@ -13,7 +13,7 @@
 - 🧱 **LLM 结构化输出** — Agent 要求模型返回 JSON 信号、置信度、结论和关键依据，减少文本解析漂移
 - 🧠 **规则深度报告** — 无 API Key 时自动生成同结构单票深度报告，仍进入组合路线和最终简报
 - 🔁 **一键投研闭环** — 可选串联行情刷新、ETF/个股规则扫描、多智能体深度分析
-- 🧩 **多行情源回退** — 东方财富不稳时自动切到腾讯历史 K 线，避免扫描覆盖率大面积掉线
+- 🧩 **低延迟行情通道** — ETF/动态选股使用腾讯批量报价、并发历史 K 线、有界重试与短时本地缓存
 - 🧭 **组合级投资路线** — 聚合扫描榜单和深度报告，输出 ETF 主线、个股卫星、观察/回避池
 - 🧾 **最终投资简报** — 无 API Key 时也能生成方向、仓位、候选剧本、情景和风险边界
 - 🔎 **候选证据核查** — 每个候选标记试错/观察/补报告/回避，并列出待人工复核项
@@ -49,6 +49,7 @@ NASDX
 │   │   └── battle.py        # 辩论环境（多空博弈 + 投票）
 │   ├── llm.py               # LLM 客户端（支持 DeepSeek/Claude/Qwen）
 │   ├── data_loader.py       # 数据加载与格式化
+│   ├── fast_market.py       # 交互扫描的批量报价、并发 K 线与短时缓存
 │   ├── market_sources.py    # A股/ETF K线多数据源回退与字段归一
 │   ├── data_quality.py      # 行情数据新鲜度检查
 │   ├── decision.py          # 投资决策层（方向/仓位/风险纪律/复核触发）
@@ -198,7 +199,12 @@ python scan_etf50.py
 
 # 60只热门个股扫描
 python scan_stocks_full.py
+
+# 动态选股（网页默认预筛 50 只进入历史因子）
+python run_stock_selector.py --limit 50
 ```
+
+ETF50 与动态选股不会等待无上限的 Eastmoney 请求：实时报价批量获取，历史 K 线并发执行且带单请求超时；缺失项会以较低并发重试一次。股票列表缓存 7 天，历史 K 线缓存 10 分钟，均写入用户本地数据目录而不是仓库。
 
 ### 4. 深度分析（LLM 可选）
 
@@ -207,6 +213,9 @@ python scan_stocks_full.py
 export NASDX_API_KEY=sk-xxxx
 export NASDX_BASE_URL=https://api.deepseek.com   # 可选
 export NASDX_MODEL=deepseek-chat                  # 可选
+export NASDX_LLM_MAX_ATTEMPTS=3                   # 可选，1-20
+export NASDX_LLM_MAX_ELAPSED_SECONDS=30           # 可选，单次完整请求总时限
+export NASDX_LLM_MAX_RETRY_DELAY_SECONDS=8        # 可选，最大重试等待
 
 # 分析单只股票：默认 auto，有 API/本地模型则用 LLM，否则自动用规则深度报告
 python run_analysis.py 603501 --risk-profile balanced

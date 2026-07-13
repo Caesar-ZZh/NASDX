@@ -27,7 +27,7 @@ from typing import Any, Dict, List
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
-from nasdx.selector.universe import load_full_a_stocks, filter_universe, load_etf_universe, save_universe
+from nasdx.selector.universe import load_full_a_stocks, filter_universe
 from nasdx.selector.market_regime import assess_market_regime
 from nasdx.selector.factors import compute_factors_for_stocks
 from nasdx.selector.scoring import compute_all_scores
@@ -39,7 +39,7 @@ from nasdx.paths import get_reports_dir
 
 def run_selector(
     top_n: int = 30,
-    max_fetch: int = 5000,
+    max_fetch: int = 200,
     output_dir: str | None = None,
 ) -> Dict[str, Any]:
     """
@@ -63,26 +63,12 @@ def run_selector(
     print(f"  NASDX 动态选股引擎  {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(f"{'='*60}\n")
 
-    # ── Step 1: 市场环境判断 ─────────────────────────────
-    print("[1/6] 判断市场环境...")
-    t0 = time.time()
-    market = assess_market_regime()
-    print(f"  市场状态：{market['regime']}（综合分 {market['score']}/100）")
-    print(f"  耗时：{time.time()-t0:.1f}s\n")
-
-    # ── Step 2: 加载全 A 股票池 ────────────────────────
-    print("[2/6] 加载全 A 股票池（限速保护，最多 {} 只）...".format(max_fetch))
+    # ── Step 1: 加载全 A 股票池并做实时预筛 ─────────────
+    print("[1/6] 加载全 A 实时股票池...")
     t0 = time.time()
     all_stocks = load_full_a_stocks()
     print(f"  原始股票数：{len(all_stocks)}")
-
-    # 限速：如果太多，只取前 max_fetch
-    if len(all_stocks) > max_fetch:
-        all_stocks = all_stocks[:max_fetch]
-        print(f"  限速截取至前 {max_fetch} 只")
-
-    # 过滤
-    filtered_stocks = filter_universe(
+    eligible_stocks = filter_universe(
         all_stocks,
         min_amount=3e7,   # 3000 万成交额
         min_price=2.0,
@@ -90,7 +76,23 @@ def run_selector(
         exclude_st=True,
         exclude_kcb=True,  # 科创板资金流数据不完整
     )
-    print(f"  过滤后：{len(filtered_stocks)} 只（剔除 ST/停牌/低价/低成交额/科创板）")
+    filtered_stocks = sorted(
+        eligible_stocks,
+        key=lambda stock: (
+            float(stock.get("amount", 0) or 0) >= 3e8,
+            -abs(float(stock.get("change_pct", 0) or 0) - 2.0),
+            float(stock.get("amount", 0) or 0),
+        ),
+        reverse=True,
+    )[:max_fetch]
+    print(f"  过滤后：{len(eligible_stocks)} 只；实时预筛 {len(filtered_stocks)} 只进入历史因子")
+    print(f"  耗时：{time.time()-t0:.1f}s\n")
+
+    # ── Step 2: 市场环境判断 ─────────────────────────────
+    print("[2/6] 判断市场环境...")
+    t0 = time.time()
+    market = assess_market_regime(all_stocks)
+    print(f"  市场状态：{market['regime']}（综合分 {market['score']}/100）")
     print(f"  耗时：{time.time()-t0:.1f}s\n")
 
     # ── Step 3: 计算因子 ───────────────────────────────
@@ -507,7 +509,7 @@ def _col_label(key: str) -> str:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NASDX 动态选股引擎")
     parser.add_argument("--top", type=int, default=30, help="A 级候选数量（默认 30）")
-    parser.add_argument("--limit", type=int, default=5000, help="全 A 最大抓取数量（默认 5000，限速保护）")
+    parser.add_argument("--limit", type=int, default=200, help="进入历史因子计算的候选数（默认 200）")
     parser.add_argument("--output-dir", type=str, default=None, help="输出目录（默认 reports/）")
     args = parser.parse_args()
 

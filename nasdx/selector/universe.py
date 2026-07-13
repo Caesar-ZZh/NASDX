@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 import akshare as ak
 import pandas as pd
 
+from nasdx.fast_market import fetch_tencent_quotes, load_a_share_listings
 from nasdx.paths import get_reports_dir
 
 
@@ -33,36 +34,37 @@ def load_full_a_stocks() -> List[Dict[str, Any]]:
     Returns:
         全 A 股票基础信息列表，每项包含 code, name, market 等。
     """
-    df = _safe(ak.stock_zh_a_spot_em)
-    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-        return []
-
+    listings = load_a_share_listings()
+    if not listings:
+        listings = _load_local_fallback_listings()
+    quotes = fetch_tencent_quotes([item["code"] for item in listings])
     results: List[Dict[str, Any]] = []
-    for _, row in df.iterrows():
-        try:
-            code = str(row.get("代码", ""))
-            name = str(row.get("名称", ""))
-            close = float(row.get("最新价", 0))
-            chg = float(row.get("涨跌幅", 0))
-            amount = float(row.get("成交额", 0))
-            turnover = float(row.get("换手率", 0))
-            pe = float(row.get("市盈率-动态", 0)) if row.get("市盈率-动态") else None
-            pb = float(row.get("市净率", 0)) if row.get("市净率") else None
-
-            results.append({
-                "code": code,
-                "name": name,
-                "close": close,
-                "change_pct": chg,
-                "amount": amount,
-                "turnover": turnover,
-                "pe_ttm": pe,
-                "pb": pb,
-            })
-        except Exception:
+    for item in listings:
+        quote = quotes.get(item["code"])
+        if not quote:
             continue
-
+        results.append({**item, **quote, "pe_ttm": None, "pb": None})
     return results
+
+
+def _load_local_fallback_listings() -> List[Dict[str, Any]]:
+    path = Path(__file__).resolve().parents[2] / "stocks.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    listings: dict[str, dict] = {}
+    for sector in payload.get("sectors", []):
+        sector_name = str(sector.get("name", "本地股票池"))
+        for stock in sector.get("stocks", []):
+            code = str(stock.get("code", "")).strip()
+            if code:
+                listings[code] = {
+                    "code": code,
+                    "name": str(stock.get("name", code)),
+                    "sector": sector_name,
+                }
+    return list(listings.values())
 
 
 def filter_universe(

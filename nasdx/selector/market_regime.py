@@ -1,55 +1,45 @@
-"""
-market_regime.py — 市场环境判断
-
-判断当前市场处于什么状态：牛市 / 熊市 / 震荡 / 结构性行情。
-为选股提供宏观过滤器。
-"""
+"""Fast market-regime assessment using bounded Tencent data."""
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict
+from datetime import datetime, timedelta
+from typing import Any, Callable, Dict, List
 
-import akshare as ak
 import pandas as pd
 
-
-def _safe(fn, *args, **kwargs):
-    try:
-        return fn(*args, **kwargs)
-    except Exception:
-        return None
+from nasdx.fast_market import fetch_histories
 
 
-def assess_market_regime() -> Dict[str, Any]:
-    """
-    综合判断市场环境。
+INDEX_SYMBOLS = {
+    "sh000001": "上证指数",
+    "sz399001": "深证成指",
+    "sz399006": "创业板指",
+    "sh000300": "沪深300",
+}
 
-    Returns:
-        {
-            "regime": "bullish" | "bearish" | "neutral" | "structural",
-            "score": 0-100,
-            "components": { ... },
-            "summary": "描述文字",
-        }
-    """
-    components = {}
 
-    # 1. 主要指数趋势
-    components["indices"] = _assess_indices()
-
-    # 2. 市场涨跌家数比
-    components["advance_decline"] = _assess_advance_decline()
-
-    # 3. 全市场成交额
-    components["volume"] = _assess_volume()
-
-    # 4. 赚钱效应（涨停 / 跌停数）
-    components["sentiment"] = _assess_sentiment()
-
-    # 综合评分
+def assess_market_regime(
+    stocks: List[Dict[str, Any]] | None = None,
+    *,
+    history_fetcher: Callable = fetch_histories,
+) -> Dict[str, Any]:
+    stock_rows = stocks or []
+    start = (datetime.now() - timedelta(days=180)).strftime("%Y%m%d")
+    end = datetime.now().strftime("%Y%m%d")
+    histories = history_fetcher(
+        list(INDEX_SYMBOLS),
+        start,
+        end,
+        request_timeout=4.0,
+        max_workers=4,
+    )
+    components = {
+        "indices": _assess_indices(histories),
+        "advance_decline": _assess_advance_decline(stock_rows),
+        "volume": _assess_volume(stock_rows),
+        "sentiment": _assess_sentiment(stock_rows),
+    }
     score = _composite_score(components)
     regime = _score_to_regime(score, components)
-
     return {
         "regime": regime,
         "score": score,
@@ -59,169 +49,88 @@ def assess_market_regime() -> Dict[str, Any]:
     }
 
 
-def _assess_indices() -> Dict[str, Any]:
-    """判断主要指数趋势。"""
-    indices = {
-        "sh000001": "上证指数",
-        "sz399001": "深证成指",
-        "sz399006": "创业板指",
-        "sh000300": "沪深300",
+def _assess_indices(histories: dict) -> Dict[str, Any]:
+    result = {}
+    for code, name in INDEX_SYMBOLS.items():
+        hist, _source = histories.get(code, (None, None))
+        if not isinstance(hist, pd.DataFrame) or len(hist) < 60:
+            continue
+        close = pd.to_numeric(hist["收盘"], errors="coerce").dropna()
+        if len(close) < 60:
+            continue
+        ma5 = close.rolling(5).mean().iloc[-1]
+        ma20 = close.rolling(20).mean().iloc[-1]
+        ma60 = close.rolling(60).mean().iloc[-1]
+        latest = close.iloc[-1]
+        result[name] = {
+            "close": round(float(latest), 2),
+            "above_ma20": bool(latest > ma20),
+            "ma_alignment": "bullish" if ma5 > ma20 > ma60 else "bearish" if ma5 < ma20 < ma60 else "mixed",
+        }
+    bullish = sum(1 for value in result.values() if value["above_ma20"] and value["ma_alignment"] == "bullish")
+    total = len(result)
+    trend = "unknown" if total == 0 else "bullish" if bullish >= total * 0.75 else "bearish" if bullish <= total * 0.25 else "mixed"
+    return {"index_trend": trend, "available": total}
+
+
+def _assess_advance_decline(stocks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    changes = [float(stock.get("change_pct", 0) or 0) for stock in stocks]
+    up = sum(change > 0 for change in changes)
+    down = sum(change < 0 for change in changes)
+    total = len(changes)
+    ratio = up / (up + down or 1)
+    return {
+        "up": up,
+        "down": down,
+        "total": total,
+        "ratio": round(ratio, 3),
+        "signal": "unknown" if total == 0 else "bullish" if ratio > 0.55 else "bearish" if ratio < 0.45 else "neutral",
     }
 
-    result = {}
-    for code, name in indices.items():
-        prefix, symbol = code[:2], code[2:]
-        hist = _safe(ak.stock_zh_index_daily, symbol=f"{prefix}{symbol}")
-        if isinstance(hist, pd.DataFrame) and len(hist) >= 60:
-            close = hist["close"].astype(float)
-            ma5 = close.rolling(5).mean().iloc[-1]
-            ma20 = close.rolling(20).mean().iloc[-1]
-            ma60 = close.rolling(60).mean().iloc[-1]
-            latest = close.iloc[-1]
-            result[name] = {
-                "close": round(float(latest), 2),
-                "above_ma5": latest > ma5,
-                "above_ma20": latest > ma20,
-                "above_ma60": latest > ma60,
-                "ma_alignment": "bullish" if ma5 > ma20 > ma60 else "bearish" if ma5 < ma20 < ma60 else "mixed",
-            }
-        # 即使失败也继续，不影响其他组件
 
-    bullish_count = sum(
-        1 for v in result.values()
-        if v.get("above_ma20", False) and v.get("ma_alignment") == "bullish"
-    )
-    total = len(result) or 1
-    return {"index_trend": "bullish" if bullish_count >= total * 0.75 else "bearish" if bullish_count <= total * 0.25 else "mixed"}
+def _assess_volume(stocks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    amount_yi = sum(float(stock.get("amount", 0) or 0) for stock in stocks) / 1e8
+    return {
+        "total_amount_yi": round(amount_yi, 1),
+        "signal": "unknown" if not stocks else "bullish" if amount_yi > 10000 else "bearish" if amount_yi < 6000 else "neutral",
+    }
 
 
-def _assess_advance_decline() -> Dict[str, Any]:
-    """涨跌家数比。"""
-    df = _safe(ak.stock_market_activity_legu)
-    if df is not None and isinstance(df, pd.DataFrame) and not df.empty:
-        latest = df.iloc[-1]
-        up = float(latest.get("上涨家数", 0))
-        down = float(latest.get("下跌家数", 0))
-        total = up + down or 1
-        ratio = up / total
-        return {
-            "up": int(up),
-            "down": int(down),
-            "ratio": round(ratio, 3),
-            "signal": "bullish" if ratio > 0.55 else "bearish" if ratio < 0.45 else "neutral",
-        }
-    return {"signal": "unknown"}
-
-
-def _assess_volume() -> Dict[str, Any]:
-    """全市场成交额判断。"""
-    df = _safe(ak.stock_zh_a_spot_em)
-    if df is not None and isinstance(df, pd.DataFrame):
-        total_amount = df.get("成交额", pd.Series([0])).astype(float).sum()
-        # 万亿以上 = 活跃
-        yiwan = total_amount / 1e8
-        return {
-            "total_amount_yi": round(yiwan, 1),
-            "signal": "bullish" if yiwan > 10000 else "bearish" if yiwan < 6000 else "neutral",
-        }
-    return {"signal": "unknown"}
-
-
-def _assess_sentiment() -> Dict[str, Any]:
-    """涨停 / 跌停情绪。"""
-    result = {}
-
-    # 涨停板
-    df_limit_up = _safe(ak.stock_zh_market_alerts_em)
-    if df_limit_up is not None and isinstance(df_limit_up, pd.DataFrame):
-        result["limit_up_count"] = len(df_limit_up)
-    else:
-        # 备选：概念板块涨停
-        df_con = _safe(ak.stock_board_concept_name_em)
-        if df_con is not None and isinstance(df_con, pd.DataFrame):
-            result["limit_up_count"] = 0  # 简化处理
-        else:
-            result["limit_up_count"] = None
-
-    # 跌停板
-    df_limit_down = _safe(ak.stock_zh_market_performance_em)
-    if df_limit_down is not None and isinstance(df_limit_down, pd.DataFrame):
-        result["limit_down_count"] = len(df_limit_down)
-    else:
-        result["limit_down_count"] = None
-
-    if result.get("limit_up_count") is not None and result.get("limit_down_count") is not None:
-        up = result["limit_up_count"]
-        down = result["limit_down_count"]
-        total = up + down or 1
-        ratio = up / total
-        result["signal"] = "bullish" if ratio > 3 else "bearish" if ratio < 0.5 else "neutral"
-    else:
-        result["signal"] = "unknown"
-
-    return result
+def _assess_sentiment(stocks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    changes = [float(stock.get("change_pct", 0) or 0) for stock in stocks]
+    limit_up = sum(change >= 9.5 for change in changes)
+    limit_down = sum(change <= -9.5 for change in changes)
+    ratio = limit_up / (limit_down or 1)
+    return {
+        "limit_up_count": limit_up,
+        "limit_down_count": limit_down,
+        "signal": "unknown" if not changes else "bullish" if ratio > 3 else "bearish" if ratio < 0.5 else "neutral",
+    }
 
 
 def _composite_score(components: Dict[str, Any]) -> int:
-    """
-    综合各组件得分，输出 0-100 的市场环境分。
-    80+ = 牛市环境，60-80 = 震荡偏多，40-60 = 震荡，20-40 = 震荡偏空，<20 = 熊市。
-    """
-    score = 50  # 基准分
-
-    # 指数趋势
-    idx = components.get("indices", {}).get("index_trend", "mixed")
-    score += {"bullish": 15, "neutral": 5, "mixed": 0, "bearish": -15}.get(idx, 0)
-
-    # 涨跌家数
-    ad = components.get("advance_decline", {}).get("signal", "neutral")
-    score += {"bullish": 15, "neutral": 0, "bearish": -15, "unknown": 0}.get(ad, 0)
-
-    # 成交额
-    vol = components.get("volume", {}).get("signal", "neutral")
-    score += {"bullish": 10, "neutral": 0, "bearish": -10}.get(vol, 0)
-
-    # 情绪
-    sent = components.get("sentiment", {}).get("signal", "neutral")
-    score += {"bullish": 10, "neutral": 0, "bearish": -10, "unknown": 0}.get(sent, 0)
-
+    score = 50
+    score += {"bullish": 15, "bearish": -15}.get(components["indices"].get("index_trend"), 0)
+    score += {"bullish": 15, "bearish": -15}.get(components["advance_decline"].get("signal"), 0)
+    score += {"bullish": 10, "bearish": -10}.get(components["volume"].get("signal"), 0)
+    score += {"bullish": 10, "bearish": -10}.get(components["sentiment"].get("signal"), 0)
     return max(0, min(100, score))
 
 
 def _score_to_regime(score: int, components: Dict[str, Any]) -> str:
-    """将综合分映射到市场环境类型。"""
-    # 结构性行情：指数混合但情绪好
-    idx = components.get("indices", {}).get("index_trend", "mixed")
-    if idx == "mixed" and score >= 45:
-        return "structural"
-    if score >= 75:
+    if score >= 70:
         return "bullish"
-    if score <= 25:
+    if score <= 30:
         return "bearish"
-    if score >= 50:
-        return "neutral"
-    return "mixed"
+    index_trend = components["indices"].get("index_trend")
+    breadth = components["advance_decline"].get("signal")
+    if index_trend != breadth and "unknown" not in {index_trend, breadth}:
+        return "structural"
+    return "neutral"
 
 
 def _format_summary(regime: str, score: int, components: Dict[str, Any]) -> str:
-    """生成人类可读的市场环境描述。"""
-    labels = {
-        "bullish": "牛市环境",
-        "bearish": "熊市环境",
-        "neutral": "震荡市",
-        "structural": "结构性行情",
-        "mixed": "震荡分化",
-    }
-    parts = [f"当前市场处于{labels.get(regime, regime)}（综合分 {score}/100）"]
-
-    ad = components.get("advance_decline", {})
-    if ad.get("signal") in ("bullish", "bearish"):
-        up = ad.get("up", "?")
-        down = ad.get("down", "?")
-        parts.append(f"涨跌家数比 {up}:{down}（{ad['signal']}）")
-
-    vol = components.get("volume", {})
-    if vol.get("total_amount_yi"):
-        parts.append(f"全市场成交额 {vol['total_amount_yi']} 万亿")
-
-    return "；".join(parts)
+    labels = {"bullish": "偏强", "bearish": "偏弱", "structural": "结构性", "neutral": "震荡"}
+    available = components["indices"].get("available", 0)
+    total = components["advance_decline"].get("total", 0)
+    return f"市场{labels.get(regime, '震荡')}，综合分 {score}/100；指数 {available}/4，可用实时股票 {total} 只。"
