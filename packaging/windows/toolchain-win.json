@@ -1,0 +1,6 @@
+{
+  "schema": "nasdx_windows_toolchain.v1",
+  "python": "3.11.9",
+  "pip": "25.3",
+  "uv": "0.10.2"
+}

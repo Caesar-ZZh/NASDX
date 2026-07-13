@@ -154,6 +154,7 @@ API Key 只通过环境变量或网页会话输入，不写入 Git 跟踪文件�
 $env:NASDX_API_KEY="sk-xxxx"
 $env:NASDX_BASE_URL="https://api.deepseek.com"
 $env:NASDX_MODEL="deepseek-chat"
+$env:NASDX_FALLBACK_MODELS="deepseek-reasoner,deepseek-chat" # 可选；非 DeepSeek 默认不跨模型降级
 ```
 
 Windows 桌面启动器也支持本地用户配置文件。推荐路径：
@@ -395,6 +396,7 @@ python -B run_desktop_release_check.py --full-package --compile-installer
 ```
 
 输出目录 `dist\NASDX-Desktop\`、默认快速门禁目录 `dist\NASDX-Desktop-check\` 和可选 `dist\launcher-exe\` 都被 Git 忽略。脚本只复制源码、配置模板、依赖清单、池配置和桌面启动脚本，排除并 scrub `reports/`、`stock_data_*.json`、`nasdx_history.db`、`.env`、`config.toml`、日志、`__pycache__/`、`*.pyc`、缓存和构建产物；依赖安装完成后会保留包内 `.venv`，但再次清理 `.venv` 中的 Python 缓存。
+Windows 正式包固定使用 `packaging/windows/toolchain-win.json`、核心/含 WebView 两份完整哈希锁和 `pip --require-hashes`。运行 `python -B run_dependency_lock_check.py` 可验证两套 Windows 依赖图；升级依赖时使用固定 `uv 0.10.2` 执行 `packaging\windows\refresh_dependency_locks.ps1`，并提交两份锁文件。`PACKAGING_MANIFEST.json` 会记录 Python/pip 版本、锁文件 SHA-256 和实际 `pip freeze --all` 清单。
 包内 `PACKAGING_MANIFEST.json` 使用 `path_policy=relative-or-redacted`，只记录相对路径或 `<source-checkout>` / `<external-path>` 占位符，不写入打包机的 `C:\Users\...` 绝对目录。
 `启动NASDX桌面.bat` 默认打开桌面控制面板；如果控制面板不可用，会回退到 direct launcher。批处理会透传 `--dry-run`、`--page`、`--timeout` 等参数给控制面板，便于 smoke 验证真实入口。`create_shortcuts.ps1` 默认只预览，传 `-Apply` 才会给当前用户写入开始菜单或桌面快捷方式。`pywebview` 不是默认打包依赖；没有它时 direct launcher 会回退到普通浏览器，仍然复用现有 Streamlit UI。
 `build_launcher_exe.ps1` 是可选 PyInstaller 路径，只冻结 `desktop\exe_launcher.py` 这个很薄的启动器；生成的 exe 仍会调用 portable 包内 `.venv\Scripts\python.exe -B desktop\control_panel.py`，不会把 `app.py`、AkShare、pandas 或投研逻辑打进单文件 exe。默认先用 `-SkipBuild` 做计划检查；只有打包机已安装 PyInstaller 时再去掉该参数。
@@ -445,8 +447,8 @@ LLM Agent 会在提示词末尾追加统一 JSON 契约，优先读取 `signal`�
 - 真实账户复盘：网页端“投资路线”页或 `run_account_review.py` 可导入成交 CSV，计算已实现盈亏、浮动盈亏、当前仓位和路线匹配；没有账户流水时不会计算真实收益。
 - 执行队列：把候选审计拆成盘前补报告、盘中人工复核/观察、盘后刷新简报三类动作；任何阻断项存在时都不会写成试错许可。
 - 外部复核包：为每个候选给出巨潮资讯、行情页和交易所入口，并列明公告/财报、成交/折溢价、账户仓位等必须人工确认的通过条件；链接存在不代表复核已通过。
-- 复盘快照包：网页端“导出复盘包”或 `run_review_snapshot.py` 会输出 ZIP，内含 latest Markdown/JSON、建议漂移追踪、建议结果复盘、manifest、候选审计 CSV、执行队列 CSV、外部复核 CSV 和来源文件哈希。
-- SQLite 历史库：`nasdx.history_store` 追加保存单股报告、每日扫描、ETF 池、组合路线、最终简报和复盘产物，默认文件为 `nasdx_history.db`。
+- 复盘快照包：网页端“导出复盘包”或 `run_review_snapshot.py` 会先验证 latest 简报/路线 schema，再原子输出 ZIP；三个 CSV 会把公式前缀按文本净化，manifest 使用 `nasdx_review_snapshot.v2` 并记录 `validation_status=valid`。
+- SQLite 历史库：`nasdx.history_store` 使用 v2 schema，在 `artifacts` 中只保存一份完整正文，报告/扫描/ETF 池专表通过外键索引；同一逻辑事件在单事务内写入，旧 v1 数据库会就地无损迁移。
 
 ---
 

@@ -153,6 +153,9 @@ def check_desktop_delivery_assets() -> str:
         "packaging/windows/build_installer.ps1",
         "packaging/windows/NASDX-Desktop.iss",
         "packaging/windows/constraints-win.txt",
+        "packaging/windows/requirements-win-core.lock",
+        "packaging/windows/requirements-win-webview.lock",
+        "packaging/windows/toolchain-win.json",
         "docs/WINDOWS_DESKTOP.md",
         "run_desktop_release_check.py",
         "run_desktop_doctor.py",
@@ -1050,8 +1053,10 @@ def check_review_snapshot_contract() -> str:
         if not zip_path.exists():
             raise AssertionError("复盘快照 ZIP 未生成")
         manifest = snapshot.get("manifest", {})
-        if manifest.get("schema") != "nasdx_review_snapshot.v1":
+        if manifest.get("schema") != "nasdx_review_snapshot.v2":
             raise AssertionError("复盘快照 manifest schema 不正确")
+        if manifest.get("validation_status") != "valid":
+            raise AssertionError("复盘快照未通过源文件校验")
         if manifest.get("candidate_count", 0) < 3:
             raise AssertionError("复盘快照候选数量不足")
         if "链接存在不代表复核已通过" not in str(manifest.get("boundary", "")):

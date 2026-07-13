@@ -18,6 +18,7 @@ LLM_ENV_KEYS = {
     "api_key": "NASDX_API_KEY",
     "base_url": "NASDX_BASE_URL",
     "model": "NASDX_MODEL",
+    "fallback_models": "NASDX_FALLBACK_MODELS",
 }
 
 PATH_ENV_KEYS = {

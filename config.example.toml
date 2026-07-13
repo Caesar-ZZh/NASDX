@@ -11,6 +11,7 @@ base_url  = "https://api.deepseek.com"    # DeepSeek（推荐，低成本）
 # base_url = "https://api.openai.com/v1" # OpenAI
 # base_url = "http://localhost:11434/v1"  # Ollama 本地
 model     = "deepseek-chat"
+fallback_models = "deepseek-reasoner,deepseek-chat" # 非 DeepSeek 提供商建议留空或显式填写其支持模型
 # model   = "gpt-4o"
 # model   = "qwen2.5:14b"
 max_tokens  = 4096

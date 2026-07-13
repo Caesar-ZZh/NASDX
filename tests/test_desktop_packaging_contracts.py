@@ -148,7 +148,7 @@ class DesktopPackagingContractsTest(unittest.TestCase):
         self.assertIn("plan-only mode", proc.stdout)
         self.assertIn("python -m PyInstaller", proc.stdout)
 
-    def test_windows_constraints_pin_only_packaging_top_level_dependencies(self):
+    def test_legacy_windows_constraints_remain_available_for_compatibility(self):
         self.assertTrue(CONSTRAINTS_FILE.exists(), "constraints-win.txt is missing")
         text = CONSTRAINTS_FILE.read_text(encoding="utf-8")
 
@@ -174,7 +174,9 @@ class DesktopPackagingContractsTest(unittest.TestCase):
             "wheel",
             "wheelhouse\\nasdx-win-py311",
             "--wheel-dir",
-            "requirements_nasdx.txt",
+            "requirements-win-core.lock",
+            "requirements-win-webview.lock",
+            "--require-hashes",
             "IncludeWebView",
             "constraints-win.txt",
         ]:

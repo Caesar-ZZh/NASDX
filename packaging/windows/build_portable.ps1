@@ -6,6 +6,7 @@
     [int]$PipRetries = 2,
     [string]$PipIndexUrl = "",
     [string]$ConstraintsFile = "",
+    [string]$LockFile = "",
     [string]$WheelhouseDir = "",
     [switch]$OnlyBinary,
     [switch]$NoClean
@@ -27,10 +28,26 @@ if ([System.IO.Path]::IsPathRooted($OutputDir)) {
 $RepoRootPath = [System.IO.Path]::GetFullPath($RepoRoot)
 $DefaultDistRoot = [System.IO.Path]::GetFullPath((Join-Path $RepoRootPath "dist"))
 $DefaultConstraints = Join-Path $ScriptDir "constraints-win.txt"
+$CoreLock = Join-Path $ScriptDir "requirements-win-core.lock"
+$WebViewLock = Join-Path $ScriptDir "requirements-win-webview.lock"
+$ToolchainFile = Join-Path $ScriptDir "toolchain-win.json"
 
 if ([string]::IsNullOrWhiteSpace($ConstraintsFile) -and (Test-Path -LiteralPath $DefaultConstraints)) {
     $ConstraintsFile = $DefaultConstraints
 }
+
+if ([string]::IsNullOrWhiteSpace($LockFile)) {
+    $LockFile = if ($IncludeWebView) { $WebViewLock } else { $CoreLock }
+}
+$LockFile = [System.IO.Path]::GetFullPath($LockFile)
+if (-not (Test-Path -LiteralPath $LockFile)) {
+    throw "Dependency lockfile does not exist: $LockFile"
+}
+if (-not (Test-Path -LiteralPath $ToolchainFile)) {
+    throw "Windows toolchain definition does not exist: $ToolchainFile"
+}
+$Toolchain = Get-Content -LiteralPath $ToolchainFile -Encoding UTF8 | ConvertFrom-Json
+$LockHash = (Get-FileHash -LiteralPath $LockFile -Algorithm SHA256).Hash.ToLowerInvariant()
 
 if (-not [string]::IsNullOrWhiteSpace($ConstraintsFile)) {
     if ([System.IO.Path]::IsPathRooted($ConstraintsFile)) {
@@ -156,6 +173,12 @@ $Manifest = [ordered]@{
     skip_dependency_install = [bool]$SkipDependencyInstall
     include_webview = [bool]$IncludeWebView
     constraints_file = (Convert-ToPackageManifestPath -PathValue $ConstraintsFile)
+    toolchain_file = "packaging/windows/toolchain-win.json"
+    python_version = [string]$Toolchain.python
+    pip_version = [string]$Toolchain.pip
+    lockfile = (Convert-ToPackageManifestPath -PathValue $LockFile)
+    lockfile_sha256 = $LockHash
+    resolved_packages = @()
     wheelhouse_dir = (Convert-ToPackageManifestPath -PathValue $WheelhouseDir)
     only_binary = [bool]$OnlyBinary
     included_directories = @()
@@ -266,6 +289,10 @@ foreach ($file in @(
     "启动网页.bat",
     "packaging/windows/build_launcher_exe.ps1",
     "packaging/windows/constraints-win.txt",
+    "packaging/windows/requirements-win-core.lock",
+    "packaging/windows/requirements-win-webview.lock",
+    "packaging/windows/toolchain-win.json",
+    "packaging/windows/refresh_dependency_locks.ps1",
     "packaging/windows/create_shortcuts.ps1",
     "packaging/windows/inno_paths.ps1",
     "packaging/windows/smoke_installed.ps1",
@@ -300,6 +327,10 @@ $Manifest.included_files += "启动NASDX桌面.bat"
 Remove-PackageExcludedArtifacts
 
 if (-not $SkipDependencyInstall) {
+    $ActualPythonVersion = (& python -c "import platform; print(platform.python_version())").Trim()
+    if ($LASTEXITCODE -ne 0 -or $ActualPythonVersion -ne [string]$Toolchain.python) {
+        throw "Python $($Toolchain.python) is required for release builds; found $ActualPythonVersion"
+    }
     $VenvPath = Join-Path $Target ".venv"
     $TempVenvRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("nasdx-build-venv-" + [guid]::NewGuid().ToString("N"))
     $TempVenvPath = Join-Path $TempVenvRoot ".venv"
@@ -308,6 +339,9 @@ if (-not $SkipDependencyInstall) {
         Invoke-Checked -FilePath "python" -Arguments @("-m", "venv", "--without-pip", $TempVenvPath)
         $PythonExe = Join-Path $TempVenvPath "Scripts\python.exe"
         Invoke-Checked -FilePath $PythonExe -Arguments @("-m", "ensurepip", "--upgrade")
+        Invoke-Checked -FilePath $PythonExe -Arguments @(
+            "-m", "pip", "install", "--disable-pip-version-check", "--no-user", "pip==$($Toolchain.pip)"
+        )
         $PipInstallArgs = @(
             "-m",
             "pip",
@@ -320,9 +354,6 @@ if (-not $SkipDependencyInstall) {
             "--retries",
             [string]$PipRetries
         )
-        if (-not [string]::IsNullOrWhiteSpace($ConstraintsFile)) {
-            $PipInstallArgs += @("--constraint", $ConstraintsFile)
-        }
         if ($OnlyBinary) {
             $PipInstallArgs += @("--only-binary", ":all:")
         }
@@ -331,11 +362,9 @@ if (-not $SkipDependencyInstall) {
         } elseif (-not [string]::IsNullOrWhiteSpace($PipIndexUrl)) {
             $PipInstallArgs += @("--index-url", $PipIndexUrl)
         }
-        Invoke-Checked -FilePath $PythonExe -Arguments ($PipInstallArgs + @("-U", "pip"))
-        Invoke-Checked -FilePath $PythonExe -Arguments ($PipInstallArgs + @("-r", (Join-Path $Target "requirements_nasdx.txt")))
-        if ($IncludeWebView) {
-            Invoke-Checked -FilePath $PythonExe -Arguments ($PipInstallArgs + @("-r", (Join-Path $Target "requirements_desktop.txt")))
-        }
+        Invoke-Checked -FilePath $PythonExe -Arguments ($PipInstallArgs + @("--require-hashes", "-r", $LockFile))
+        $Manifest.resolved_packages = @(& $PythonExe -m pip freeze --all --disable-pip-version-check)
+        if ($LASTEXITCODE -ne 0) { throw "Unable to record resolved package list" }
         if (Test-Path -LiteralPath $VenvPath) {
             Remove-Item -LiteralPath $VenvPath -Recurse -Force
         }

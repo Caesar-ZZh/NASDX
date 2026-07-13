@@ -269,6 +269,15 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\build_portable.ps1 -I
 
 ## Wheelhouse path
 
+Release builds use the exact Python/pip versions in `packaging/windows/toolchain-win.json`. Core and optional WebView dependencies are fully pinned with hashes in `requirements-win-core.lock` and `requirements-win-webview.lock`; package installation uses `--require-hashes` and records the selected lock hash plus `pip freeze --all` in `PACKAGING_MANIFEST.json`.
+
+Validate or refresh the locks with:
+
+```powershell
+python -B run_dependency_lock_check.py
+powershell -ExecutionPolicy Bypass -File packaging\windows\refresh_dependency_locks.ps1
+```
+
 For slow or unstable networks, create a local wheelhouse first:
 
 ```powershell
