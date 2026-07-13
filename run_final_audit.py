@@ -142,6 +142,7 @@ def check_desktop_delivery_assets() -> str:
         "packaging/windows/build_launcher_exe.ps1",
         "packaging/windows/build_portable.ps1",
         "packaging/windows/build_portable_zip.ps1",
+        "packaging/windows/hash_utils.ps1",
         "packaging/windows/create_shortcuts.ps1",
         "packaging/windows/smoke_portable.ps1",
         "packaging/windows/smoke_portable_zip.ps1",
@@ -231,6 +232,7 @@ def check_desktop_delivery_assets() -> str:
     portable_text = _read_text(ROOT / "packaging" / "windows" / "build_portable.ps1")
     launcher_exe_text = _read_text(ROOT / "packaging" / "windows" / "build_launcher_exe.ps1")
     zip_text = _read_text(ROOT / "packaging" / "windows" / "build_portable_zip.ps1")
+    hash_utils_text = _read_text(ROOT / "packaging" / "windows" / "hash_utils.ps1")
     shortcut_text = _read_text(ROOT / "packaging" / "windows" / "create_shortcuts.ps1")
     portable_smoke_text = _read_text(ROOT / "packaging" / "windows" / "smoke_portable.ps1")
     zip_smoke_text = _read_text(ROOT / "packaging" / "windows" / "smoke_portable_zip.ps1")
@@ -361,7 +363,8 @@ def check_desktop_delivery_assets() -> str:
         (launcher_exe_text, "does not bundle app.py"),
         (zip_text, "tar.exe"),
         (zip_text, "NASDX-Desktop-portable.zip"),
-        (zip_text, "Get-FileHash"),
+        (zip_text, "Get-NasdxSha256"),
+        (hash_utils_text, "System.Security.Cryptography.SHA256"),
         (zip_text, "SHA256"),
         (zip_text, "nasdx_portable_release.v1"),
         (zip_text, "zip_sha256"),
@@ -386,7 +389,7 @@ def check_desktop_delivery_assets() -> str:
         (portable_smoke_text, "plan-only mode"),
         (zip_smoke_text, "Expand-Archive"),
         (zip_smoke_text, "tar.exe"),
-        (zip_smoke_text, "Get-FileHash"),
+        (zip_smoke_text, "Get-NasdxSha256"),
         (zip_smoke_text, "Portable zip checksum verified"),
         (zip_smoke_text, "Portable zip manifest verified"),
         (zip_smoke_text, "smoke_installed.ps1"),
@@ -430,7 +433,7 @@ def check_desktop_delivery_assets() -> str:
         (installer_preflight_text, "preflight"),
         (installer_preflight_text, "Strict"),
         (installer_preflight_text, "RequireVenv"),
-        (installer_preflight_text, "Get-FileHash"),
+        (installer_preflight_text, "Get-NasdxSha256"),
         (installer_preflight_text, "nasdx_portable_release.v1"),
         (installer_preflight_text, "build_installer.ps1 -SkipPortableBuild"),
         (installer_preflight_text, "smoke_installer_roundtrip.ps1"),

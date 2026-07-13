@@ -16,6 +16,7 @@ $RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
 $RepoRootPath = [System.IO.Path]::GetFullPath($RepoRoot)
 $InnoPathsScript = Join-Path $ScriptDir "inno_paths.ps1"
 . $InnoPathsScript
+. (Join-Path $ScriptDir "hash_utils.ps1")
 
 function Resolve-NasdxPath {
     param([Parameter(Mandatory = $true)][string]$PathValue)
@@ -120,7 +121,7 @@ if (-not (Test-Path -LiteralPath $ResolvedZipPath)) {
 } else {
     $ZipItem = Get-Item -LiteralPath $ResolvedZipPath
     Add-Check "PASS" "portable_zip" "zip exists; bytes=$($ZipItem.Length)"
-    $ActualHash = (Get-FileHash -LiteralPath $ResolvedZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $ActualHash = Get-NasdxSha256 -PathValue $ResolvedZipPath
 
     if (Test-Path -LiteralPath $ResolvedChecksumPath) {
         $ChecksumText = Get-Content -Raw -Encoding UTF8 $ResolvedChecksumPath

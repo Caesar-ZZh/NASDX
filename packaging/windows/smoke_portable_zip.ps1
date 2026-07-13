@@ -12,6 +12,7 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
+. (Join-Path $ScriptDir "hash_utils.ps1")
 
 function Resolve-NasdxPath {
     param(
@@ -29,7 +30,7 @@ function Get-PortableZipHash {
     if ($script:PortableZipHash) {
         return $script:PortableZipHash
     }
-    $script:PortableZipHash = (Get-FileHash -LiteralPath $ResolvedZip -Algorithm SHA256).Hash.ToLowerInvariant()
+    $script:PortableZipHash = Get-NasdxSha256 -PathValue $ResolvedZip
     return $script:PortableZipHash
 }
 

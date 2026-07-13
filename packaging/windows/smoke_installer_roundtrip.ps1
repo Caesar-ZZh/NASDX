@@ -16,6 +16,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Resolve-Path (Join-Path $ScriptDir "..\..")
 $RepoRootPath = [System.IO.Path]::GetFullPath($RepoRoot)
 $InstalledSmokeScript = Join-Path $ScriptDir "smoke_installed.ps1"
+. (Join-Path $ScriptDir "hash_utils.ps1")
 
 function Resolve-AbsolutePath {
     param([Parameter(Mandatory = $true)][string]$PathValue)
@@ -50,7 +51,7 @@ function Invoke-PowerShellChecked {
 function Get-Sha256 {
     param([Parameter(Mandatory = $true)][string]$PathValue)
 
-    return (Get-FileHash -LiteralPath $PathValue -Algorithm SHA256).Hash.ToLowerInvariant()
+    return Get-NasdxSha256 -PathValue $PathValue
 }
 
 function Assert-SafeInstallDir {
