@@ -26,6 +26,20 @@ def _price_frame(start: float, step: float) -> pd.DataFrame:
 
 
 class ETF50QuantContractsTest(unittest.TestCase):
+    def test_scan_summary_distinguishes_success_partial_and_failed(self):
+        from nasdx.etf_scan_contract import summarize_scan_results
+
+        successful = [{"signal": "bullish"}] * 20 + [{"signal": "neutral"}] * 20
+        summary = summarize_scan_results(successful + [{"signal": "no_data"}] * 10, pool_total=50)
+        self.assertEqual("success", summary["scan_status"])
+        self.assertEqual(40, summary["success_count"])
+        self.assertEqual(10, summary["no_data_count"])
+
+        partial = summarize_scan_results(successful[:5] + [{"signal": "no_data"}] * 45, pool_total=50)
+        self.assertEqual("partial", partial["scan_status"])
+        failed = summarize_scan_results([{"signal": "no_data"}] * 50, pool_total=50)
+        self.assertEqual("failed", failed["scan_status"])
+
     def test_backtest_uses_all_valid_etfs_for_rolling_factor_rebalance(self):
         captured = {}
         frames = {

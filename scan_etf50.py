@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from nasdx.history_store import record_daily_scan, record_etf_pool
 from nasdx.paths import get_reports_dir
+from nasdx.etf_scan_contract import summarize_scan_results
 
 NOW   = datetime.now()
 TODAY = NOW.strftime('%Y%m%d')
@@ -31,6 +32,7 @@ print(f'{"="*65}\n')
 
 # ── 获取实时行情（场内价）— 这是今日真实涨跌 ──────────────
 print('📡 获取实时行情...', end=' ', flush=True)
+data_source_errors = []
 try:
     spot_df = ak.fund_etf_spot_em()
     spot_df['成交额'] = spot_df['成交额'].astype(float)
@@ -43,10 +45,12 @@ try:
                 'vol':    float(r['成交额']),
                 'name':   r['名称'],
             }
-        except: pass
+        except (KeyError, TypeError, ValueError):
+            continue
     print(f'✅ {len(spot_map)} 只')
 except Exception as e:
     spot_map = {}
+    data_source_errors.append({'source':'akshare_etf_spot','error_type':type(e).__name__})
     print(f'❌ {e}')
 
 # ── 获取天天基金净值（历史序列）────────────────────────
@@ -56,7 +60,10 @@ def fetch_nav(code):
         if isinstance(df, pd.DataFrame) and len(df) >= 5:
             df = df.sort_values('净值日期').reset_index(drop=True)
             return df
-    except: pass
+    except Exception as exc:
+        data_source_errors.append(
+            {'source':'akshare_etf_nav','code':code,'error_type':type(exc).__name__}
+        )
     return None
 
 # ── 计算技术指标 ─────────────────────────────────────
@@ -210,6 +217,7 @@ no_data = [r for r in results if r['signal']=='no_data']
 bull = [r for r in valid if r['signal']=='bullish']
 neut = [r for r in valid if r['signal']=='neutral']
 bear = [r for r in valid if r['signal']=='bearish']
+scan_summary = summarize_scan_results(results, pool_total=len(pool))
 
 print(f'\n{"="*70}')
 print(f'  🏆 ETF50 评分排行榜  {NOW.strftime("%H:%M")}')
@@ -379,6 +387,12 @@ json_out = reports_dir / f'etf50_{TODAY}_{HHMM}.json'
 json_payload = {
     'datetime': NOW.isoformat(),
     'total': len(valid),
+    'pool_total': scan_summary['pool_total'],
+    'success_count': scan_summary['success_count'],
+    'no_data_count': scan_summary['no_data_count'],
+    'coverage_ratio': scan_summary['coverage_ratio'],
+    'scan_status': scan_summary['scan_status'],
+    'data_source_errors': data_source_errors[:20],
     'bullish':len(bull),'neutral':len(neut),'bearish':len(bear),
     'top3': [{'code':r['code'],'name':r['name'],
               'score':r['score'], 'quant_score':r['score'],  # quant_page 兼容
@@ -398,6 +412,13 @@ record_etf_pool('etf50', {'etfs': pool}, source_path=ROOT / 'etf50_pool.json', l
 print(f'\n📁 HTML: {out}')
 print(f'📁 JSON: {json_out}')
 print(f'📁 最新报告: {latest}')
+
+if scan_summary['scan_status'] != 'success':
+    print(
+        f"❌ 扫描覆盖率不足：{scan_summary['success_count']}/{scan_summary['pool_total']} "
+        f"({scan_summary['coverage_ratio']:.0%})，本次结果不会发布。"
+    )
+    raise SystemExit(2)
 
 import subprocess
 # [已移除自动弹窗] subprocess.Popen(['cmd','/c','start',str(out)])

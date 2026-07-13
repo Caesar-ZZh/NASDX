@@ -13,6 +13,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from nasdx.etf_scan_contract import MIN_PUBLISH_COVERAGE, VALID_SIGNALS
+
 
 ETF_REPORT_RE = re.compile(r"^etf50_(\d{8})_(\d{4})\.json$")
 SECRET_VALUE_RE = re.compile(
@@ -34,6 +36,10 @@ REQUIRED_REPORT_KEYS = {
     "bearish",
     "top3",
     "results",
+    "pool_total",
+    "success_count",
+    "no_data_count",
+    "scan_status",
 }
 MAX_REPORT_BYTES = 2 * 1024 * 1024
 MAX_REPORT_AGE = timedelta(hours=6)
@@ -191,8 +197,36 @@ def validate_publishable_report(path: Path, *, now: datetime) -> tuple[dict[str,
     total = payload.get("total")
     if not isinstance(results, list) or not isinstance(total, int) or total != len(results):
         raise ArtifactValidationError("report total must match the results list")
-    if not isinstance(payload.get("top3"), list):
+    top3 = payload.get("top3")
+    if not isinstance(top3, list):
         raise ArtifactValidationError("report top3 must be a list")
+
+    pool_total = payload.get("pool_total")
+    success_count = payload.get("success_count")
+    no_data_count = payload.get("no_data_count")
+    coverage_counts = (pool_total, success_count, no_data_count)
+    if not all(isinstance(value, int) and value >= 0 for value in coverage_counts):
+        raise ArtifactValidationError("report coverage counts must be non-negative integers")
+    if pool_total <= 0 or success_count != total or success_count + no_data_count != pool_total:
+        raise ArtifactValidationError("report coverage counts are inconsistent")
+    if payload.get("scan_status") != "success" or success_count / pool_total < MIN_PUBLISH_COVERAGE:
+        raise ArtifactValidationError("report scan coverage is below the publish threshold")
+
+    signal_counts = {signal: payload.get(signal) for signal in VALID_SIGNALS}
+    if not all(isinstance(value, int) and value >= 0 for value in signal_counts.values()):
+        raise ArtifactValidationError("report signal counts must be non-negative integers")
+    if sum(signal_counts.values()) != success_count:
+        raise ArtifactValidationError("report signal counts must match success_count")
+
+    result_codes = set()
+    for row in results:
+        if not isinstance(row, dict) or row.get("signal") not in VALID_SIGNALS or not row.get("code"):
+            raise ArtifactValidationError("report results contain an invalid row")
+        result_codes.add(str(row["code"]))
+    if len(top3) > min(3, success_count):
+        raise ArtifactValidationError("report top3 contains too many rows")
+    if any(not isinstance(row, dict) or str(row.get("code", "")) not in result_codes for row in top3):
+        raise ArtifactValidationError("report top3 must reference result codes")
 
     generated_at = _parse_datetime(payload.get("datetime"))
     comparable_now, comparable_generated = _comparable_datetimes(now, generated_at)
