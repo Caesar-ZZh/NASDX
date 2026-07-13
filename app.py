@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from nasdx.paths import get_reports_dir
 from nasdx.report_history import list_report_history
+from nasdx.ui_security import escape_html, safe_external_link
 from nasdx.ui_tasks import (
     new_task_id as _new_task_id,
     register_task as _register_task,
@@ -492,7 +493,7 @@ with st.sidebar:
             st.toast("配置已应用", icon="✅")
 
     status_html = {True:'<span style="color:#30d158;font-size:12px">● 已连接</span>', False:'<span style="color:#ff453a;font-size:12px">● 连接失败</span>', None:'<span style="color:#48484a;font-size:12px">● 未测试</span>'}[st.session_state.api_ok]
-    st.markdown(f'<div style="padding:4px 4px 0">{status_html} &nbsp; <span style="color:#48484a;font-size:11px">{st.session_state.api_model}</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="padding:4px 4px 0">{status_html} &nbsp; <span style="color:#48484a;font-size:11px">{escape_html(st.session_state.api_model)}</span></div>', unsafe_allow_html=True)
 
     st.markdown("""
     <div style="padding:16px 4px 4px;font-size:11px;color:#4a4a4a">
@@ -591,7 +592,7 @@ if pg == "home":
     # ETF50 最新结果
     d = load_etf50()
     if d:
-        st.markdown(f'<div class="n-section-title">ETF50 最新扫描 · {d["datetime"][:16]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="n-section-title">ETF50 最新扫描 · {escape_html(d["datetime"][:16])}</div>', unsafe_allow_html=True)
 
         sc1,sc2,sc3,sc4 = st.columns(4, gap="small")
         for col,(label,val,color) in zip([sc1,sc2,sc3,sc4],[
@@ -600,7 +601,7 @@ if pg == "home":
             with col:
                 st.markdown(f"""
                 <div class="n-card" style="text-align:center;padding:12px 8px">
-                  <div style="font-size:24px;font-weight:600;color:{color}">{val}</div>
+                  <div style="font-size:24px;font-weight:600;color:{color}">{escape_html(val)}</div>
                   <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-top:4px">{label}</div>
                 </div>""", unsafe_allow_html=True)
 
@@ -617,8 +618,8 @@ if pg == "home":
                     st.markdown(f"""
                     <div class="n-card {accent}">
                       <div style="font-size:16px;margin-bottom:8px">{medal}</div>
-                      <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:2px">{r['code']}</div>
-                      <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">{r['name']}</div>
+                      <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:2px">{escape_html(r['code'])}</div>
+                      <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px">{escape_html(r['name'])}</div>
                       <div style="font-size:26px;font-weight:600;color:{color};letter-spacing:0">{sc}</div>
                       <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-top:2px">评分</div>
                       <div style="margin-top:8px">{bar(sc)}</div>
@@ -638,10 +639,10 @@ if pg == "home":
                 st.markdown(f"""
                 <div class="n-card" style="cursor:pointer;padding:12px 14px">
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                    <span style="font-size:13px;font-weight:600;color:#fff">{rd.get('stock_code','')} {rd.get('stock_name','')}</span>
+                    <span style="font-size:13px;font-weight:600;color:#fff">{escape_html(rd.get('stock_code',''))} {escape_html(rd.get('stock_name',''))}</span>
                     <span class="{sig_cls(sig)}">{sl}</span>
                   </div>
-                  <div style="font-size:11px;color:rgba(255,255,255,0.40)">{rd.get('date','')} · 看多 {bp:.0f}%</div>
+                  <div style="font-size:11px;color:rgba(255,255,255,0.40)">{escape_html(rd.get('date',''))} · 看多 {bp:.0f}%</div>
                   {bar(bp)}
                 </div>""", unsafe_allow_html=True)
                 st.button(
@@ -715,7 +716,7 @@ elif pg == "plan":
         st.markdown('<div class="n-card" style="text-align:center;padding:48px;color:#48484a">暂无投资路线，点击「生成路线」或先运行一键投研工作流</div>', unsafe_allow_html=True)
     else:
         alloc = d.get("allocation", {})
-        st.markdown(f'<div style="font-size:12px;color:#4a4a4a;margin:12px 0">生成时间 {d.get("generated_at","")} · 风险画像 {d.get("risk_profile_label","")} · {d.get("posture","")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:12px;color:#4a4a4a;margin:12px 0">生成时间 {escape_html(d.get("generated_at",""))} · 风险画像 {escape_html(d.get("risk_profile_label",""))} · {escape_html(d.get("posture",""))}</div>', unsafe_allow_html=True)
 
         a1,a2,a3,a4 = st.columns(4, gap="small")
         for col,(lb,v,c) in zip([a1,a2,a3,a4],[
@@ -725,9 +726,9 @@ elif pg == "plan":
             ("现金缓冲",alloc.get("cash_buffer",""),"#8b949e"),
         ]):
             with col:
-                st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:22px;font-weight:600;color:{c}">{v}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:22px;font-weight:600;color:{c}">{escape_html(v)}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
 
-        st.markdown(f'<div class="n-card" style="font-size:13px;color:rgba(255,255,255,0.75);line-height:1.7;margin-top:12px">{alloc.get("mode","")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="n-card" style="font-size:13px;color:rgba(255,255,255,0.75);line-height:1.7;margin-top:12px">{escape_html(alloc.get("mode",""))}</div>', unsafe_allow_html=True)
 
         if b:
             st.markdown('<div class="n-section-title" style="margin-top:18px">最终简报</div>', unsafe_allow_html=True)
@@ -931,10 +932,13 @@ elif pg == "plan":
             for item in items:
                 links = []
                 for link in item.get("source_links", [])[:3]:
-                    label = html.escape(str(link.get("label", "")))
-                    url = html.escape(str(link.get("url", "")), quote=True)
-                    usage = html.escape(str(link.get("usage", "")), quote=True)
-                    links.append(f'<a href="{url}" target="_blank" title="{usage}" style="color:#9cdcfe;text-decoration:none">{label}</a>')
+                    links.append(
+                        safe_external_link(
+                            link.get("label", ""),
+                            link.get("url", ""),
+                            title=link.get("usage", ""),
+                        )
+                    )
                 rows.append({
                     "候选": html.escape(str(item.get("candidate", ""))),
                     "复核闸门": html.escape(str(item.get("review_gate", ""))),
@@ -1129,7 +1133,7 @@ elif pg == "plan":
                     ("稳定试错", len(tracker.get("stable_trial_candidates", [])), "#60a5fa"),
                 ]):
                     with col:
-                        st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:22px;font-weight:700;color:{color}">{val}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:22px;font-weight:700;color:{color}">{escape_html(val)}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
                 gate_change = tracker.get("action_gate_change", {})
                 posture_change = tracker.get("posture_change", {})
                 st.markdown(
@@ -1165,7 +1169,7 @@ elif pg == "plan":
                     ("缺当前数据", review_counts.get("missing_current_data", 0), "#8b949e"),
                 ]):
                     with col:
-                        st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:22px;font-weight:700;color:{color}">{val}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:22px;font-weight:700;color:{color}">{escape_html(val)}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
                 st.markdown(
                     f'''
                     <div class="n-card" style="font-size:13px;color:rgba(255,255,255,0.74);line-height:1.65;margin-top:8px">
@@ -1241,7 +1245,7 @@ elif pg == "plan":
                     ]):
                         with col:
                             value = f'{float(exposure.get(key) or 0):,.0f}'
-                            st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:20px;font-weight:700;color:{color}">{value}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
+                            st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:20px;font-weight:700;color:{color}">{escape_html(value)}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
                     st.markdown(_position_sizing_table(sizing.get("candidate_sizing", [])), unsafe_allow_html=True)
                     st.markdown(
                         "".join(
@@ -1372,13 +1376,13 @@ elif pg == "plan":
         n1, n2 = st.columns(2, gap="medium")
         with n1:
             st.markdown('<div class="n-section-title">下一步</div>', unsafe_allow_html=True)
-            st.markdown("".join(f'<div class="n-card" style="font-size:13px;margin-bottom:8px;color:rgba(255,255,255,0.75)">{x}</div>' for x in d.get("next_actions", [])), unsafe_allow_html=True)
+            st.markdown("".join(f'<div class="n-card" style="font-size:13px;margin-bottom:8px;color:rgba(255,255,255,0.75)">{escape_html(x)}</div>' for x in d.get("next_actions", [])), unsafe_allow_html=True)
         with n2:
             st.markdown('<div class="n-section-title">数据状态</div>', unsafe_allow_html=True)
             q = d.get("data_quality", {})
             for label, item in q.items():
                 color = {"ok":"#22c55e","warning":"#f59e0b","danger":"#ef4444"}.get(item.get("severity"), "#f59e0b")
-                st.markdown(f'<div style="background:{color}10;border:1px solid {color}40;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:{color}">{label}: {item.get("message","未评估")}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="background:{color}10;border:1px solid {color}40;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:{color}">{escape_html(label)}: {escape_html(item.get("message","未评估"))}</div>', unsafe_allow_html=True)
 
         st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
         st.markdown('<div class="n-section-title">未来情景推演</div>', unsafe_allow_html=True)
@@ -1496,12 +1500,12 @@ elif pg == "etf50":
     if not d:
         st.markdown('<div class="n-card" style="text-align:center;padding:48px;color:#48484a">暂无数据，点击「立即扫描」或等待定时任务</div>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<div style="font-size:12px;color:#4a4a4a;margin:12px 0">{d["datetime"][:16]} · {d["total"]} 只有效</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:12px;color:#4a4a4a;margin:12px 0">{escape_html(d["datetime"][:16])} · {escape_html(d["total"])} 只有效</div>', unsafe_allow_html=True)
 
         s1,s2,s3,s4 = st.columns(4, gap="small")
         for col,(lb,v,c) in zip([s1,s2,s3,s4],[("看多",d["bullish"],"#22c55e"),("中性",d["neutral"],"#f59e0b"),("看空",d["bearish"],"#ef4444"),("总计",d["total"],"#3b82f6")]):
             with col:
-                st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:24px;font-weight:600;color:{c}">{v}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:24px;font-weight:600;color:{c}">{escape_html(v)}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
 
         top3 = d.get("top3",[])
         if top3:
@@ -1516,8 +1520,8 @@ elif pg == "etf50":
                     <div class="n-card">
                       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
                         <div>
-                          <div style="font-size:11px;color:rgba(255,255,255,0.40)">{r['code']}</div>
-                          <div style="font-size:14px;font-weight:600;color:#fff">{r['name']}</div>
+                          <div style="font-size:11px;color:rgba(255,255,255,0.40)">{escape_html(r['code'])}</div>
+                          <div style="font-size:14px;font-weight:600;color:#fff">{escape_html(r['name'])}</div>
                         </div>
                         <div style="font-size:16px">{m}</div>
                       </div>
@@ -1544,7 +1548,7 @@ elif pg == "etf50":
             prem_c="#ef4444" if prem and prem>2 else "#22c55e" if prem and prem<-0.5 else "rgba(255,255,255,0.40)"
             medal={1:"🥇",2:"🥈",3:"🥉"}.get(i,"")
             reasons=r.get("reasons",[])
-            pills="".join(f'<span class="n-pill">{x}</span>' for x in reasons[:3])
+            pills="".join(f'<span class="n-pill">{escape_html(x)}</span>' for x in reasons[:3])
             with st.expander(f"{medal}  {r['code']}  {r['name']}  ·  {sc} 分  ·  今日 {chg_s}  ·  溢价 {prem_s}", expanded=(i<=3)):
                 ec1,ec2,ec3,ec4,ec5 = st.columns(5)
                 ec1.metric("评分",f"{sc}")
@@ -1606,12 +1610,12 @@ elif pg == "stocks60":
     if not d:
         st.markdown('<div class="n-card" style="text-align:center;padding:48px;color:#48484a">暂无数据</div>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<div style="font-size:12px;color:#4a4a4a;margin:12px 0">{d["datetime"][:16]} · {d["total"]} 只有效</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:12px;color:#4a4a4a;margin:12px 0">{escape_html(d["datetime"][:16])} · {escape_html(d["total"])} 只有效</div>', unsafe_allow_html=True)
 
         s1,s2,s3 = st.columns(3, gap="small")
         for col,(lb,v,c) in zip([s1,s2,s3],[("看多",d["bullish"],"#22c55e"),("中性",d["neutral"],"#f59e0b"),("看空",d["bearish"],"#ef4444")]):
             with col:
-                st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:24px;font-weight:600;color:{c}">{v}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="n-card" style="text-align:center;padding:12px"><div style="font-size:24px;font-weight:600;color:{c}">{escape_html(v)}</div><div style="font-size:11px;color:rgba(255,255,255,0.40)">{lb}</div></div>', unsafe_allow_html=True)
 
         top3 = d.get("top3",[])
         if top3:
@@ -1625,8 +1629,8 @@ elif pg == "stocks60":
                     <div class="n-card">
                       <div style="display:flex;justify-content:space-between;margin-bottom:10px">
                         <div>
-                          <div style="font-size:11px;color:rgba(255,255,255,0.40)">{r['code']}</div>
-                          <div style="font-size:14px;font-weight:600;color:#fff">{r['name']}</div>
+                          <div style="font-size:11px;color:rgba(255,255,255,0.40)">{escape_html(r['code'])}</div>
+                          <div style="font-size:14px;font-weight:600;color:#fff">{escape_html(r['name'])}</div>
                         </div>
                         <div style="font-size:16px">{m}</div>
                       </div>
@@ -1717,10 +1721,10 @@ elif pg == "deep":
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
             <div>
               <div class="n-label">分析中</div>
-              <div style="font-size:20px;font-weight:600;color:#fff">{code}</div>
-              <div style="font-size:12px;color:rgba(255,255,255,0.40);margin-top:4px">{workflow_display}</div>
+              <div style="font-size:20px;font-weight:600;color:#fff">{escape_html(code)}</div>
+              <div style="font-size:12px;color:rgba(255,255,255,0.40);margin-top:4px">{escape_html(workflow_display)}</div>
             </div>
-            <div style="font-size:13px;color:rgba(255,255,255,0.40)">{st.session_state.api_model}</div>
+            <div style="font-size:13px;color:rgba(255,255,255,0.40)">{escape_html(st.session_state.api_model)}</div>
           </div>
         </div>
         """, unsafe_allow_html=True)
@@ -1753,8 +1757,8 @@ elif pg == "deep":
         st.markdown(f"""
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:12px">
           <div>
-            <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:4px">{code} · {date_s} · {mode_s}</div>
-            <div style="font-size:28px;font-weight:600;color:#fff;letter-spacing:0">{name}</div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:4px">{escape_html(code)} · {escape_html(date_s)} · {escape_html(mode_s)}</div>
+            <div style="font-size:28px;font-weight:600;color:#fff;letter-spacing:0">{escape_html(name)}</div>
           </div>
           <div style="text-align:right">
             <div class="{sig_cls(sig)}" style="font-size:14px;padding:6px 12px;margin-bottom:6px">{sig_label(sig)}</div>
@@ -1767,7 +1771,7 @@ elif pg == "deep":
             st.markdown(
                 f'<div style="background:{dq_color}10;border:1px solid {dq_color}40;'
                 f'border-radius:6px;padding:9px 12px;margin-bottom:14px;'
-                f'font-size:12px;color:{dq_color}">{dq.get("message","数据状态未评估")}</div>',
+                f'font-size:12px;color:{dq_color}">{escape_html(dq.get("message","数据状态未评估"))}</div>',
                 unsafe_allow_html=True,
             )
 
@@ -1801,9 +1805,9 @@ elif pg == "deep":
                 st.markdown(f"""
                 <div class="n-card" style="padding:12px">
                   <div style="font-size:16px;margin-bottom:8px">{icon}</div>
-                  <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:2px">{title}</div>
+                  <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:2px">{escape_html(title)}</div>
                   <div style="font-size:14px;font-weight:600;color:{rcolor}">{sig_label(rs)}</div>
-                  <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-top:4px">{conf:.0%} · {sub}</div>
+                  <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-top:4px">{conf:.0%} · {escape_html(sub)}</div>
                 </div>""", unsafe_allow_html=True)
 
         st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
@@ -1812,21 +1816,22 @@ elif pg == "deep":
         col_l, col_r = st.columns([3,2], gap="medium")
         with col_l:
             st.markdown('<div class="n-section-title">综合研判</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="n-card" style="font-size:13px;line-height:1.8;color:rgba(255,255,255,0.75)">{summary.replace(chr(10),"<br>") if summary else "暂无"}</div>', unsafe_allow_html=True)
+            safe_summary = escape_html(summary).replace("\n", "<br>") if summary else "暂无"
+            st.markdown(f'<div class="n-card" style="font-size:13px;line-height:1.8;color:rgba(255,255,255,0.75)">{safe_summary}</div>', unsafe_allow_html=True)
             st.markdown('<div class="n-section-title" style="margin-top:14px">行动计划</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="n-card n-card-accent-green" style="font-size:13px;line-height:1.8;color:rgba(255,255,255,0.75);white-space:pre-line">{advice if advice else "暂无"}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="n-card n-card-accent-green" style="font-size:13px;line-height:1.8;color:rgba(255,255,255,0.75);white-space:pre-line">{escape_html(advice) if advice else "暂无"}</div>', unsafe_allow_html=True)
         with col_r:
             if decision:
                 st.markdown('<div class="n-section-title">策略摘要</div>', unsafe_allow_html=True)
                 st.markdown(
                     f'<div class="n-card" style="margin-bottom:12px">'
                     f'<div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:6px">方向 / 动作</div>'
-                    f'<div style="font-size:18px;font-weight:700;color:{color};margin-bottom:8px">{decision.get("direction","")} · {decision.get("action","")}</div>'
+                    f'<div style="font-size:18px;font-weight:700;color:{color};margin-bottom:8px">{escape_html(decision.get("direction",""))} · {escape_html(decision.get("action",""))}</div>'
                     f'<div style="display:flex;gap:8px;flex-wrap:wrap">'
-                    f'<span class="n-pill">仓位 {decision.get("position_band","")}</span>'
-                    f'<span class="n-pill">周期 {decision.get("horizon","")}</span>'
+                    f'<span class="n-pill">仓位 {escape_html(decision.get("position_band",""))}</span>'
+                    f'<span class="n-pill">周期 {escape_html(decision.get("horizon",""))}</span>'
                     f'<span class="n-pill">置信 {decision.get("confidence",0.5):.0%}</span>'
-                    f'<span class="n-pill">{decision.get("risk_profile_label","均衡")}</span>'
+                    f'<span class="n-pill">{escape_html(decision.get("risk_profile_label","均衡"))}</span>'
                     f'</div></div>',
                     unsafe_allow_html=True,
                 )
@@ -1837,9 +1842,9 @@ elif pg == "deep":
                 pts=r.get("key_points",[])[:2]
                 if not pts: continue
                 dcolor=sig_color(r.get("signal","neutral"))
-                st.markdown(f'<div style="font-size:11px;color:{dcolor};font-weight:600;margin:10px 0 4px">{icon} {title}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="font-size:11px;color:{dcolor};font-weight:600;margin:10px 0 4px">{escape_html(icon)} {escape_html(title)}</div>', unsafe_allow_html=True)
                 for pt in pts:
-                    st.markdown(f'<span class="n-pill">{pt}</span>', unsafe_allow_html=True)
+                    st.markdown(f'<span class="n-pill">{escape_html(pt)}</span>', unsafe_allow_html=True)
 
         st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
 
@@ -1847,7 +1852,7 @@ elif pg == "deep":
         st.markdown('<div class="n-section-title">Battle 辩论</div>', unsafe_allow_html=True)
         for msg in transcript:
             css = "bubble-bull" if msg.startswith("🟢") else "bubble-bear" if msg.startswith("🔴") else "bubble-judge"
-            clean_msg = msg.replace("<","&lt;").replace(">","&gt;").replace("\n","<br>")
+            clean_msg = escape_html(msg).replace("\n", "<br>")
             st.markdown(f'<div class="bubble {css}">{clean_msg}</div>', unsafe_allow_html=True)
 
         # 投票
@@ -1860,9 +1865,9 @@ elif pg == "deep":
                 with col:
                     st.markdown(f"""
                     <div class="n-card" style="text-align:center;padding:12px">
-                      <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:6px">{v.get('agent_name',v.get('agent',''))}</div>
+                      <div style="font-size:11px;color:rgba(255,255,255,0.40);margin-bottom:6px">{escape_html(v.get('agent_name',v.get('agent','')))}</div>
                       <div style="font-size:14px;font-weight:600;color:{vcolor}">{vlabel}</div>
-                      <div style="font-size:10px;color:rgba(255,255,255,0.40);margin-top:6px;line-height:1.5">{v.get('reasoning','')[:40]}</div>
+                      <div style="font-size:10px;color:rgba(255,255,255,0.40);margin-top:6px;line-height:1.5">{escape_html(v.get('reasoning','')[:40])}</div>
                     </div>""", unsafe_allow_html=True)
 
         st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
