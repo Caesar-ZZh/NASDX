@@ -246,6 +246,7 @@ def _format_stock(s: Dict[str, Any]) -> Dict[str, Any]:
         "code": s.get("code", ""),
         "name": s.get("name", ""),
         "exchange": s.get("exchange", ""),
+        "data_source": s.get("data_source", ""),
         "close": s.get("close", 0),
         "change_pct": s.get("change_pct", 0),
         "amount": round(s.get("amount", 0) / 1e8, 2),  # 转为亿

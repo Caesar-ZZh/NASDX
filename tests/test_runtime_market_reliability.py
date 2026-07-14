@@ -24,6 +24,138 @@ def _history_frame() -> pd.DataFrame:
 
 
 class RuntimeMarketReliabilityTest(unittest.TestCase):
+    def test_tdxrs_batch_reuses_one_qfq_client_and_normalizes_stocks_and_indices(self):
+        from nasdx.market_sources import fetch_tdxrs_histories
+
+        dates = pd.date_range("2026-04-01", periods=70, freq="D")
+        bars = pd.DataFrame(
+            {
+                "datetime": dates.strftime("%Y-%m-%d"),
+                "open": [10.0] * 70,
+                "close": [10.1] * 70,
+                "high": [10.2] * 70,
+                "low": [9.9] * 70,
+                "vol": [100_000] * 70,
+                "amount": [1_010_000] * 70,
+            }
+        )
+
+        class FakeClient:
+            def __init__(self):
+                self.connected = 0
+                self.disconnected = 0
+                self.calls = []
+
+            def connect_to_any(self):
+                self.connected += 1
+                return True
+
+            def get_security_bars_dataframe(self, category, market, code, start, count, fq):
+                self.calls.append(("stock", category, market, code, start, count, fq))
+                return bars.copy()
+
+            def get_index_bars_dataframe(self, category, market, code, start, count, fq):
+                self.calls.append(("index", category, market, code, start, count, fq))
+                return bars.copy()
+
+            def disconnect(self):
+                self.disconnected += 1
+
+        client = FakeClient()
+        result = fetch_tdxrs_histories(
+            ["600000", "000001", "sh000001", "920185"],
+            "20260401",
+            "20260630",
+            min_rows=20,
+            client_factory=lambda: client,
+        )
+
+        self.assertEqual(1, client.connected)
+        self.assertEqual(1, client.disconnected)
+        self.assertEqual({"600000", "000001", "sh000001"}, set(result))
+        self.assertNotIn("920185", result)
+        self.assertEqual({"stock", "index"}, {call[0] for call in client.calls})
+        self.assertTrue(all(call[-1] == 1 for call in client.calls))
+        self.assertTrue(all(source == "tdxrs" for _, source in result.values()))
+        self.assertTrue({"日期", "开盘", "收盘", "最高", "最低", "成交量", "涨跌幅"}.issubset(result["600000"][0].columns))
+
+    def test_history_batch_uses_tdxrs_first_and_falls_back_only_for_missing_symbols(self):
+        from nasdx.fast_market import fetch_histories
+
+        batch_calls = []
+        fallback_calls = []
+
+        def fake_batch(codes, start_date, end_date, min_rows, **kwargs):
+            batch_calls.append(list(codes))
+            return {"600000": (_history_frame(), "tdxrs")}
+
+        def fake_fallback(code, start_date, end_date, min_rows, request_timeout, sources):
+            fallback_calls.append((code, tuple(sources)))
+            return _history_frame(), "tencent_hist_tx"
+
+        result = fetch_histories(
+            ["600000", "920185"],
+            "20260401",
+            "20260713",
+            hist_fetcher=fake_fallback,
+            batch_hist_fetcher=fake_batch,
+            sources=("tdxrs", "tencent_hist_tx"),
+            use_disk_cache=False,
+        )
+
+        self.assertEqual([["600000"]], batch_calls)
+        self.assertEqual([("920185", ("tencent_hist_tx",))], fallback_calls)
+        self.assertEqual("tdxrs", result["600000"][1])
+        self.assertEqual("tencent_hist_tx", result["920185"][1])
+
+    def test_history_batch_degrades_to_existing_fallback_when_tdxrs_is_unavailable(self):
+        from nasdx.fast_market import fetch_histories
+
+        calls = []
+
+        def fake_fallback(code, start_date, end_date, min_rows, request_timeout, sources):
+            calls.append(code)
+            return _history_frame(), "tencent_hist_tx"
+
+        result = fetch_histories(
+            ["600000", "000001"],
+            "20260401",
+            "20260713",
+            hist_fetcher=fake_fallback,
+            batch_hist_fetcher=lambda *args, **kwargs: {},
+            sources=("tdxrs", "tencent_hist_tx"),
+            use_disk_cache=False,
+        )
+
+        self.assertEqual({"600000", "000001"}, set(calls))
+        self.assertTrue(all(source == "tencent_hist_tx" for _, source in result.values()))
+
+    def test_history_batch_overlaps_bse_fallback_with_tdxrs_batch(self):
+        from nasdx.fast_market import fetch_histories
+
+        def fake_batch(codes, start_date, end_date, min_rows, **kwargs):
+            time.sleep(0.1)
+            return {"600000": (_history_frame(), "tdxrs")}
+
+        def fake_fallback(code, start_date, end_date, min_rows, request_timeout, sources):
+            time.sleep(0.1)
+            return _history_frame(), "tencent_hist_tx"
+
+        started = time.monotonic()
+        result = fetch_histories(
+            ["600000", "920185"],
+            "20260401",
+            "20260713",
+            hist_fetcher=fake_fallback,
+            batch_hist_fetcher=fake_batch,
+            sources=("tdxrs", "tencent_hist_tx"),
+            use_disk_cache=False,
+        )
+        elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 0.17)
+        self.assertEqual({"tdxrs", "tencent_hist_tx"}, {source for _, source in result.values()})
+
     def test_tencent_history_uses_one_direct_bounded_request(self):
         from nasdx.market_sources import fetch_stock_hist
 

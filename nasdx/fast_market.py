@@ -12,7 +12,7 @@ from typing import Callable, Iterable, Sequence
 import pandas as pd
 import requests
 
-from nasdx.market_sources import fetch_stock_hist
+from nasdx.market_sources import fetch_stock_hist, fetch_tdxrs_histories
 from nasdx.market_symbols import market_symbol, resolve_exchange
 
 
@@ -109,8 +109,9 @@ def fetch_histories(
     request_timeout: float = 4.0,
     max_workers: int = 20,
     min_rows: int = 20,
-    sources: Sequence[str] = ("tencent_hist_tx",),
+    sources: Sequence[str] = ("tdxrs", "tencent_hist_tx"),
     hist_fetcher: Callable = fetch_stock_hist,
+    batch_hist_fetcher: Callable | None = fetch_tdxrs_histories,
     use_disk_cache: bool = True,
     cache_dir: Path | None = None,
     cache_ttl_seconds: float = 600.0,
@@ -120,6 +121,8 @@ def fetch_histories(
         Path(os.environ.get("LOCALAPPDATA", Path.home())) / "NASDX" / "market_cache"
     )
 
+    fallback_sources = tuple(source for source in sources if source != "tdxrs")
+
     def fetch_one(code: str, timeout: float):
         return hist_fetcher(
             code,
@@ -127,7 +130,7 @@ def fetch_histories(
             end_date,
             min_rows,
             timeout,
-            sources,
+            fallback_sources,
         )
 
     def run_batch(pending: list[str], timeout: float, workers: int):
@@ -158,11 +161,50 @@ def fetch_histories(
             else:
                 results[code] = cached
 
-    fetched = run_batch(pending, request_timeout, max_workers)
+    batch_enabled = (
+        "tdxrs" in sources
+        and batch_hist_fetcher is not None
+        and (hist_fetcher is fetch_stock_hist or batch_hist_fetcher is not fetch_tdxrs_histories)
+    )
+    batch_pending = [code for code in pending if resolve_exchange(code) != "BSE"] if batch_enabled else []
+    early_fallback = [code for code in pending if code not in batch_pending] if batch_enabled else []
+    early_fallback_attempted: set[str] = set()
+    if batch_enabled and pending:
+        with ThreadPoolExecutor(max_workers=2) as orchestrator:
+            batch_future = (
+                orchestrator.submit(
+                    batch_hist_fetcher,
+                    batch_pending,
+                    start_date,
+                    end_date,
+                    min_rows,
+                )
+                if batch_pending
+                else None
+            )
+            fallback_future = (
+                orchestrator.submit(run_batch, early_fallback, request_timeout, max_workers)
+                if early_fallback and fallback_sources
+                else None
+            )
+            if batch_future is not None:
+                try:
+                    results.update(batch_future.result())
+                except Exception:
+                    pass
+            if fallback_future is not None:
+                early_fallback_attempted.update(early_fallback)
+                results.update(fallback_future.result())
+
+    fallback_pending = [code for code in pending if results.get(code, (None, None))[0] is None]
+    first_attempt_pending = [code for code in fallback_pending if code not in early_fallback_attempted]
+    fetched = run_batch(first_attempt_pending, request_timeout, max_workers) if fallback_sources else {}
     results.update(fetched)
-    missing = [code for code in pending if results.get(code, (None, None))[0] is None]
+    missing = [code for code in fallback_pending if results.get(code, (None, None))[0] is None]
     if missing:
         results.update(run_batch(missing, max(6.0, request_timeout * 2), max(1, max_workers // 2)))
+    for code in pending:
+        results.setdefault(code, (None, None))
     if use_disk_cache:
         for code in pending:
             frame, source = results.get(code, (None, None))
