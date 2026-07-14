@@ -61,3 +61,11 @@
 | Dependency and theme regression contracts | `tests/test_delivery_assets_contracts.py` keeps runtime requirements, legacy constraints, and both Windows release locks on Streamlit 1.59.2, and rejects empty root or nested theme color values. |
 | Runtime evidence | Playwright opened `/?page=plan` at 1440x900 and 390x844; both runs reported zero browser errors and zero warnings while preserving the dark sidebar. |
 | Release evidence | Final audit passed 22/22 and desktop release check passed 11/11, including 74 desktop contracts, required secret scan, Ruff, doctor, packaging smoke, and release evidence. |
+
+## 2026-07-14 CI Runtime Update
+
+| Item | Evidence |
+|---|---|
+| CI contract | `tests/test_desktop_ci_contracts.py` requires `actions/checkout@v5` and `actions/setup-python@v6`, and rejects the deprecated Node 20 majors. |
+| Local gates | Full pytest passed 210/210 plus 43 subtests; final audit passed 22/22. |
+| GitHub evidence | Windows Desktop Checks run `29309867353` passed and check-run `87011157436` returned zero annotations. |

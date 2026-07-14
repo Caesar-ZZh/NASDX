@@ -1976,7 +1976,7 @@ python -B run_final_audit.py
 - [x] Capture the Node.js 20 deprecation annotation from a successful master workflow run.
 - [x] Upgrade checkout to `actions/checkout@v5` and Python setup to `actions/setup-python@v6`.
 - [x] Add CI contracts that require the Node 24 action lines and reject the deprecated majors.
-- [ ] Run the full local gates and verify a new master workflow run has no Node.js 20 annotation.
+- [x] Run the full local gates and verify a new master workflow run has no Node.js 20 annotation.
 
 **Verification command:**
 
