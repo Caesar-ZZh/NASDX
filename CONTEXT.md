@@ -1,10 +1,10 @@
 # CONTEXT
 
-- 当前：GitHub issue #26 的计划页 HTML 表格抽离已完成代码、全量门禁和真实页面验证；下一阶段处理浏览器发现的 sidebar 空颜色警告 issue #27。
-- 上次停在：10 个表格 helper 已移入 `nasdx/ui/plan_tables.py`，`app.py` 减少约 380 行；pytest 208/208、最终审计 22/22、桌面发布 11/11、安全扫描 1/1、Ruff 均通过。
-- 关键决定：入口页保留原 helper 别名和调用点；共享模块不依赖 Streamlit，普通单元格统一转义，颜色/代码/安全链接只通过内部受控 HTML 类型输出。
-- 原因：重复拼接表头、表体、空状态和富文本会放大维护成本及 HTML 注入回归风险，且内联函数会在每次 rerun 中重新定义。
-- 浏览器证据：`/?page=plan` 渲染 10 张 `.plan-table` 表格，Streamlit 异常 0、控制台错误 0；9 条 sidebar 主题空颜色警告不属于本轮代码，已进入 #27。
+- 当前：GitHub issue #27 的 Streamlit 侧边栏空颜色控制台警告已完成根因修复、全量门禁和真实浏览器回归，待提交推送、CI 和关闭 issue。
+- 上次停在：运行依赖限定为 `Streamlit >=1.59.2,<1.60.0`，兼容约束和两个 Windows 哈希锁文件同步固定到 `1.59.2`；pytest 210/210、最终审计 22/22、桌面发布 11/11、安全扫描 1/1、Ruff 均通过。
+- 关键决定：不向 `.streamlit/config.toml` 添加无效占位颜色，也不在业务代码里过滤警告；修复当前 Streamlit 1.52.2 的前后端主题协议缺陷，并让开发与发布依赖保持一致。
+- 原因：1.52.2 即使显式传入全部官方 sidebar 颜色仍产生 36 条警告；同一页面在 1.59.2 下为 0 errors / 0 warnings。
+- 浏览器证据：`/?page=plan` 在 1440x900 和 390x844 下正常渲染，暗色侧边栏和移动布局保持，控制台均为 0 errors / 0 warnings。
 
 ## Desktop Packaging
 
