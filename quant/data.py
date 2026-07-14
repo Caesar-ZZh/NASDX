@@ -11,7 +11,10 @@ NASDX V2 — 统一数据层
 5. 缓存支持（streamlit / lru_cache）
 """
 from __future__ import annotations
-import time, warnings
+import functools
+import sys
+import time
+import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -19,7 +22,10 @@ from functools import lru_cache
 import pandas as pd
 import numpy as np
 
-warnings.filterwarnings("ignore")
+# 只屏蔽第三方库的无害 UserWarning（akshare/openpyxl 等噪声），保留 pandas 的
+# DeprecationWarning / FutureWarning，以便升级时（如 astype(errors="ignore") 在
+# pandas 3.0 移除）能提前暴露，而不是被全局静默掩盖。
+warnings.filterwarnings("ignore", category=UserWarning)
 
 ROOT = Path(__file__).parent.parent
 
@@ -73,22 +79,37 @@ def _validate_ohlcv(df: pd.DataFrame) -> bool:
 # ══════════════════════════════════════════════════════════
 #  重试装饰器（指数退避）
 # ══════════════════════════════════════════════════════════
-def retry_with_backoff(max_attempts: int = 3, initial_wait: float = 0.5):
+def retry_with_backoff(max_attempts: int = 3, initial_wait: float = 0.5, retry_on_none: bool = False):
     """
     重试装饰器，指数退避
     第1次失败等 0.5 秒，第2次等 1 秒，第3次等 2 秒
+
+    - 捕获被装饰函数抛出的异常并重试；
+    - retry_on_none=True 时，函数返回 None（数据源失败的哨兵值）也视为失败并重试；
+      这是修复「数据层重试失效」的关键：数据源内部吞掉异常直接 return None，
+      导致原装饰器误以为成功、永不重试。
+    - 最后一次仍失败：若曾抛异常则原样抛出，若仅返回 None 则返回 None（供上层降级）。
     """
     def decorator(func):
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            last_exc: Exception | None = None
             for attempt in range(max_attempts):
                 try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    if attempt == max_attempts - 1:
-                        # 最后一次，直接抛出
-                        return None
-                    wait_time = initial_wait * (2 ** attempt)
-                    time.sleep(wait_time)
+                    result = func(*args, **kwargs)
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt < max_attempts - 1:
+                        time.sleep(initial_wait * (2 ** attempt))
+                        continue
+                    raise
+                if retry_on_none and result is None:
+                    last_exc = RuntimeError(f"{func.__name__} 返回 None（数据源不可用）")
+                    if attempt < max_attempts - 1:
+                        time.sleep(initial_wait * (2 ** attempt))
+                        continue
+                    return None
+                return result
             return None
         return wrapper
     return decorator
@@ -107,7 +128,7 @@ def _get_tdxrs_market(code: str) -> int:
     return 0
 
 
-@retry_with_backoff(max_attempts=3, initial_wait=0.5)
+@retry_with_backoff(max_attempts=3, initial_wait=0.5, retry_on_none=True)
 def _get_tdxrs(code: str, days: int) -> Optional[pd.DataFrame]:
     """
     通过 tdxrs (Rust 极速接口) 获取历史 K 线
@@ -257,15 +278,17 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     kept_cols.extend(optional_cols)
     df = df[[c for c in kept_cols if c in df.columns]]
 
-    # 转数值型
-    df = df.astype(float, errors="ignore")
+    # 转数值型（用 to_numeric 替代已弃用且将在 pandas 3.0 移除的 astype(errors="ignore")）
+    numeric_cols = [c for c in ["open", "high", "low", "close", "volume", "amount", "change_pct"] if c in df.columns]
+    if numeric_cols:
+        df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
     return df
 
 
 # ══════════════════════════════════════════════════════════
 #  AkShare 接口（3次重试）
 # ══════════════════════════════════════════════════════════
-@retry_with_backoff(max_attempts=3, initial_wait=0.5)
+@retry_with_backoff(max_attempts=3, initial_wait=0.5, retry_on_none=True)
 def _get_akshare(code: str, start: str, end: str) -> Optional[pd.DataFrame]:
     """
     通过 AkShare 获取历史 K 线
@@ -309,7 +332,7 @@ def _get_akshare(code: str, start: str, end: str) -> Optional[pd.DataFrame]:
 # ══════════════════════════════════════════════════════════
 #  mootdx 接口（备用，3次重试）
 # ══════════════════════════════════════════════════════════
-@retry_with_backoff(max_attempts=3, initial_wait=0.5)
+@retry_with_backoff(max_attempts=3, initial_wait=0.5, retry_on_none=True)
 def _get_mootdx(code: str, days: int) -> Optional[pd.DataFrame]:
     """
     通过 mootdx 通达信获取历史 K 线
@@ -339,7 +362,16 @@ def _get_mootdx(code: str, days: int) -> Optional[pd.DataFrame]:
 # ══════════════════════════════════════════════════════════
 #  批量获取（带进度显示）
 # ══════════════════════════════════════════════════════════
-def get_batch_ohlcv(codes: list[str], days: int = 252, verbose: bool = True) -> dict[str, pd.DataFrame]:
+def get_batch_ohlcv(
+    codes: list[str],
+    days: int = 252,
+    verbose: bool = True,
+    *,
+    max_workers: int = 8,
+    use_cache: bool = True,
+    cache_ttl_seconds: float = 600.0,
+    request_timeout: float = 8.0,
+) -> dict[str, pd.DataFrame]:
     """
     批量获取多只股票/ETF 的 OHLCV
 
@@ -347,22 +379,54 @@ def get_batch_ohlcv(codes: list[str], days: int = 252, verbose: bool = True) -> 
       codes: 代码列表
       days: 查询天数
       verbose: 是否打印进度
+      max_workers: 缺失标的并发回退上限
+      use_cache: 是否复用用户目录下的短期行情缓存
+      cache_ttl_seconds: 成功行情缓存有效期
 
     返回：
       {code: DataFrame} 的字典，失败的代码会被跳过
     """
-    results = {}
-    total = len(codes)
+    from nasdx.fast_market import fetch_histories
 
-    for i, code in enumerate(codes, 1):
+    unique_codes = list(dict.fromkeys(str(code).strip() for code in codes if str(code).strip()))
+    if not unique_codes:
+        return {}
+
+    normalized_days = max(1, int(days))
+    end = datetime.now()
+    start = end - timedelta(days=normalized_days)
+    workers = max(1, min(20, int(max_workers)))
+    ttl_seconds = max(0.0, float(cache_ttl_seconds))
+
+    try:
+        history_map = fetch_histories(
+            unique_codes,
+            start.strftime("%Y%m%d"),
+            end.strftime("%Y%m%d"),
+            max_workers=workers,
+            min_rows=5,
+            use_disk_cache=bool(use_cache),
+            cache_ttl_seconds=ttl_seconds,
+            request_timeout=request_timeout,
+        )
+    except Exception:
+        history_map = {}
+
+    results: dict[str, pd.DataFrame] = {}
+    total = len(unique_codes)
+    for i, code in enumerate(unique_codes, 1):
         try:
             if verbose:
                 print(f"  [{i:2d}/{total}] {code:8s} ... ", end="", flush=True)
 
-            df = get_ohlcv(code, days=days)
+            frame, _source = history_map.get(code, (None, None))
+            if isinstance(frame, pd.DataFrame) and _validate_ohlcv(frame):
+                df = _standardize_columns(frame)
+            else:
+                df = get_ohlcv(code, days=normalized_days)
 
-            if not df.empty:
-                results[code] = df
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                results[code] = df.copy(deep=True)
                 if verbose:
                     print(f"✓ {len(df):4d} 行")
             else:
@@ -373,21 +437,41 @@ def get_batch_ohlcv(codes: list[str], days: int = 252, verbose: bool = True) -> 
             if verbose:
                 print(f"✗ 异常: {str(e)[:30]}")
 
-        # 请求间隔，避免被 IP 限流
-        time.sleep(0.3)
-
     return results
 
 
 # ══════════════════════════════════════════════════════════
 #  实时行情（快照）
 # ══════════════════════════════════════════════════════════
+def _map_tencent_to_quotes(tencent: dict, codes: list[str]) -> dict[str, dict]:
+    """
+    将腾讯 qt.gtimg.cn 的逐代码快照映射为 NASDX 行情字典（price/chg/volume）。
+    只映射请求的代码，绝不为少量标的拉取全市场表。
+    """
+    result = {}
+    for c in codes:
+        q = tencent.get(c)
+        if q:
+            result[c] = {
+                "price": float(q.get("close", 0) or 0),
+                "chg": float(q.get("change_pct", 0) or 0),
+                "volume": float(q.get("amount", 0) or 0),
+            }
+    return result
+
+
 def get_realtime_quotes(codes: list[str]) -> dict[str, dict]:
     """
     获取实时行情（最新价、涨幅、成交额）
-    优先级：tdxrs > ths_bridge > akshare
+
+    优先级：tdxrs（逐代码盘口） > ths_bridge > 腾讯 qt.gtimg.cn（逐代码快照） > akshare 全表兜底
+    除最后的 akshare 兜底外，均按需拉取指定代码，避免为少数标的而拉取全市场 ETF 表。
     """
-    # 优先尝试 tdxrs (Rust 极速引擎)
+    codes = [str(c).strip() for c in codes if str(c).strip()]
+    if not codes:
+        return {}
+
+    # 优先尝试 tdxrs (Rust 极速引擎)，逐代码盘口
     tdxrs_quotes = _get_tdxrs_quotes(codes)
     if tdxrs_quotes:
         return tdxrs_quotes
@@ -395,9 +479,20 @@ def get_realtime_quotes(codes: list[str]) -> dict[str, dict]:
     try:
         from ths_bridge import get_realtime_batch
         return get_realtime_batch(codes)
-    except Exception as e:
-        pass  # ths_bridge 不可用，降级到 akshare
+    except Exception:
+        pass  # ths_bridge 不可用，降级到腾讯逐代码快照
 
+    # 逐代码快照（腾讯 qt.gtimg.cn），按代码分批请求，不拉全市场表
+    try:
+        from nasdx.fast_market import fetch_tencent_quotes
+        tencent = fetch_tencent_quotes(codes)
+        result = _map_tencent_to_quotes(tencent, codes)
+        if result:
+            return result
+    except Exception:
+        pass
+
+    # 最终兜底：akshare 全市场 ETF 表（仅在以上均失败时，避免常态拉全表）
     try:
         import akshare as ak
         spot = ak.fund_etf_spot_em()
@@ -411,10 +506,10 @@ def get_realtime_quotes(codes: list[str]) -> dict[str, dict]:
                         "chg":    float(r.get("涨跌幅", 0)),
                         "volume": float(r.get("成交额", 0)),
                     }
-                except Exception as e:
+                except Exception:
                     pass  # 单行数据转换错误，跳过该行
         return result
-    except Exception as e:
+    except Exception:
         return {}
 
 
