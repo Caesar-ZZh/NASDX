@@ -1,10 +1,10 @@
 # CONTEXT
 
-- 当前：GitHub issue #27 的 Streamlit 侧边栏空颜色控制台警告已完成根因修复、全量门禁和真实浏览器回归，待提交推送、CI 和关闭 issue。
-- 上次停在：运行依赖限定为 `Streamlit >=1.59.2,<1.60.0`，兼容约束和两个 Windows 哈希锁文件同步固定到 `1.59.2`；pytest 210/210、最终审计 22/22、桌面发布 11/11、安全扫描 1/1、Ruff 均通过。
-- 关键决定：不向 `.streamlit/config.toml` 添加无效占位颜色，也不在业务代码里过滤警告；修复当前 Streamlit 1.52.2 的前后端主题协议缺陷，并让开发与发布依赖保持一致。
-- 原因：1.52.2 即使显式传入全部官方 sidebar 颜色仍产生 36 条警告；同一页面在 1.59.2 下为 0 errors / 0 warnings。
-- 浏览器证据：`/?page=plan` 在 1440x900 和 390x844 下正常渲染，暗色侧边栏和移动布局保持，控制台均为 0 errors / 0 warnings。
+- 当前：GitHub issue #27 已通过 CI、回复并关闭；正在处理该 CI 新暴露的 Node 20 action 弃用警告 issue #28。
+- 上次停在：`.github/workflows/windows-desktop.yml` 已升级到 `actions/checkout@v5` 和 `actions/setup-python@v6`；pytest 210/210、最终审计 22/22 通过，待推送和无警告 CI 验收。
+- 关键决定：只升级官方 action 主版本，保留 `windows-latest`、Python 3.11.9、密钥扫描、依赖锁校验和桌面发布命令不变。
+- 原因：#27 的成功 CI run 仍提示 Node.js 20 已弃用，并由 GitHub 强制转换到 Node 24；使用官方 Node 24 action 可消除兼容路径和注解噪音。
+- 前序证据：Streamlit 1.59.2 下 `/?page=plan` 在 1440x900 和 390x844 正常渲染，控制台均为 0 errors / 0 warnings；pytest 210/210、最终审计 22/22、桌面发布 11/11。
 
 ## Desktop Packaging
 
