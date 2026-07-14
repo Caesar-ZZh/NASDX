@@ -14,6 +14,7 @@ class DeliveryAssetsContractsTest(unittest.TestCase):
         text = requirements_path.read_text(encoding="utf-8")
         self.assertIn("akshare", text)
         self.assertIn("mootdx", text)
+        self.assertIn("tdxrs", text)
         self.assertIn("openai", text)
         self.assertIn("streamlit", text)
 

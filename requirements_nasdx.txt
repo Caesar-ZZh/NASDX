@@ -4,6 +4,7 @@
 # 数据获取（已有）
 akshare>=1.16.87
 mootdx>=0.11.7
+tdxrs>=0.6.5,<0.7.0
 pandas>=2.2.3
 numpy>=2.0.0
 requests>=2.32.0

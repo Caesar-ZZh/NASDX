@@ -62,6 +62,85 @@ def last_trade_date(df: pd.DataFrame | None) -> str | None:
         return str(value)
 
 
+def fetch_tdxrs_histories(
+    codes: Sequence[str],
+    start_date: str,
+    end_date: str,
+    min_rows: int = 20,
+    *,
+    client_factory: Callable | None = None,
+) -> dict[str, tuple[pd.DataFrame, str]]:
+    """Fetch supported QFQ histories through one reusable TDX connection."""
+    try:
+        from tdxrs import TdxHqClient
+        from tdxrs.constants import FQ_QFQ, KLINE_DAILY
+    except ImportError:
+        if client_factory is None:
+            return {}
+        TdxHqClient = None
+        FQ_QFQ = 1
+        KLINE_DAILY = 9
+
+    try:
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+    except (TypeError, ValueError):
+        return {}
+    count = min(800, max(min_rows + 10, (end - start).days + 20))
+    client = None
+    results: dict[str, tuple[pd.DataFrame, str]] = {}
+    try:
+        client = client_factory() if client_factory is not None else TdxHqClient()
+        if not client.connect_to_any():
+            return {}
+        for original_code in dict.fromkeys(str(code).strip() for code in codes if str(code).strip()):
+            normalized = original_code.lower()
+            bare_code = normalized[2:] if normalized[:2] in {"sh", "sz", "bj"} else normalized
+            exchange = resolve_exchange(bare_code)
+            if exchange == "BSE":
+                continue
+            market = 1 if exchange == "SSE" else 0
+            is_index = normalized.startswith(("sh", "sz")) and (
+                bare_code.startswith("399") or normalized in {"sh000001", "sh000300"}
+            )
+            try:
+                fetcher = (
+                    client.get_index_bars_dataframe
+                    if is_index
+                    else client.get_security_bars_dataframe
+                )
+                frame = fetcher(KLINE_DAILY, market, bare_code, 0, count, FQ_QFQ)
+            except Exception:
+                continue
+            if not isinstance(frame, pd.DataFrame) or frame.empty:
+                continue
+            dates = pd.to_datetime(frame.get("datetime"), errors="coerce")
+            frame = frame.loc[dates.between(start, end)].reset_index(drop=True)
+            normalized_frame = pd.DataFrame(
+                {
+                    "日期": pd.to_datetime(frame.get("datetime"), errors="coerce").dt.strftime("%Y-%m-%d"),
+                    "开盘": pd.to_numeric(frame.get("open"), errors="coerce"),
+                    "收盘": pd.to_numeric(frame.get("close"), errors="coerce"),
+                    "最高": pd.to_numeric(frame.get("high"), errors="coerce"),
+                    "最低": pd.to_numeric(frame.get("low"), errors="coerce"),
+                    "成交量": pd.to_numeric(frame.get("vol"), errors="coerce"),
+                    "成交额": pd.to_numeric(frame.get("amount"), errors="coerce"),
+                }
+            )
+            normalized_frame = _finalize(normalized_frame)
+            if _is_usable(normalized_frame, min_rows):
+                results[original_code] = (normalized_frame, "tdxrs")
+    except Exception:
+        return {}
+    finally:
+        if client is not None:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+    return results
+
+
 class _BseMappingTableParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()

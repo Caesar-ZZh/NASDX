@@ -35,3 +35,13 @@
 | Batch OHLCV timing | `python -B -c "import time; from quant.data import get_batch_ohlcv; codes='159611,513160,515880,588200,512480'.split(','); t=time.perf_counter(); r=get_batch_ohlcv(codes, days=180, verbose=False); print(len(r), round(time.perf_counter()-t,2))"` |
 | Selector small sample | `python -B run_stock_selector.py --top 20 --limit 100 --output-dir $env:TEMP\\nasdx-selector-bench` |
 
+## 2026-07-14 Selector History Update
+
+| Item | Evidence |
+|---|---|
+| Root cause | Per-symbol Tencent fan-out triggered provider throttling; 30 histories took 34-58 seconds and individual requests stretched to 17-31 seconds. |
+| Fix | Issue #25 adds one reusable QFQ `TdxHqClient` for SSE/SZSE stocks and indices, while BSE and missing symbols use the existing Tencent fallback concurrently. |
+| Data parity | Three representative stocks had 81 overlapping dates and identical latest closes versus Tencent; historical differences were limited to QFQ rounding. |
+| Real benchmark | 29 tdxrs histories plus one BSE Tencent fallback completed 30/30 in 8.22 seconds without disk cache. |
+| End-to-end selector | The real 30-symbol selector covered 5,528 live listings, completed its history-factor stage in 6.8 seconds, and wrote JSON/Markdown/HTML reports in 32.1 seconds. |
+| Desktop dependency | `tdxrs>=0.6.5,<0.7.0`; CPython 3.11 Windows x64 wheel verified, and both hashed Windows dependency locks are refreshed with the pinned toolchain. |

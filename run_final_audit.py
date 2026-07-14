@@ -110,7 +110,16 @@ def check_delivery_assets() -> str:
     if not requirements_path.exists():
         raise AssertionError("缺少 requirements_nasdx.txt")
     text = _read_text(requirements_path)
-    required_packages = ["akshare", "pandas", "numpy", "requests", "openai", "pydantic", "streamlit"]
+    required_packages = [
+        "akshare",
+        "pandas",
+        "numpy",
+        "requests",
+        "openai",
+        "pydantic",
+        "streamlit",
+        "tdxrs",
+    ]
     missing = [name for name in required_packages if name not in text]
     if missing:
         raise AssertionError("requirements_nasdx.txt 缺少依赖: " + ", ".join(missing))
