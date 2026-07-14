@@ -27,7 +27,11 @@ from typing import Any, Dict, List
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
-from nasdx.selector.universe import load_full_a_stocks, filter_universe
+from nasdx.selector.universe import (
+    filter_universe,
+    get_universe_coverage,
+    load_full_a_stocks,
+)
 from nasdx.selector.market_regime import assess_market_regime
 from nasdx.selector.factors import compute_factors_for_stocks
 from nasdx.selector.scoring import compute_all_scores
@@ -67,7 +71,21 @@ def run_selector(
     print("[1/6] 加载全 A 实时股票池...")
     t0 = time.time()
     all_stocks = load_full_a_stocks()
+    universe_coverage = get_universe_coverage()
     print(f"  原始股票数：{len(all_stocks)}")
+    listed_counts = universe_coverage.get("counts", {})
+    quoted_counts = universe_coverage.get("quoted_counts", {})
+    print(
+        "  交易所覆盖："
+        + " / ".join(
+            f"{exchange} {quoted_counts.get(exchange, 0)}/{listed_counts.get(exchange, 0)}"
+            for exchange in ("SSE", "SZSE", "BSE")
+        )
+    )
+    if not universe_coverage.get("complete"):
+        missing = universe_coverage.get("unavailable_exchanges", [])
+        quote_missing = universe_coverage.get("quote_unavailable_exchanges", [])
+        print(f"  警告：股票池覆盖不完整（列表缺失 {missing or '无'}；行情缺失 {quote_missing or '无'}）")
     eligible_stocks = filter_universe(
         all_stocks,
         min_amount=3e7,   # 3000 万成交额
@@ -151,6 +169,7 @@ def run_selector(
         "date": datetime.now().strftime("%Y%m%d"),
         "market_regime": market,
         "data_quality": data_quality,
+        "universe_coverage": universe_coverage,
         "summary": {
             "total_stocks": len(all_stocks),
             "after_filter": len(filtered_stocks),
@@ -226,6 +245,7 @@ def _format_stock(s: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "code": s.get("code", ""),
         "name": s.get("name", ""),
+        "exchange": s.get("exchange", ""),
         "close": s.get("close", 0),
         "change_pct": s.get("change_pct", 0),
         "amount": round(s.get("amount", 0) / 1e8, 2),  # 转为亿
@@ -252,11 +272,16 @@ def _format_stock(s: Dict[str, Any]) -> Dict[str, Any]:
 
 def _format_markdown(output: Dict[str, Any]) -> str:
     """生成 Markdown 报告。"""
+    coverage = output.get("universe_coverage", {})
+    counts = coverage.get("counts", {})
+    quoted = coverage.get("quoted_counts", {})
+    coverage_status = "完整" if coverage.get("complete") else "不完整"
     lines = [
         "# NASDX 动态选股报告",
         "",
         f"- 生成时间：{output.get('generated_at', '')}",
         f"- 数据日期：{output.get('date', '')}",
+        f"- 股票池覆盖：{coverage_status}（SSE {quoted.get('SSE', 0)}/{counts.get('SSE', 0)}，SZSE {quoted.get('SZSE', 0)}/{counts.get('SZSE', 0)}，BSE {quoted.get('BSE', 0)}/{counts.get('BSE', 0)}）",
         "",
         "## 市场环境",
         "",
@@ -371,6 +396,10 @@ def _format_html(output: Dict[str, Any]) -> str:
     regime = output.get("market_regime", {})
     summary = output.get("summary", {})
     candidates = output.get("candidates", {})
+    coverage = output.get("universe_coverage", {})
+    coverage_counts = coverage.get("counts", {})
+    quoted_counts = coverage.get("quoted_counts", {})
+    coverage_status = "完整" if coverage.get("complete") else "不完整"
 
     def _render_table(title: str, rows: List[Dict], show_cols: List[str]) -> str:
         if not rows:
@@ -472,6 +501,16 @@ def _format_html(output: Dict[str, Any]) -> str:
     <h3>市场环境</h3>
     <div>状态：<strong>{regime.get('regime', '')}</strong> · 综合分 {regime.get('score', 0)}/100</div>
     <div style="color:var(--muted); font-size:12px; margin-top:4px">{regime.get('summary', '')}</div>
+  </div>
+
+  <div class="regime-card">
+    <h3>股票池覆盖</h3>
+    <div>状态：<strong>{coverage_status}</strong></div>
+    <div style="color:var(--muted); font-size:12px; margin-top:4px">
+      SSE {quoted_counts.get('SSE', 0)}/{coverage_counts.get('SSE', 0)} ·
+      SZSE {quoted_counts.get('SZSE', 0)}/{coverage_counts.get('SZSE', 0)} ·
+      BSE {quoted_counts.get('BSE', 0)}/{coverage_counts.get('BSE', 0)}
+    </div>
   </div>
 
   {_render_table("A 级候选（重点跟踪）", candidates.get("tier_a", []), show_detail)}

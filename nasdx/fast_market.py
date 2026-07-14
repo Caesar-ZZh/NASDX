@@ -13,18 +13,16 @@ import pandas as pd
 import requests
 
 from nasdx.market_sources import fetch_stock_hist
+from nasdx.market_symbols import market_symbol, resolve_exchange
 
 
 TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q="
 SSE_LIST_URL = "https://query.sse.com.cn/sseQuery/commonQuery.do"
 SZSE_LIST_URL = "https://www.szse.cn/api/report/ShowReport"
-
-
-def market_symbol(code: str) -> str:
-    normalized = str(code).strip().lower()
-    if normalized.startswith(("sh", "sz", "bj")):
-        return normalized
-    return f"sh{normalized}" if normalized.startswith(("5", "6", "9")) else f"sz{normalized}"
+BSE_LIST_URL = "https://www.bse.cn/nqxxController/nqxxCnzq.do"
+LISTING_CACHE_SCHEMA = "nasdx.a_share_listings.v2"
+BSE_JSONP_CALLBACK = "nasdxBseCallback"
+_LAST_LISTING_COVERAGE: dict = {}
 
 
 def parse_tencent_quotes(payload: str) -> dict[str, dict]:
@@ -214,21 +212,123 @@ def _write_history_cache(path: Path, frame: pd.DataFrame, source: str) -> None:
         pass
 
 
+def get_listing_coverage() -> dict:
+    return json.loads(json.dumps(_LAST_LISTING_COVERAGE)) if _LAST_LISTING_COVERAGE else {}
+
+
+def _parse_bse_page(payload: str) -> dict:
+    text = str(payload or "").strip().rstrip(";")
+    prefix = f"{BSE_JSONP_CALLBACK}("
+    if not text.startswith(prefix) or not text.endswith(")"):
+        raise ValueError("invalid BSE JSONP response")
+    decoded = json.loads(text[len(prefix) : -1])
+    if not isinstance(decoded, list) or not decoded or not isinstance(decoded[0], dict):
+        raise ValueError("invalid BSE listing payload")
+    page = decoded[0]
+    listings = []
+    for row in page.get("content", []):
+        code = str(row.get("xxzqdm", "")).strip()
+        if not code:
+            continue
+        listings.append(
+            {
+                "code": code,
+                "name": str(row.get("xxzqjc", code)).strip(),
+                "sector": str(row.get("xxhyzl", "北交所")).strip() or "北交所",
+                "exchange": "BSE",
+            }
+        )
+    return {
+        "listings": listings,
+        "total_elements": int(page.get("totalElements", len(listings)) or len(listings)),
+        "total_pages": max(1, int(page.get("totalPages", 1) or 1)),
+    }
+
+
+def _fetch_bse_page(page: int, request_timeout: float) -> dict:
+    response = requests.get(
+        BSE_LIST_URL,
+        params={
+            "page": page,
+            "typejb": "T",
+            "xxfcbj[]": "2",
+            "xxzqdm": "",
+            "sortfield": "xxzqdm",
+            "sorttype": "asc",
+            "callback": BSE_JSONP_CALLBACK,
+        },
+        timeout=request_timeout,
+        headers={
+            "Referer": "https://www.bse.cn/nq/listedcompany.html",
+            "User-Agent": "Mozilla/5.0 NASDX",
+        },
+    )
+    response.raise_for_status()
+    response.encoding = "utf-8"
+    return _parse_bse_page(response.text)
+
+
+def _fetch_bse_listings(request_timeout: float, max_workers: int = 4) -> tuple[list[dict], bool]:
+    try:
+        first = _fetch_bse_page(0, request_timeout)
+    except Exception:
+        return [], False
+    listings = list(first["listings"])
+    pages = list(range(1, first["total_pages"]))
+    complete = True
+    if pages:
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(pages))) as executor:
+            futures = [executor.submit(_fetch_bse_page, page, request_timeout) for page in pages]
+            for future in as_completed(futures):
+                try:
+                    listings.extend(future.result()["listings"])
+                except Exception:
+                    complete = False
+    unique = {item["code"]: item for item in listings}
+    complete = complete and len(unique) >= first["total_elements"]
+    return list(unique.values()), complete
+
+
+def _build_listing_coverage(listings: Sequence[dict], source_status: dict[str, bool]) -> dict:
+    counts = {"SSE": 0, "SZSE": 0, "BSE": 0}
+    for item in listings:
+        exchange = str(item.get("exchange") or resolve_exchange(item.get("code", ""))).upper()
+        if exchange in counts:
+            counts[exchange] += 1
+    sources = {exchange: bool(source_status.get(exchange, False)) for exchange in counts}
+    unavailable = [exchange for exchange, available in sources.items() if not available]
+    return {
+        "complete": not unavailable,
+        "counts": counts,
+        "sources": sources,
+        "unavailable_exchanges": unavailable,
+    }
+
+
 def load_a_share_listings(request_timeout: float = 8.0) -> list[dict]:
+    global _LAST_LISTING_COVERAGE
     cache_path = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "NASDX" / "a_share_listings.json"
     try:
         if cache_path.exists() and time.time() - cache_path.stat().st_mtime < 7 * 86400:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
-            if isinstance(cached, list) and len(cached) > 1000:
-                return cached
+            if (
+                isinstance(cached, dict)
+                and cached.get("schema") == LISTING_CACHE_SCHEMA
+                and isinstance(cached.get("listings"), list)
+                and len(cached["listings"]) > 1000
+            ):
+                _LAST_LISTING_COVERAGE = dict(cached.get("coverage") or {})
+                return cached["listings"]
     except (OSError, ValueError):
         pass
 
     listings: dict[str, dict] = {}
+    source_status = {"SSE": False, "SZSE": False, "BSE": False}
     headers = {
         "Referer": "https://www.sse.com.cn/assortment/stock/list/share/",
         "User-Agent": "Mozilla/5.0 NASDX",
     }
+    sse_successes = 0
     for stock_type in ("1", "8"):
         try:
             response = requests.get(
@@ -251,6 +351,7 @@ def load_a_share_listings(request_timeout: float = 8.0) -> list[dict]:
                 timeout=request_timeout,
             )
             response.raise_for_status()
+            sse_successes += 1
             for row in response.json().get("result", []):
                 code = str(row.get("A_STOCK_CODE", "")).strip()
                 if code:
@@ -258,9 +359,11 @@ def load_a_share_listings(request_timeout: float = 8.0) -> list[dict]:
                         "code": code,
                         "name": str(row.get("SEC_NAME_CN", code)).strip(),
                         "sector": "科创板" if stock_type == "8" else "沪市主板",
+                        "exchange": "SSE",
                     }
         except Exception:
             continue
+    source_status["SSE"] = sse_successes == 2
 
     try:
         response = requests.get(
@@ -271,6 +374,7 @@ def load_a_share_listings(request_timeout: float = 8.0) -> list[dict]:
         )
         response.raise_for_status()
         frame = pd.read_excel(BytesIO(response.content))
+        source_status["SZSE"] = True
         for _, row in frame.iterrows():
             raw_code = str(row.get("A股代码", "")).split(".", 1)[0]
             code = raw_code.zfill(6) if raw_code.isdigit() else ""
@@ -279,15 +383,27 @@ def load_a_share_listings(request_timeout: float = 8.0) -> list[dict]:
                     "code": code,
                     "name": str(row.get("A股简称", code)).strip(),
                     "sector": str(row.get("所属行业", "深市A股")).strip() or "深市A股",
+                    "exchange": "SZSE",
                 }
     except Exception:
         pass
+
+    bse_listings, bse_complete = _fetch_bse_listings(request_timeout)
+    for item in bse_listings:
+        listings[item["code"]] = item
+    source_status["BSE"] = bse_complete
+
     result = list(listings.values())
-    if len(result) > 1000:
+    coverage = _build_listing_coverage(result, source_status)
+    _LAST_LISTING_COVERAGE = coverage
+    if len(result) > 1000 and coverage["complete"]:
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             temp_path = cache_path.with_suffix(".tmp")
-            serialized = json.dumps(result, ensure_ascii=False)
+            serialized = json.dumps(
+                {"schema": LISTING_CACHE_SCHEMA, "listings": result, "coverage": coverage},
+                ensure_ascii=False,
+            )
             temp_path.write_text(serialized, encoding="utf-8")
             try:
                 temp_path.replace(cache_path)
