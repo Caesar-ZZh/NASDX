@@ -349,7 +349,7 @@ Without `-AllowInstall`, `smoke_installer_roundtrip.ps1` stays in plan-only mode
 
 After a successful real roundtrip, the script writes ignored proof metadata to `dist\installer\NASDX-Desktop-roundtrip-proof.json` by default. The completion audit treats installer roundtrip as PASS only when that proof uses schema `nasdx_installer_roundtrip_proof.v1`, matches the current setup executable SHA256, and proves installed smoke, uninstall, `-RequireVenv`, and `-CheckShortcuts`.
 
-The repository also includes a Windows GitHub Actions workflow at `.github/workflows/windows-desktop.yml`. It runs `python -B run_desktop_release_check.py --skip-final-audit --fail-fast` on `windows-latest`, then delivery-asset contracts. The CI job includes the lightweight security check but intentionally skips `run_final_audit.py` because a fresh checkout does not include local market snapshots or generated reports.
+The repository also includes a Windows GitHub Actions workflow at `.github/workflows/windows-desktop.yml`. It uses the Node 24 based `actions/checkout@v5` and `actions/setup-python@v6`, runs `python -B run_desktop_release_check.py --skip-final-audit --fail-fast` on `windows-latest`, then delivery-asset contracts. The CI job includes the lightweight security check but intentionally skips `run_final_audit.py` because a fresh checkout does not include local market snapshots or generated reports.
 
 ## Troubleshooting
 

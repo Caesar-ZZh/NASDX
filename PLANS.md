@@ -1958,6 +1958,38 @@ python -B run_final_audit.py
 
 **What not to touch:** Do not suppress browser warnings, patch installed Streamlit files, add undocumented theme keys, change page routes, or modify investment logic.
 
+### Milestone 9.2: GitHub Actions Node 24 Migration
+
+**Goal:** Close GitHub issue #28 by removing the Node.js 20 deprecation annotation from the Windows desktop workflow.
+
+**Files changed:**
+
+- `.github/workflows/windows-desktop.yml`
+- `tests/test_desktop_ci_contracts.py`
+- `README.md`
+- `docs/WINDOWS_DESKTOP.md`
+- `CONTEXT.md`
+- `PLANS.md`
+
+**Implementation steps:**
+
+- [x] Capture the Node.js 20 deprecation annotation from a successful master workflow run.
+- [x] Upgrade checkout to `actions/checkout@v5` and Python setup to `actions/setup-python@v6`.
+- [x] Add CI contracts that require the Node 24 action lines and reject the deprecated majors.
+- [ ] Run the full local gates and verify a new master workflow run has no Node.js 20 annotation.
+
+**Verification command:**
+
+```powershell
+python -B -m pytest tests\test_desktop_ci_contracts.py tests\test_delivery_assets_contracts.py tests\test_desktop_release_check_contracts.py
+python -B -m pytest
+python -B run_final_audit.py
+```
+
+**Rollback risk:** Low. Only official action runtime majors change; Python, runner image, dependency locks, security order, and release commands remain unchanged.
+
+**What not to touch:** Do not change CI secrets, permissions, branch triggers, Python version, dependency toolchain pins, installer behavior, or application code.
+
 ## Self-Review Against Requirements
 
 | Requirement | Covered |

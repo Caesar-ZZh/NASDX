@@ -15,8 +15,8 @@ class DesktopCiContractsTest(unittest.TestCase):
             "windows-latest",
             "PYTHONIOENCODING: utf-8",
             'PYTHONUTF8: "1"',
-            "actions/checkout@v4",
-            "actions/setup-python@v5",
+            "actions/checkout@v5",
+            "actions/setup-python@v6",
             'python-version: "3.11.9"',
             'python -m pip install "pip==25.3" "uv==0.10.2"',
             "python -B run_dependency_lock_check.py --enforce-toolchain",
@@ -28,6 +28,8 @@ class DesktopCiContractsTest(unittest.TestCase):
             self.assertIn(marker, text)
 
         self.assertNotIn("--compile-installer", text)
+        self.assertNotIn("actions/checkout@v4", text)
+        self.assertNotIn("actions/setup-python@v5", text)
         self.assertNotIn("NASDX-Desktop-Setup.exe", text)
         self.assertNotIn("Start-Process", text)
         self.assertNotIn("sk-", text)
