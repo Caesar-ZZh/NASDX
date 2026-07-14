@@ -305,6 +305,20 @@ def strategy_mean_reversion(date, price_data: dict, top_n: int = 3) -> dict:
     return {c: 1.0 / top_n for c in top} if top else {}
 
 
+# 回测内因子矩阵缓存：同一标的、相同窗口（行数 + 末日期 + 末收盘）只算一次，
+# 避免每个调仓日重算全量 Alpha158（日频回测的 O(重) 冗余，见 issue #32）。
+_factor_matrix_cache: dict[str, object] = {}
+
+
+def _factor_cache_key(code: str, df: pd.DataFrame) -> str:
+    try:
+        last_idx = str(df.index[-1])
+        last_close = float(df["close"].iloc[-1])
+        return f"{code}|{len(df)}|{last_idx}|{last_close:.6f}"
+    except Exception:
+        return f"{code}|{len(df)}"
+
+
 def strategy_factor_rank(date, price_data: dict, top_n: int = 5) -> dict:
     """
     多因子排名策略：使用 Alpha158 因子合成评分
@@ -313,7 +327,12 @@ def strategy_factor_rank(date, price_data: dict, top_n: int = 5) -> dict:
     factor_data = {}
     for code, df in price_data.items():
         if len(df) >= 60:
-            factor_data[code] = compute_alpha158(df)
+            key = _factor_cache_key(code, df)
+            cached = _factor_matrix_cache.get(key)
+            if cached is None:
+                cached = compute_alpha158(df)
+                _factor_matrix_cache[key] = cached
+            factor_data[code] = cached
 
     if not factor_data:
         return {}
