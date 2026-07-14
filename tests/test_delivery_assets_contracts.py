@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -29,6 +30,31 @@ class DeliveryAssetsContractsTest(unittest.TestCase):
             0,
             "requirements_nasdx.txt is ignored by git even though README documents it as an install input",
         )
+
+    def test_streamlit_version_avoids_sidebar_theme_console_regression(self):
+        runtime_requirements = (ROOT / "requirements_nasdx.txt").read_text(encoding="utf-8")
+        legacy_constraints = (ROOT / "packaging" / "windows" / "constraints-win.txt").read_text(encoding="utf-8")
+        core_lock = (ROOT / "packaging" / "windows" / "requirements-win-core.lock").read_text(encoding="utf-8")
+        webview_lock = (ROOT / "packaging" / "windows" / "requirements-win-webview.lock").read_text(encoding="utf-8")
+
+        self.assertIn("streamlit>=1.59.2,<1.60.0", runtime_requirements)
+        self.assertIn("streamlit==1.59.2", legacy_constraints)
+        self.assertIn("streamlit==1.59.2", core_lock)
+        self.assertIn("streamlit==1.59.2", webview_lock)
+
+    def test_streamlit_theme_has_no_empty_color_values(self):
+        config = tomllib.loads((ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8"))
+
+        def assert_colors_are_set(section: dict, path: str) -> None:
+            for key, value in section.items():
+                item_path = f"{path}.{key}"
+                if isinstance(value, dict):
+                    assert_colors_are_set(value, item_path)
+                elif "color" in key.lower():
+                    self.assertIsInstance(value, str, f"{item_path} must be a color string")
+                    self.assertTrue(value.strip(), f"{item_path} must not be empty")
+
+        assert_colors_are_set(config.get("theme", {}), "theme")
 
     def test_development_tooling_manifest_is_versionable(self):
         requirements_path = ROOT / "requirements-dev.txt"

@@ -1921,6 +1921,43 @@ python -B run_final_audit.py
 
 **What not to touch:** Do not rewrite `app.py`; do not migrate to Electron/Tauri/Qt; do not change investment logic, schemas, or CLI scripts.
 
+### Milestone 9.1: Streamlit Sidebar Theme Console Regression
+
+**Goal:** Close GitHub issue #27 by removing repeated empty sidebar color warnings without changing the existing dark UI or application workflow.
+
+**Files changed:**
+
+- `requirements_nasdx.txt`
+- `packaging/windows/constraints-win.txt`
+- `packaging/windows/requirements-win-core.lock`
+- `packaging/windows/requirements-win-webview.lock`
+- `tests/test_delivery_assets_contracts.py`
+- `README.md`
+- `CONTEXT.md`
+- `PLANS.md`
+
+**Implementation steps:**
+
+- [x] Reproduce the warning on Streamlit 1.52.2 and verify that explicit supported `[theme.sidebar]` colors do not remove it.
+- [x] Run the same page on Streamlit 1.59.2 and verify zero browser console warnings.
+- [x] Bound the runtime dependency to `>=1.59.2,<1.60.0` and align legacy constraints plus both hashed Windows release locks.
+- [x] Add a contract that prevents development and packaged dependency versions from drifting back to the affected release.
+- [x] Add a TOML contract that rejects empty color values in root or nested theme sections.
+- [x] Verify the plan page at desktop and mobile viewport sizes while preserving the existing dark sidebar.
+
+**Verification command:**
+
+```powershell
+python -B -m pytest tests\test_delivery_assets_contracts.py tests\test_desktop_packaging_contracts.py
+python -B run_dependency_lock_check.py --static-only
+streamlit run app.py --server.port 8513 --browser.serverPort 8513
+python -B run_final_audit.py
+```
+
+**Rollback risk:** Low. The UI and theme files are unchanged; the release dependency graph moves to the tested Streamlit patch line and its compatible PyArrow version.
+
+**What not to touch:** Do not suppress browser warnings, patch installed Streamlit files, add undocumented theme keys, change page routes, or modify investment logic.
+
 ## Self-Review Against Requirements
 
 | Requirement | Covered |
@@ -1939,4 +1976,4 @@ python -B run_final_audit.py
 | Step-by-step milestones with required fields | Section 12 |
 | Dependency plan grouped by requested tool category | Phase 1 Dependency Plan |
 
-Current stop point: Milestone 9 is implemented; the 10 investment-plan table builders now live in the Streamlit-independent `nasdx/ui/plan_tables.py`, with shared escaping, safe external links, empty-state and marker contracts, while `app.py` keeps its route keys, report readers, data fields, labels, and call sites. Milestone 8.34 Inno Setup 7 discovery and installer roundtrip proof remains implemented; `D:\Inno Setup 7\ISCC.exe` is detected through shared PATH/registry/common-path discovery, `NASDX-Desktop-Setup.exe` compiles, and `smoke_installer_roundtrip.ps1 -AllowInstall -CheckShortcuts -RequireVenv` has installed to a temporary directory, run installed smoke with the bundled `.venv`, uninstalled, removed shortcuts, and written ignored proof for completion audit. Application logic still should not be rewritten.
+Current stop point: Milestone 9.1 is implemented; Streamlit is bounded to the browser-verified `>=1.59.2,<1.60.0` line, both Windows release locks use 1.59.2, and the plan page renders at desktop/mobile sizes with zero console errors or warnings. Milestone 9 remains implemented; the 10 investment-plan table builders live in the Streamlit-independent `nasdx/ui/plan_tables.py`, with shared escaping, safe external links, empty-state and marker contracts, while `app.py` keeps its route keys, report readers, data fields, labels, and call sites. Milestone 8.34 Inno Setup 7 discovery and installer roundtrip proof remains implemented; `D:\Inno Setup 7\ISCC.exe` is detected through shared PATH/registry/common-path discovery, `NASDX-Desktop-Setup.exe` compiles, and `smoke_installer_roundtrip.ps1 -AllowInstall -CheckShortcuts -RequireVenv` has installed to a temporary directory, run installed smoke with the bundled `.venv`, uninstalled, removed shortcuts, and written ignored proof for completion audit. Application logic still should not be rewritten.

@@ -52,3 +52,12 @@
 | New UI helper contracts | `tests/test_plan_table_contracts.py` covers all 10 builders, empty states, required table markers, hostile text escaping, rich-cell escaping, safe external links, app wiring, and final-audit ownership. |
 | Shared security boundary | `tests/test_ui_security_contracts.py` now verifies that both `app.py` and `nasdx/ui/plan_tables.py` use the shared HTML/URL safety helpers. |
 | Runtime evidence | Playwright opened `/?page=plan`; the page rendered 10 `.plan-table` tables with zero Streamlit exceptions and zero browser console errors. |
+
+## 2026-07-14 Streamlit Theme Regression Update
+
+| Item | Evidence |
+|---|---|
+| Full suite | 210 tests collected and 210 passed, plus 43 subtests, under CPython 3.11.9. |
+| Dependency and theme regression contracts | `tests/test_delivery_assets_contracts.py` keeps runtime requirements, legacy constraints, and both Windows release locks on Streamlit 1.59.2, and rejects empty root or nested theme color values. |
+| Runtime evidence | Playwright opened `/?page=plan` at 1440x900 and 390x844; both runs reported zero browser errors and zero warnings while preserving the dark sidebar. |
+| Release evidence | Final audit passed 22/22 and desktop release check passed 11/11, including 74 desktop contracts, required secret scan, Ruff, doctor, packaging smoke, and release evidence. |

@@ -278,6 +278,8 @@ python run_product_readiness.py --llm-smoke
 # 或: streamlit run app.py
 ```
 
+Web UI 依赖 `Streamlit >=1.59.2,<1.60.0`。该版本区间已通过桌面和移动端浏览器回归，并避免旧版侧边栏主题协议产生重复空颜色警告；Windows 发布锁文件固定为 `1.59.2`。
+
 ### 5. Windows 桌面启动器 MVP
 
 当前桌面入口仍复用现有 Streamlit UI，不迁移前端、不删除 `.bat` 和 CLI 脚本。桌面控制面板提供 Start、Stop、Open App、Settings、Logs、Data Refresh 入口；底层启动器会在本机启动 `app.py`，默认绑定 `127.0.0.1`，可打开指定页面：
