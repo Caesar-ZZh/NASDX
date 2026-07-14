@@ -1,7 +1,7 @@
 """
 universe.py — 全 A 股票池加载与过滤
 
-从东方财富全 A 列表出发，过滤 ST、停牌、低成交额、低价股、
+从交易所官方全 A 列表出发，过滤 ST、停牌、低成交额、低价股、
 上市时间过短、流动性差的标的，得到可交易股票池。
 """
 from __future__ import annotations
@@ -16,8 +16,16 @@ from typing import Any, Dict, List, Optional
 import akshare as ak
 import pandas as pd
 
-from nasdx.fast_market import fetch_tencent_quotes, load_a_share_listings
+from nasdx.fast_market import (
+    fetch_tencent_quotes,
+    get_listing_coverage,
+    load_a_share_listings,
+)
+from nasdx.market_symbols import resolve_exchange
 from nasdx.paths import get_reports_dir
+
+
+_LAST_UNIVERSE_COVERAGE: dict = {}
 
 
 def _safe(fn, *args, **kwargs):
@@ -29,22 +37,53 @@ def _safe(fn, *args, **kwargs):
 
 def load_full_a_stocks() -> List[Dict[str, Any]]:
     """
-    从东方财富获取全 A 股票列表。
+    从交易所官方列表获取全 A 股票，并合并腾讯实时行情。
 
     Returns:
-        全 A 股票基础信息列表，每项包含 code, name, market 等。
+        全 A 股票基础信息列表，每项包含 code, name, exchange 等。
     """
+    global _LAST_UNIVERSE_COVERAGE
     listings = load_a_share_listings()
+    listing_coverage = get_listing_coverage()
     if not listings:
         listings = _load_local_fallback_listings()
-    quotes = fetch_tencent_quotes([item["code"] for item in listings])
+    normalized_listings = [
+        {**item, "exchange": item.get("exchange") or resolve_exchange(item.get("code", ""))}
+        for item in listings
+    ]
+    quotes = fetch_tencent_quotes([item["code"] for item in normalized_listings])
     results: List[Dict[str, Any]] = []
-    for item in listings:
+    listed_counts = {"SSE": 0, "SZSE": 0, "BSE": 0}
+    quoted_counts = {"SSE": 0, "SZSE": 0, "BSE": 0}
+    for item in normalized_listings:
+        exchange = item["exchange"]
+        if exchange in listed_counts:
+            listed_counts[exchange] += 1
         quote = quotes.get(item["code"])
         if not quote:
             continue
+        if exchange in quoted_counts:
+            quoted_counts[exchange] += 1
         results.append({**item, **quote, "pe_ttm": None, "pb": None})
+
+    missing_quotes = [
+        exchange
+        for exchange, count in listed_counts.items()
+        if count > 0 and quoted_counts[exchange] == 0
+    ]
+    _LAST_UNIVERSE_COVERAGE = {
+        **listing_coverage,
+        "complete": bool(listing_coverage.get("complete")) and not missing_quotes,
+        "counts": listed_counts,
+        "quoted_counts": quoted_counts,
+        "quote_unavailable_exchanges": missing_quotes,
+    }
     return results
+
+
+def get_universe_coverage() -> dict:
+    """Return a detached snapshot of the latest listing and quote coverage."""
+    return json.loads(json.dumps(_LAST_UNIVERSE_COVERAGE)) if _LAST_UNIVERSE_COVERAGE else {}
 
 
 def _load_local_fallback_listings() -> List[Dict[str, Any]]:
@@ -63,6 +102,7 @@ def _load_local_fallback_listings() -> List[Dict[str, Any]]:
                     "code": code,
                     "name": str(stock.get("name", code)),
                     "sector": sector_name,
+                    "exchange": resolve_exchange(code),
                 }
     return list(listings.values())
 
@@ -85,7 +125,7 @@ def filter_universe(
         min_price: 最低股价
         max_price: 最高股价
         exclude_st: 是否排除 ST / *ST
-        exclude_bj: 是否排除北交所（8/4 开头）
+        exclude_bj: 是否排除北交所（4/8/920 开头）
         exclude_kcb: 是否排除科创板（688 开头，资金流数据缺失）
 
     Returns:
@@ -112,7 +152,7 @@ def filter_universe(
             continue
 
         # 北交所过滤
-        if exclude_bj and (code.startswith("8") or code.startswith("4")):
+        if exclude_bj and (s.get("exchange") or resolve_exchange(code)) == "BSE":
             continue
 
         # 科创板过滤

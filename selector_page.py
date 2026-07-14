@@ -266,6 +266,22 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
             unsafe_allow_html=True,
         )
     else:
+        coverage = d.get("universe_coverage", {})
+        if coverage:
+            counts = coverage.get("counts", {})
+            quoted = coverage.get("quoted_counts", {})
+            coverage_text = " · ".join(
+                f"{exchange} {quoted.get(exchange, 0)}/{counts.get(exchange, 0)}"
+                for exchange in ("SSE", "SZSE", "BSE")
+            )
+            if coverage.get("complete"):
+                st.caption(f"股票池覆盖完整 · {coverage_text}")
+            else:
+                missing = coverage.get("unavailable_exchanges", [])
+                quote_missing = coverage.get("quote_unavailable_exchanges", [])
+                details = "、".join(dict.fromkeys([*missing, *quote_missing])) or "未知来源"
+                st.warning(f"股票池覆盖不完整：{details} 暂不可用 · {coverage_text}")
+
         # Market regime
         regime = d.get("market_regime", {})
         regime_color = {
