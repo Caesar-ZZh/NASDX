@@ -44,3 +44,11 @@
 | B | no-lookahead, rolling rebalance, pool semantics, selector sector mapping | quant/strategy tests |
 | C | workflow service, report history, installed runtime write boundary | release check + product readiness |
 
+## 2026-07-14 Plan Table Coverage Update
+
+| Item | Evidence |
+|---|---|
+| Full suite | 208 tests collected and 208 passed under CPython 3.11.9. |
+| New UI helper contracts | `tests/test_plan_table_contracts.py` covers all 10 builders, empty states, required table markers, hostile text escaping, rich-cell escaping, safe external links, app wiring, and final-audit ownership. |
+| Shared security boundary | `tests/test_ui_security_contracts.py` now verifies that both `app.py` and `nasdx/ui/plan_tables.py` use the shared HTML/URL safety helpers. |
+| Runtime evidence | Playwright opened `/?page=plan`; the page rendered 10 `.plan-table` tables with zero Streamlit exceptions and zero browser console errors. |

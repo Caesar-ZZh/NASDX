@@ -25,11 +25,13 @@ class UiSecurityContractsTest(unittest.TestCase):
             self.assertNotIn("href=", rendered)
             self.assertIn("&lt;b&gt;", rendered)
 
-    def test_app_uses_shared_html_and_url_safety_helpers(self):
+    def test_app_and_plan_tables_use_shared_html_and_url_safety_helpers(self):
         source = (ROOT / "app.py").read_text(encoding="utf-8")
-        self.assertIn("from nasdx.ui_security import escape_html, safe_external_link", source)
-        self.assertIn("safe_external_link(", source)
-        self.assertNotIn("links.append(f'<a href=", source)
+        table_source = (ROOT / "nasdx" / "ui" / "plan_tables.py").read_text(encoding="utf-8")
+        self.assertIn("from nasdx.ui_security import escape_html", source)
+        self.assertIn("from nasdx.ui_security import escape_html, safe_external_link", table_source)
+        self.assertIn("safe_external_link(", table_source)
+        self.assertNotIn("f'<a href=", table_source)
 
 
 if __name__ == "__main__":
