@@ -1188,6 +1188,7 @@ def check_streamlit_markers() -> str:
     text = _read_text(ROOT / "app.py")
     required = [
         "投资路线",
+        "from nasdx.ui.plan_tables import (",
         "load_portfolio_latest",
         "load_investment_brief_latest",
         "最终简报",
@@ -1216,7 +1217,6 @@ def check_streamlit_markers() -> str:
         "外部复核包",
         "download_button",
         "复盘包",
-        "deep_signal",
         "risk_controls",
         "data_evidence",
         "future_scenarios",
@@ -1227,7 +1227,35 @@ def check_streamlit_markers() -> str:
     missing = [word for word in required if word not in text]
     if missing:
         raise AssertionError("app.py 缺少页面标记: " + ", ".join(missing))
-    return "投资路线页包含生成、执行队列、外部复核包、情景、规则、监控和数据状态"
+
+    table_text = _read_text(ROOT / "nasdx" / "ui" / "plan_tables.py")
+    helpers = [
+        "candidate_table",
+        "scenario_table",
+        "brief_playbook_table",
+        "audit_table",
+        "execution_queue_table",
+        "external_review_table",
+        "position_sizing_table",
+        "account_review_table",
+        "tracker_change_table",
+        "recommendation_review_table",
+    ]
+    table_required = [
+        *(f"def {name}(" for name in helpers),
+        "escape_html",
+        "safe_external_link",
+        "deep_signal",
+        'class="n-card plan-table"',
+    ]
+    missing = [word for word in table_required if word not in table_text]
+    if missing:
+        raise AssertionError("计划页表格 helper 缺少标记: " + ", ".join(missing))
+
+    inline_helpers = [name for name in helpers if f"        def _{name.replace('candidate_table', 'table')}(" in text]
+    if inline_helpers:
+        raise AssertionError("计划页表格 helper 回流 app.py: " + ", ".join(inline_helpers))
+    return "投资路线页包含生成、执行队列、外部复核包、情景、规则、监控和数据状态，使用 10 个独立表格 helper"
 
 
 def check_documentation() -> str:

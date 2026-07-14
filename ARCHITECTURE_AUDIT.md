@@ -35,3 +35,12 @@
 | 4 | Extract workflow orchestration service | Makes UI and CLI parity testable |
 | 5 | Extract Streamlit table/card helpers | Reduces `app.py` size after behavior is protected |
 
+## 2026-07-14 Plan Table Extraction
+
+| Item | Result |
+|---|---|
+| Scope | Issue #26 moved all 10 investment-plan table builders from the Streamlit route into `nasdx/ui/plan_tables.py`. |
+| Boundary | The new module has no Streamlit import; `app.py` keeps the existing aliases and call sites, while shared headers, cells, empty states, colors, and wrappers live in one place. |
+| Security | Untrusted headers/cells pass through `escape_html`; rich cells use internal trusted wrappers only after escaping, and external URLs still pass through `safe_external_link`. |
+| Maintainability | The route entry lost about 380 lines of repeated HTML construction without changing page keys, report readers, data fields, or investment logic. |
+| Evidence | `tests/test_plan_table_contracts.py`, `tests/test_ui_security_contracts.py`, and `run_final_audit.py::check_streamlit_markers`. |

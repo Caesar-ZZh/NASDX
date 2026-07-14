@@ -48,6 +48,8 @@ NASDX
 │   ├── environments/
 │   │   ├── research.py      # 研究环境（5 Agent 并发分析，可配置顺序回退）
 │   │   └── battle.py        # 辩论环境（多空博弈 + 投票）
+│   ├── ui/
+│   │   └── plan_tables.py   # 投资路线页表格渲染、统一转义与安全链接边界
 │   ├── llm.py               # LLM 客户端（支持 DeepSeek/Claude/Qwen）
 │   ├── data_loader.py       # 数据加载与格式化
 │   ├── fast_market.py       # 交互扫描的批量报价、并发 K 线与短时缓存
@@ -67,6 +69,7 @@ NASDX
 │   ├── review_snapshot.py   # 复盘快照包导出（ZIP/manifest/CSV）
 │   ├── history_store.py     # SQLite 历史库（报告/扫描/ETF池/简报索引）
 │   ├── cloud_sync.py        # ETF50 白名单校验、并发锁与隔离发布
+│   ├── ui_security.py       # Streamlit HTML/外链统一安全编码
 │   ├── rule_based_analysis.py # 无API规则深度报告
 │   ├── analyzer.py          # 主分析器（三阶段管道）
 │   └── report.py            # HTML 报告生成

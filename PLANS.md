@@ -1905,10 +1905,10 @@ python -B run_final_audit.py
 
 **Implementation steps:**
 
-- [ ] Extract repeated HTML table builders from the `plan` page into helper functions.
-- [ ] Keep all page keys, labels, data fields, and report readers unchanged.
-- [ ] Add tests for helper output escaping and required markers.
-- [ ] Run full audit after every small extraction.
+- [x] Extract repeated HTML table builders from the `plan` page into helper functions.
+- [x] Keep all page keys, labels, data fields, and report readers unchanged.
+- [x] Add tests for helper output escaping and required markers.
+- [x] Run full audit after every small extraction.
 
 **Verification command:**
 
@@ -1939,4 +1939,4 @@ python -B run_final_audit.py
 | Step-by-step milestones with required fields | Section 12 |
 | Dependency plan grouped by requested tool category | Phase 1 Dependency Plan |
 
-Current stop point: Milestone 8.34 Inno Setup 7 discovery and installer roundtrip proof is implemented; `D:\Inno Setup 7\ISCC.exe` is detected through shared PATH/registry/common-path discovery, `NASDX-Desktop-Setup.exe` compiles, and `smoke_installer_roundtrip.ps1 -AllowInstall -CheckShortcuts -RequireVenv` has installed to a temporary directory, run installed smoke with the bundled `.venv`, uninstalled, removed shortcuts, and written ignored proof for completion audit. `build_portable.ps1` now keeps the package `.venv` after dependency install while scrubbing `__pycache__/`, `*.pyc`, and `*.pyo`; the Inno uninstaller removes the app-owned `{app}` directory so runtime Python caches do not remain, while user config/reports/history stay outside `{app}`. Milestone 8.33 portable manifest path hygiene is implemented; packaged `PACKAGING_MANIFEST.json` uses `path_policy=relative-or-redacted`, `source_root=<source-checkout>`, `package_root=.`, repository-relative paths, or `<external-path>` placeholders instead of packaging-machine absolute paths. Milestone 8.32 portable zip forbidden content evidence is implemented; `build_portable_zip.ps1` rejects forbidden package files before compression, `smoke_portable_zip.ps1` checks the extracted package, and `run_desktop_release_evidence.py` records forbidden zip entries in `zip_forbidden_failures` without reading file contents. Milestone 8.31 portable package cache scrub is implemented; `build_portable.ps1` records `scrubbed_patterns` and removes package-local caches, logs, runtime config, reports, local DBs, wheelhouse, and build/cache outputs after allow-list copy without deleting anything from the source checkout. Milestone 8.30 through Milestone 8.24 release evidence, installer proof receipt, and preflight are in place; Milestone 8.23 through Milestone 8.16 desktop doctor, batch entrypoint, shortcut helper, installed smoke, CI skeleton, security gate, and final audit desktop coverage are also in place. Application logic still should not be rewritten.
+Current stop point: Milestone 9 is implemented; the 10 investment-plan table builders now live in the Streamlit-independent `nasdx/ui/plan_tables.py`, with shared escaping, safe external links, empty-state and marker contracts, while `app.py` keeps its route keys, report readers, data fields, labels, and call sites. Milestone 8.34 Inno Setup 7 discovery and installer roundtrip proof remains implemented; `D:\Inno Setup 7\ISCC.exe` is detected through shared PATH/registry/common-path discovery, `NASDX-Desktop-Setup.exe` compiles, and `smoke_installer_roundtrip.ps1 -AllowInstall -CheckShortcuts -RequireVenv` has installed to a temporary directory, run installed smoke with the bundled `.venv`, uninstalled, removed shortcuts, and written ignored proof for completion audit. Application logic still should not be rewritten.
