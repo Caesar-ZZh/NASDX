@@ -155,6 +155,8 @@ def fetch_histories(
             cached = _read_history_cache(
                 history_cache_dir / f"{market_symbol(code)}_{start_date}_{end_date}.json",
                 cache_ttl_seconds,
+                min_rows=min_rows,
+                sources=sources,
             )
             if cached is None:
                 pending.append(code)
@@ -220,6 +222,8 @@ def fetch_histories(
 def _read_history_cache(
     path: Path,
     ttl_seconds: float,
+    min_rows: int = 0,
+    sources: Sequence[str] = (),
 ) -> tuple[pd.DataFrame, str] | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -228,6 +232,11 @@ def _read_history_cache(
         frame = pd.DataFrame(payload["records"])
         source = str(payload["source"])
         if frame.empty or not source:
+            return None
+        # 校验缓存充分性（issue #39）：行数不足 或 缓存源不在请求源内则视为未命中
+        if min_rows > 0 and len(frame) < min_rows:
+            return None
+        if sources and source not in sources:
             return None
         return frame, source
     except (KeyError, OSError, TypeError, ValueError):

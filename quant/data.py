@@ -239,7 +239,7 @@ def get_ohlcv(
 
     # 尝试 mootdx（备用）
     if source in ("mootdx", "auto"):
-        df = _get_mootdx(code, days)
+        df = _get_mootdx(code, days, start_s, end_s)
         if df is not None and _validate_ohlcv(df):
             return _standardize_columns(df)
 
@@ -333,9 +333,11 @@ def _get_akshare(code: str, start: str, end: str) -> Optional[pd.DataFrame]:
 #  mootdx 接口（备用，3次重试）
 # ══════════════════════════════════════════════════════════
 @retry_with_backoff(max_attempts=3, initial_wait=0.5, retry_on_none=True)
-def _get_mootdx(code: str, days: int) -> Optional[pd.DataFrame]:
+def _get_mootdx(code: str, days: int, start_s: str = "", end_s: str = "") -> Optional[pd.DataFrame]:
     """
     通过 mootdx 通达信获取历史 K 线
+    lookback 语义与 AkShare 对齐：按自然日 [start_s, end_s] 窗口估算 bars 数，
+    并裁剪到该窗口，避免 offset=days（bars 数）与自然日不一致（issue #30）。
     """
     try:
         from mootdx.quotes import Quotes
@@ -343,14 +345,32 @@ def _get_mootdx(code: str, days: int) -> Optional[pd.DataFrame]:
         # 创建 API 连接
         api = Quotes.factory(market="std", bestip=True, timeout=8)
 
+        # 估算覆盖自然日窗口所需的 bars 数（含周末/停牌缓冲）
+        try:
+            start_dt = pd.to_datetime(start_s) if start_s else None
+            end_dt = pd.to_datetime(end_s) if end_s else None
+        except (TypeError, ValueError):
+            start_dt = end_dt = None
+        if start_dt is not None and end_dt is not None:
+            offset = max(days, (end_dt - start_dt).days + 30)
+        else:
+            offset = max(days, 30)
+
         # 日 K 线（frequency=9）
-        df = api.bars(symbol=code, frequency=9, offset=days)
+        df = api.bars(symbol=code, frequency=9, offset=offset)
 
         if isinstance(df, pd.DataFrame) and len(df) > 5:
+            df = df.copy(deep=True)  # 避免后续切片/赋值触发 SettingWithCopyWarning（issue #30 路径）
             # 转换日期列
             if "datetime" in df.columns:
-                df["date"] = pd.to_datetime(df["datetime"]).dt.date.astype(str)
-            return df
+                df["date"] = pd.to_datetime(df["datetime"])
+                # 按自然日窗口裁剪，对齐 AkShare 的 start_date/end_date 语义
+                if start_dt is not None and end_dt is not None:
+                    mask = (df["date"] >= start_dt) & (df["date"] <= end_dt)
+                    df = df[mask]
+                df["date"] = df["date"].dt.date.astype(str)
+            if len(df) > 5:
+                return df
 
     except Exception as e:
         # 重试由装饰器处理
