@@ -92,14 +92,23 @@ class Backtester:
         if close_all.empty:
             return BacktestResult()
 
-        # 确定再平衡日期
+        # 确定再平衡日期：取每个调仓周期内的【最后一个交易日】（issue #43）
+        # 原实现取周一/月首，若当天停牌则整周期无调仓；改为周期末交易日触发。
         dates = close_all.index
         if rebalance_freq == "W":
-            rebal_dates = set(dates[dates.weekday == 0])  # 每周一
+            period_key = dates.to_series().dt.isocalendar().week
         elif rebalance_freq == "M":
-            rebal_dates = set(dates[dates.is_month_start])
+            period_key = dates.to_series().dt.to_period("M").astype(str)
         else:
-            rebal_dates = set(dates)
+            period_key = pd.Series(range(len(dates)), index=dates)
+        rebal_dates = set()
+        for _, idx in period_key.groupby(period_key):
+            rebal_dates.add(idx.index[-1])  # 该周期最后一个交易日（groupby yield (key, sub-series)）
+
+        def _safe_price(prices: dict, code: str) -> float:
+            """取当日收盘价，NaN/缺失视作 0（停牌不计入市值，issue #44）"""
+            p = prices.get(code, 0)
+            return 0.0 if (p is None or pd.isna(p)) else float(p)
 
         # 初始化
         capital    = self.initial_capital
@@ -110,14 +119,15 @@ class Backtester:
         pnl_list   = []
 
         prev_equity = capital
+        realized_pnl: list[float] = []  # 闭环已实现盈亏（issue #42）
 
         for i, date in enumerate(dates):
             # 当日收盘价
             today_close = close_all.loc[date].to_dict()
 
-            # 计算持仓市值
+            # 计算持仓市值（停牌 NaN 视作 0，issue #44）
             market_value = sum(
-                holdings.get(c, 0) * today_close.get(c, 0)
+                holdings.get(c, 0) * _safe_price(today_close, c)
                 for c in holdings
             )
             total_equity = capital + market_value
@@ -132,16 +142,27 @@ class Backtester:
                 }
                 target_weights = signal_func(date, past_data) if past_data else {}
 
-                if target_weights:
-                    capital, holdings, cost_basis, day_trades = self._rebalance(
+                # 权重校验：剔除 NaN/负值，超额权重等比缩放至 Σ≤1（issue #45）
+                target_weights = _normalize_weights(target_weights)
+
+                if not target_weights:
+                    # 清仓信号（空 dict）：卖出全部持仓，不留陈旧（issue #49）
+                    capital, holdings, cost_basis, day_trades, day_pnl = self._liquidate(
+                        date, today_close, capital, holdings, cost_basis
+                    )
+                    trades.extend(day_trades)
+                    realized_pnl.extend(day_pnl)
+                else:
+                    capital, holdings, cost_basis, day_trades, day_pnl = self._rebalance(
                         date, target_weights, today_close,
                         capital, holdings, cost_basis, total_equity
                     )
                     trades.extend(day_trades)
+                    realized_pnl.extend(day_pnl)
 
-                    # 重新计算
+                    # 重新计算（停牌 NaN 视作 0）
                     market_value = sum(
-                        holdings.get(c, 0) * today_close.get(c, 0)
+                        holdings.get(c, 0) * _safe_price(today_close, c)
                         for c in holdings
                     )
                     total_equity = capital + market_value
@@ -154,17 +175,26 @@ class Backtester:
         equity_ser = result_df["equity"]
         daily_pnl  = result_df["pnl"]
 
-        return self._calc_metrics(equity_ser, daily_pnl, trades)
+        return self._calc_metrics(
+            equity_ser, daily_pnl, trades,
+            initial_capital=self.initial_capital,
+            realized_pnl=realized_pnl,
+        )
 
     def _rebalance(self, date, target_weights, prices, capital, holdings, cost_basis, total_equity):
-        """执行再平衡"""
+        """执行再平衡，返回 (capital, holdings, cost_basis, trades, realized_pnl)"""
         new_trades = []
+        realized = []
+
+        def _safe(code):
+            p = prices.get(code, 0)
+            return 0.0 if (p is None or pd.isna(p)) else float(p)
 
         # 先卖出不在目标中或需减仓的
         for code in list(holdings.keys()):
             target_w = target_weights.get(code, 0)
             target_val = total_equity * target_w
-            cur_price = prices.get(code, 0)
+            cur_price = _safe(code)
             if cur_price <= 0:
                 continue
             cur_val = holdings[code] * cur_price
@@ -176,6 +206,8 @@ class Backtester:
                     exec_price = cur_price * (1 - self.slippage)
                     amount     = sell_sh * exec_price
                     commission = amount * self.commission_rate + amount * self.stamp_duty
+                    avg_cost   = cost_basis.get(code, exec_price)
+                    realized.append((exec_price - avg_cost) * sell_sh - commission)  # 闭环盈亏
                     capital   += amount - commission
                     holdings[code] -= sell_sh
                     if holdings[code] <= 0:
@@ -183,7 +215,6 @@ class Backtester:
                         del cost_basis[code]
                     new_trades.append(Trade(str(date), code, "sell",
                                             exec_price, sell_sh, amount, commission))
-
         # 再买入目标仓位
         for code, w in sorted(target_weights.items(), key=lambda x: -x[1]):
             if w <= 0:
@@ -218,15 +249,46 @@ class Backtester:
             new_trades.append(Trade(str(date), code, "buy",
                                     exec_price, buy_sh, amount, commission))
 
-        return capital, holdings, cost_basis, new_trades
+        return capital, holdings, cost_basis, new_trades, realized
 
-    def _calc_metrics(self, equity: pd.Series, daily_pnl: pd.Series, trades: list) -> BacktestResult:
+    def _liquidate(self, date, prices, capital, holdings, cost_basis):
+        """清仓：卖出全部持仓，返回 (capital, holdings, cost_basis, trades, realized_pnl)"""
+        new_trades = []
+        realized = []
+        for code in list(holdings.keys()):
+            cur_price = prices.get(code, 0)
+            if cur_price is None or pd.isna(cur_price) or cur_price <= 0:
+                continue
+            sell_sh   = holdings[code]
+            exec_price = cur_price * (1 - self.slippage)
+            amount     = sell_sh * exec_price
+            commission = amount * self.commission_rate + amount * self.stamp_duty
+            avg_cost   = cost_basis.get(code, exec_price)
+            realized.append((exec_price - avg_cost) * sell_sh - commission)
+            capital   += amount - commission
+            new_trades.append(Trade(str(date), code, "sell",
+                                    exec_price, sell_sh, amount, commission))
+        holdings.clear()
+        cost_basis.clear()
+        return capital, holdings, cost_basis, new_trades, realized
+
+
+    def _calc_metrics(
+        self,
+        equity: pd.Series,
+        daily_pnl: pd.Series,
+        trades: list,
+        initial_capital: float = 100_000.0,
+        realized_pnl: list[float] | None = None,
+    ) -> BacktestResult:
         """计算绩效指标"""
         if equity.empty:
             return BacktestResult()
 
         total_days   = len(equity)
-        total_return = equity.iloc[-1] / equity.iloc[0] - 1
+        # 收益基准用初始资金而非首条 equity（避免首日持仓市值污染，issue #48）
+        base = initial_capital if initial_capital > 0 else equity.iloc[0]
+        total_return = equity.iloc[-1] / base - 1
         annual_return = (1 + total_return) ** (252 / total_days) - 1
 
         # 最大回撤
@@ -241,9 +303,12 @@ class Backtester:
         # 卡玛比率
         calmar = annual_return / (abs(max_dd) + 1e-9)
 
-        # 胜率 / 盈亏比
-        pnls = [t.amount * (1 if t.direction == "sell" else -1)
-                - t.commission for t in trades]
+        # 胜率 / 盈亏比：用【闭环已实现盈亏】（卖出价 - 持仓均成本，issue #42）
+        pnls = [p for p in (realized_pnl or []) if p is not None]
+        if not pnls:
+            # 回退：无已实现盈亏时按交易现金流估算（仅兼容老调用路径）
+            pnls = [t.amount * (1 if t.direction == "sell" else -1)
+                    - t.commission for t in trades]
         wins  = [p for p in pnls if p > 0]
         losses= [p for p in pnls if p < 0]
         win_rate = len(wins) / len(pnls) if pnls else 0
@@ -263,6 +328,24 @@ class Backtester:
             trades         = trades,
             daily_pnl      = daily_pnl,
         )
+
+
+def _normalize_weights(target_weights: dict) -> dict:
+    """权重校验（issue #45）：剔除 NaN/负值，超额权重等比缩放至 Σ≤1"""
+    cleaned: dict[str, float] = {}
+    for code, w in (target_weights or {}).items():
+        try:
+            wf = float(w)
+        except (TypeError, ValueError):
+            continue
+        if pd.isna(wf) or wf <= 0:
+            continue
+        cleaned[code] = wf
+    total = sum(cleaned.values())
+    if total > 1.0:
+        scale = 1.0 / total  # 等比缩放，避免被 cash 静默裁剪
+        cleaned = {c: v * scale for c, v in cleaned.items()}
+    return cleaned
 
 
 # ══════════════════════════════════════════
