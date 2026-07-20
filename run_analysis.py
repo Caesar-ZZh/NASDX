@@ -2,7 +2,7 @@
 独立运行脚本 — 输出写入日志文件，避免终端超时
 用法: python run_analysis.py 603501
 """
-import sys, os
+import sys, os, json
 sys.path.insert(0, os.path.dirname(__file__))
 
 # 强制重置 LLM 单例（确保用最新配置）
@@ -27,14 +27,24 @@ parser.add_argument(
     choices=["conservative", "balanced", "aggressive"],
     default=os.environ.get("NASDX_RISK_PROFILE", "balanced"),
 )
+parser.add_argument(
+    "--fact-check",
+    action="store_true",
+    help="开启 quant 事实校验：对最终结论做数值一致性检查（真相源经 NASDX_FACT_GROUND JSON 提供）",
+)
 args = parser.parse_args()
 stock_code = args.stock_code
 rounds = args.rounds
 risk_profile = args.risk_profile
 analysis_mode = args.mode
+fact_check = args.fact_check
 
 from nasdx.analyzer import NasdxAnalyzer
 from nasdx.rule_based_analysis import build_rule_based_report, save_rule_based_report
+from nasdx.debate_review import summarize_counter_argument, format_counter_argument_block
+from nasdx.decision_log import log_decision
+from nasdx.memory import record_decision
+from nasdx.fact_check import check_consistency
 
 print(f'[NASDX] 开始分析 {stock_code}', flush=True)
 
@@ -83,6 +93,41 @@ try:
     print(f'   信号: {report.final_signal}  看多占比: {report.bullish_pct:.1f}%')
     print(f'   HTML: {html_path}')
     print(f'   JSON: {json_path}')
+
+    # —— TradingAgents 借鉴机制接入（薄附加，高可逆）——
+    try:
+        transcript = getattr(report, "battle_transcript", None)
+        if os.environ.get("NASDX_DEBATE_REVIEW", "1") != "0" and transcript:
+            rendered = format_counter_argument_block(
+                summarize_counter_argument(transcript, getattr(report, "votes", None))
+            )
+            if rendered:
+                print("\n" + rendered, flush=True)
+        log_decision(
+            "analysis", "finalize",
+            inputs={"stock_code": stock_code, "mode": analysis_mode},
+            output={"signal": getattr(report, "final_signal", None),
+                    "bullish_pct": getattr(report, "bullish_pct", None)},
+        )
+        record_decision(
+            stock_code, getattr(report, "date", ""),
+            getattr(report, "final_signal", "neutral"),
+            float(getattr(report, "confidence", 0) or 0),
+            getattr(report, "summary", "") or "", source="run_analysis",
+        )
+        if fact_check:
+            ground: dict = {}
+            raw = os.environ.get("NASDX_FACT_GROUND", "")
+            if raw:
+                try:
+                    ground = json.loads(raw)
+                except json.JSONDecodeError:
+                    pass
+            warns = check_consistency(getattr(report, "summary", "") or "", ground)
+            if warns:
+                print("[NASDX][事实校验] " + "；".join(warns), flush=True)
+    except Exception as hook_e:  # noqa: BLE001
+        print(f"[NASDX] 借鉴机制接入跳过：{hook_e}", flush=True)
 except Exception as e:
     import traceback
     print(f'\n❌ 分析失败: {e}')
