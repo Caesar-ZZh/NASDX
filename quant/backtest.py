@@ -32,7 +32,8 @@ class BacktestResult:
     calmar_ratio:    float = 0.0
     win_rate:        float = 0.0
     profit_loss_ratio: float = 0.0
-    total_trades:    int   = 0
+    total_trades:    int   = 0      # 订单数（每笔 buy/sell 各计一次）
+    completed_trades: int  = 0      # 闭环已实现盈亏笔数（仅卖出实现，issue #42）
     equity_curve:    pd.Series = field(default_factory=pd.Series)
     trades:          list[Trade] = field(default_factory=list)
     daily_pnl:       pd.Series = field(default_factory=pd.Series)
@@ -46,7 +47,7 @@ class BacktestResult:
             f"卡玛比率: {self.calmar_ratio:.3f}\n"
             f"胜率: {self.win_rate:.2%}\n"
             f"盈亏比: {self.profit_loss_ratio:.2f}\n"
-            f"总交易: {self.total_trades} 笔"
+            f"总订单: {self.total_trades} 笔 / 闭环交易: {self.completed_trades} 笔"
         )
 
 
@@ -207,7 +208,9 @@ class Backtester:
                     amount     = sell_sh * exec_price
                     commission = amount * self.commission_rate + amount * self.stamp_duty
                     avg_cost   = cost_basis.get(code, exec_price)
-                    realized.append((exec_price - avg_cost) * sell_sh - commission)  # 闭环盈亏
+                    # 闭环盈亏：avg_cost 已含摊销后的买入手续费，此处再扣卖出费用，
+                    # 双边费用恰好各计一次（issue #42）
+                    realized.append((exec_price - avg_cost) * sell_sh - commission)
                     capital   += amount - commission
                     holdings[code] -= sell_sh
                     if holdings[code] <= 0:
@@ -244,8 +247,11 @@ class Backtester:
             capital -= amount + commission
             prev_sh = holdings.get(code, 0)
             holdings[code] = prev_sh + buy_sh
-            cost_basis[code] = (cost_basis.get(code, exec_price) * prev_sh +
-                                 exec_price * buy_sh) / holdings[code]
+            # 加权平均成本 = (原持仓成本 + 本次买入金额 + 买入手续费) / 总股数
+            # 买入手续费摊入成本基础，部分卖出时按股数比例自然释放（issue #42：
+            # 双边费用在 realized PnL 中恰好计入一次，realized 与现金变化可对账）。
+            cost_basis[code] = (cost_basis.get(code, 0.0) * prev_sh +
+                                 amount + commission) / holdings[code]
             new_trades.append(Trade(str(date), code, "buy",
                                     exec_price, buy_sh, amount, commission))
 
@@ -303,8 +309,11 @@ class Backtester:
         # 卡玛比率
         calmar = annual_return / (abs(max_dd) + 1e-9)
 
-        # 胜率 / 盈亏比：用【闭环已实现盈亏】（卖出价 - 持仓均成本，issue #42）
+        # 胜率 / 盈亏比：用【闭环已实现盈亏】（issue #42）。
+        # 成本法：加权平均成本（含摊销的买入手续费）；每次卖出实现一笔 PnL，
+        # 已扣除卖出手续费+印花税，全部平仓后 Σrealized == 现金净变化。
         pnls = [p for p in (realized_pnl or []) if p is not None]
+        completed = len(pnls)
         if not pnls:
             # 回退：无已实现盈亏时按交易现金流估算（仅兼容老调用路径）
             pnls = [t.amount * (1 if t.direction == "sell" else -1)
@@ -324,6 +333,7 @@ class Backtester:
             win_rate       = win_rate,
             profit_loss_ratio = pl_ratio,
             total_trades   = len(trades),
+            completed_trades = completed,
             equity_curve   = equity,
             trades         = trades,
             daily_pnl      = daily_pnl,

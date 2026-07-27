@@ -284,5 +284,138 @@ class TestClosedLoopPnL(unittest.TestCase):
         self.assertTrue(any(t.direction == "sell" for t in result.trades))
 
 
+class TestEntryFeeAmortization(unittest.TestCase):
+    """#42 重开验收：买入手续费摊入加权平均成本，双边费用在 realized PnL 中恰好计一次。
+
+    成本法：加权平均成本 = (原成本 + 买入金额 + 买入手续费) / 总股数；
+    部分卖出按股数比例释放摊销的 entry fee；
+    全部平仓后 Σrealized == 现金净变化（可对账）。
+    """
+
+    def test_flat_price_round_trip_realized_equals_cash_delta(self):
+        # 平价买卖：唯一盈亏来源是双边费用，realized 必须等于现金净变化。
+        bt = Backtester(initial_capital=100_000, commission_rate=0.001,
+                        stamp_duty=0.001, slippage=0.0)
+        init = 100_000.0
+        capital, holdings, cost_basis, t1, r1 = bt._rebalance(
+            "2025-01-06", {"600000": 1.0}, {"600000": 10.0},
+            init, {}, {}, init)
+        self.assertEqual(len(t1), 1)
+        buy = t1[0]
+        # 成本基础包含买入手续费
+        expected_cost = (buy.amount + buy.commission) / buy.shares
+        self.assertAlmostEqual(cost_basis["600000"], expected_cost, places=9)
+
+        capital2, h2, cb2, t2, r2 = bt._liquidate(
+            "2025-01-07", {"600000": 10.0}, capital, holdings, cost_basis)
+        self.assertEqual(len(r2), 1)
+        sell = t2[0]
+        # realized = -(买入手续费 + 卖出手续费+印花税)，恰好各计一次
+        expected_realized = -(buy.commission + sell.commission)
+        self.assertAlmostEqual(r2[0], expected_realized, places=6)
+        # 对账：Σrealized == 最终现金 - 初始资金
+        self.assertAlmostEqual(sum(r2), capital2 - init, places=6)
+        # 平价交易含费用必须被分类为亏损
+        self.assertLess(r2[0], 0)
+
+    def test_small_gross_gain_eaten_by_entry_fee_is_loss(self):
+        # 毛利 > 卖出费用 但 < 双边费用：旧口径（不摊 entry fee）误判为盈利，
+        # 新口径必须判为亏损。
+        bt = Backtester(initial_capital=100_000, commission_rate=0.002,
+                        stamp_duty=0.001, slippage=0.0)
+        init = 100_000.0
+        capital, holdings, cost_basis, t1, r1 = bt._rebalance(
+            "2025-01-06", {"600000": 1.0}, {"600000": 10.0},
+            init, {}, {}, init)
+        buy = t1[0]
+        capital2, h2, cb2, t2, r2 = bt._liquidate(
+            "2025-01-07", {"600000": 10.04}, capital, holdings, cost_basis)
+        sell = t2[0]
+        gross = (sell.price - buy.price) * sell.shares
+        self.assertGreater(gross - sell.commission, 0,
+                           "构造前提：毛利须超过卖出费用（旧口径误判为盈利）")
+        self.assertLess(r2[0], 0, "计入摊销 entry fee 后应为亏损")
+        self.assertAlmostEqual(sum(r2), capital2 - init, places=6)
+
+    def test_partial_sell_releases_entry_fee_pro_rata(self):
+        # 部分卖出：entry fee 按股数比例释放；两段 realized 合计与现金对账。
+        bt = Backtester(initial_capital=1_000_000, commission_rate=0.001,
+                        stamp_duty=0.001, slippage=0.0)
+        holdings = {"600000": 10_000}
+        entry_cost_total = 100_000 * 1.001          # 买入金额 + 0.1% 手续费
+        cost_basis = {"600000": entry_cost_total / 10_000}   # 10.01
+        capital = 0.0
+
+        # 卖一半（目标权重 0.5，总资产按现价 10 计 100_000）
+        capital, holdings, cost_basis, t1, r1 = bt._rebalance(
+            "2025-02-03", {"600000": 0.5}, {"600000": 10.0},
+            capital, holdings, cost_basis, 100_000)
+        self.assertEqual(len(r1), 1)
+        self.assertEqual(holdings["600000"], 5_000)
+        # 剩余持仓成本基础不变（未摊销部分按比例留存）
+        self.assertAlmostEqual(cost_basis["600000"], 10.01, places=9)
+        sold_sh1 = t1[0].shares
+        expected_r1 = (10.0 - 10.01) * sold_sh1 - t1[0].commission
+        self.assertAlmostEqual(r1[0], expected_r1, places=6)
+
+        # 清掉剩余
+        capital, holdings, cost_basis, t2, r2 = bt._liquidate(
+            "2025-02-04", {"600000": 10.0}, capital, holdings, cost_basis)
+        total_realized = sum(r1) + sum(r2)
+        # 对账：Σrealized == 最终现金 - 初始投入成本（含买入手续费）
+        self.assertAlmostEqual(total_realized, capital - entry_cost_total, places=6)
+
+    def test_multi_entry_weighted_average_includes_each_buy_fee(self):
+        # 分批建仓：每笔买入的手续费都进入加权平均成本。
+        bt = Backtester(initial_capital=1_000_000, commission_rate=0.001,
+                        stamp_duty=0.0, slippage=0.0)
+        capital, holdings, cost_basis = 1_000_000.0, {}, {}
+        # 第一批：约 10 元建 20% 仓
+        capital, holdings, cost_basis, t1, _ = bt._rebalance(
+            "2025-03-03", {"600000": 0.2}, {"600000": 10.0},
+            capital, holdings, cost_basis, 1_000_000)
+        # 第二批：价格 12，加到 40% 仓
+        capital, holdings, cost_basis, t2, _ = bt._rebalance(
+            "2025-03-04", {"600000": 0.4}, {"600000": 12.0},
+            capital, holdings, cost_basis, 1_000_000)
+        buys = [t for t in t1 + t2 if t.direction == "buy"]
+        self.assertEqual(len(buys), 2)
+        total_cost = sum(b.amount + b.commission for b in buys)
+        total_sh = sum(b.shares for b in buys)
+        self.assertAlmostEqual(cost_basis["600000"], total_cost / total_sh,
+                               places=9)
+        # 清仓后 Σrealized 与现金对账
+        capital2, h3, cb3, t3, r3 = bt._liquidate(
+            "2025-03-05", {"600000": 11.0}, capital, holdings, cost_basis)
+        self.assertAlmostEqual(sum(r3), capital2 - 1_000_000, places=6)
+
+    def test_win_rate_zero_and_hundred_via_run(self):
+        # 验收条件 1/2：10 买 9 卖 -> 0% 胜率；10 买 11 卖 -> 100% 胜率（零费用）。
+        def make(closes):
+            idx = pd.date_range("2025-04-01", periods=len(closes), freq="D")
+            return {"600000": _ohlcv(idx, closes)}
+
+        phase = {"n": 0}
+
+        def signal(date, past_data):
+            phase["n"] += 1
+            return {"600000": 1.0} if phase["n"] == 1 else {}
+
+        bt = Backtester(initial_capital=100_000, commission_rate=0.0,
+                        stamp_duty=0.0, slippage=0.0)
+        phase["n"] = 0
+        lose = bt.run(make([10, 10, 9, 9]), signal, rebalance_freq="D")
+        self.assertEqual(lose.completed_trades, 1)
+        self.assertEqual(lose.win_rate, 0.0, "10 买 9 卖必须是 0% 胜率")
+
+        phase["n"] = 0
+        win = bt.run(make([10, 10, 11, 11]), signal, rebalance_freq="D")
+        self.assertEqual(win.completed_trades, 1)
+        self.assertEqual(win.win_rate, 1.0, "10 买 11 卖必须是 100% 胜率")
+        # 订单数与闭环交易数分开报告
+        self.assertEqual(win.total_trades, 2)
+        self.assertIn("闭环交易", win.summary())
+
+
 if __name__ == "__main__":
     unittest.main()
