@@ -162,8 +162,11 @@ class LLMClient:
         self.max_total_attempts = settings.max_total_attempts
         self.max_elapsed_seconds = settings.max_elapsed_seconds
         self.max_retry_delay_seconds = settings.max_retry_delay_seconds
+        # 按当前 base_url/model 实时计算备用模型，避免切换 provider 后
+        # 仍回退到 import 时算死的 deepseek 模型列表。
+        self.FALLBACK_MODELS = _configured_fallback_models(base_url, model_name)
 
-    # 主模型失败时的备用模型列表
+    # 类级默认值（兼容旧引用）；实例会在 _init 中按当前 provider 覆盖。
     FALLBACK_MODELS = _configured_fallback_models(BASE_URL, MODEL_NAME)
 
     def ask(
@@ -362,11 +365,16 @@ class _LazyLLMClient:
         self._lock = threading.Lock()
 
     def _get_client(self) -> LLMClient:
-        if self._client is None:
+        # 始终以 LLMClient._instance 为准：apply_provider / set_quick_think
+        # 会把 _instance 置 None，若这里缓存旧实例会导致 provider 切换静默失效。
+        client = LLMClient._instance
+        if client is None:
             with self._lock:
-                if self._client is None:
-                    self._client = LLMClient()
-        return self._client
+                client = LLMClient._instance
+                if client is None:
+                    client = LLMClient()
+        self._client = client
+        return client
 
     def ask(self, *args, **kwargs):
         return self._get_client().ask(*args, **kwargs)
@@ -411,10 +419,13 @@ def _validate_provider_base_url(url: str) -> None:
 
 def apply_provider(name: Optional[str] = None) -> None:
     """按 provider 名称设置环境变量并重置 LLM 单例（不改动 LLMClient 内部）。"""
-    prov = resolve_provider(name)
+    normalized = (name or os.environ.get("NASDX_PROVIDER", "")).strip().lower()
+    prov = resolve_provider(normalized)
     if prov is None:
         return
     _validate_provider_base_url(prov["base_url"])
+    # 记录当前 provider，保证 set_quick_think 在显式传名时也能工作。
+    os.environ["NASDX_PROVIDER"] = normalized
     os.environ["NASDX_BASE_URL"] = prov["base_url"]
     os.environ["NASDX_MODEL"] = prov["default_model"]
     LLMClient._instance = None
