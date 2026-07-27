@@ -149,17 +149,24 @@ class LLMClient:
 
     def _init(self):
         settings = load_llm_settings()
-        self.client = OpenAI(api_key=API_KEY or "nasdx-local-placeholder", base_url=BASE_URL)
-        self.api_key = API_KEY
-        self.base_url = BASE_URL
-        self.model = MODEL_NAME
+        # 实时从环境变量读取，使 apply_provider / set_quick_think 在重置单例后生效。
+        api_key = os.environ.get("NASDX_API_KEY", "")
+        base_url = os.environ.get("NASDX_BASE_URL", "https://api.deepseek.com")
+        model_name = os.environ.get("NASDX_MODEL", "deepseek-chat")
+        self.client = OpenAI(api_key=api_key or "nasdx-local-placeholder", base_url=base_url)
+        self.api_key = api_key
+        self.base_url = base_url
+        self.model = model_name
         self.max_tokens = settings.max_tokens
         self.temperature = settings.temperature
         self.max_total_attempts = settings.max_total_attempts
         self.max_elapsed_seconds = settings.max_elapsed_seconds
         self.max_retry_delay_seconds = settings.max_retry_delay_seconds
+        # 按当前 base_url/model 实时计算备用模型，避免切换 provider 后
+        # 仍回退到 import 时算死的 deepseek 模型列表。
+        self.FALLBACK_MODELS = _configured_fallback_models(base_url, model_name)
 
-    # 主模型失败时的备用模型列表
+    # 类级默认值（兼容旧引用）；实例会在 _init 中按当前 provider 覆盖。
     FALLBACK_MODELS = _configured_fallback_models(BASE_URL, MODEL_NAME)
 
     def ask(
@@ -358,17 +365,80 @@ class _LazyLLMClient:
         self._lock = threading.Lock()
 
     def _get_client(self) -> LLMClient:
-        if self._client is None:
+        # 始终以 LLMClient._instance 为准：apply_provider / set_quick_think
+        # 会把 _instance 置 None，若这里缓存旧实例会导致 provider 切换静默失效。
+        client = LLMClient._instance
+        if client is None:
             with self._lock:
-                if self._client is None:
-                    self._client = LLMClient()
-        return self._client
+                client = LLMClient._instance
+                if client is None:
+                    client = LLMClient()
+        self._client = client
+        return client
 
     def ask(self, *args, **kwargs):
         return self._get_client().ask(*args, **kwargs)
 
     def ask_json(self, *args, **kwargs):
         return self._get_client().ask_json(*args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Provider 工厂（TradingAgents 借鉴：工厂模式 + 快慢分层）
+# 通过环境变量桥接现有 LLMClient，不重写核心；默认不启用，高可逆。
+# 用法：apply_provider("qwen") / set_quick_think(True) 切换低成本模型。
+# ---------------------------------------------------------------------------
+PROVIDERS: Dict[str, Dict[str, Any]] = {
+    "deepseek": {"base_url": "https://api.deepseek.com", "default_model": "deepseek-chat",
+                 "quick_model": "deepseek-chat", "needs_key": True},
+    "openai":   {"base_url": "https://api.openai.com/v1", "default_model": "gpt-4o-mini",
+                 "quick_model": "gpt-4o-mini", "needs_key": True},
+    "qwen":     {"base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                 "default_model": "qwen-plus", "quick_model": "qwen-turbo", "needs_key": True},
+    "ollama":   {"base_url": "http://localhost:11434/v1", "default_model": "qwen2.5:7b",
+                 "quick_model": "qwen2.5:3b", "needs_key": False},
+}
+QUICK_THINK_PROVIDERS = ("ollama", "qwen", "deepseek")
+
+
+def resolve_provider(name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    name = (name or os.environ.get("NASDX_PROVIDER", "")).strip().lower()
+    if not name:
+        return None
+    if name not in PROVIDERS:
+        raise ValueError(f"未知 provider: {name}，可选 {list(PROVIDERS)}")
+    return PROVIDERS[name]
+
+
+def _validate_provider_base_url(url: str) -> None:
+    """仅允许 http/https 的 base_url，阻止 env 注入非法端点。"""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError(f"provider base_url 非法: {url}")
+
+
+def apply_provider(name: Optional[str] = None) -> None:
+    """按 provider 名称设置环境变量并重置 LLM 单例（不改动 LLMClient 内部）。"""
+    normalized = (name or os.environ.get("NASDX_PROVIDER", "")).strip().lower()
+    prov = resolve_provider(normalized)
+    if prov is None:
+        return
+    _validate_provider_base_url(prov["base_url"])
+    # 记录当前 provider，保证 set_quick_think 在显式传名时也能工作。
+    os.environ["NASDX_PROVIDER"] = normalized
+    os.environ["NASDX_BASE_URL"] = prov["base_url"]
+    os.environ["NASDX_MODEL"] = prov["default_model"]
+    LLMClient._instance = None
+
+
+def set_quick_think(enabled: bool = True) -> None:
+    """切换低成本 quick_think 模型（快慢分层路由）。"""
+    name = os.environ.get("NASDX_PROVIDER", "").strip().lower()
+    prov = resolve_provider(name) if name else None
+    if not prov:
+        return
+    os.environ["NASDX_MODEL"] = prov["quick_model"] if enabled else prov["default_model"]
+    LLMClient._instance = None
 
 
 llm = _LazyLLMClient()
