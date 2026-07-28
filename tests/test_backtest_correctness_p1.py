@@ -8,7 +8,10 @@
   #44 估值价/执行价分离：持仓估值用最近有效收盘价 ffill（单日停牌不再按
       0 元计价制造虚假暴跌）；当日无有效执行价禁止买卖（含清仓路径）；
       stale 超过 max_stale_days 发显式告警；NaN/inf 永不进入下单算术
-  #45 权重校验：NaN/负值剔除，Σ>1 等比缩放至 ≤1
+  #45 权重契约（重开验收）：默认 fail-fast——NaN/inf/bool/字符串/负值/
+      未知标的/单权重>1/Σ>1+容差 一律抛 WeightValidationError 且不改账户
+      状态；归一化仅显式 opt-in（normalize_weights=True）并记录诊断；
+      等价 Mapping 插入顺序无关；requested vs executed 权重可观测
   #48 收益基准用 initial_capital 而非首条 equity
   #49 清仓信号（空 target_weights）卖出全部、不留陈旧持仓
   #42 胜率/盈亏比用闭环 realized PnL（卖出价-持仓均成本）
@@ -19,7 +22,13 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from quant.backtest import Backtester, _normalize_weights, _rebalance_positions
+from quant.backtest import (
+    Backtester,
+    WeightValidationError,
+    _rebalance_positions,
+    normalize_target_weights,
+    validate_target_weights,
+)
 
 
 def _ohlcv(index, closes, opens=None, highs=None, lows=None, volumes=None):
@@ -522,35 +531,185 @@ class TestValuationExecutionSeparation(unittest.TestCase):
 
 
 class TestWeightValidation(unittest.TestCase):
-    """权重校验：NaN/负值被剔除，Σ>1 等比缩放至 ≤1。"""
+    """#45 重开验收：validation 与 normalization 分层，默认 fail-fast。"""
 
-    def test_nan_and_negative_dropped(self):
-        raw = {
-            "600000": float("nan"),
-            "600519": -0.3,
-            "000001": 0.4,
-            "000002": 0.4,
-        }
-        normalized = _normalize_weights(raw)
-        self.assertNotIn("600000", normalized, "NaN 权重须被剔除")
-        self.assertNotIn("600519", normalized, "负权重须被剔除")
-        total = sum(normalized.values())
-        self.assertAlmostEqual(total, 0.8, places=6)
-        self.assertNotIn(float("nan"), normalized.values())
+    KNOWN = {"600000", "600519", "000001", "000002", "AAA", "BBB"}
 
-    def test_overweight_scaled_to_le_one(self):
-        raw = {"600000": 0.6, "600519": 0.6, "000001": 0.6}  # Σ=1.8
-        normalized = _normalize_weights(raw)
-        total = sum(normalized.values())
-        self.assertLessEqual(total, 1.0 + 1e-9)
-        # 等比缩放：相对比例保持
+    # ---------- 校验函数级：非法输入必须抛错 ----------
+
+    def test_invalid_values_rejected(self):
+        cases = [
+            {"600000": float("nan")},
+            {"600000": float("inf")},
+            {"600000": float("-inf")},
+            {"600000": -0.3},
+            {"600000": True},          # bool 不得当作 1.0
+            {"600000": np.True_},      # numpy bool 同样拒绝
+            {"600000": "0.5"},         # 字符串拒绝
+            {"600000": None},
+            {"600000": 1.2},           # 单权重 > 1
+        ]
+        for raw in cases:
+            with self.assertRaises(WeightValidationError,
+                                   msg=f"必须拒绝: {raw!r}"):
+                validate_target_weights(raw, date="2026-01-05",
+                                        known_symbols=self.KNOWN)
+
+    def test_sum_above_tolerance_rejected_with_context(self):
+        raw = {"AAA": 0.8, "BBB": 0.8}   # Σ=1.6
+        with self.assertRaises(WeightValidationError) as ctx:
+            validate_target_weights(raw, date="2026-01-05",
+                                    known_symbols=self.KNOWN)
+        msg = str(ctx.exception)
+        self.assertIn("2026-01-05", msg, "错误消息必须含日期")
+        self.assertIn("1.6", msg, "错误消息必须含总和")
+        self.assertEqual(ctx.exception.date, "2026-01-05")
+        self.assertAlmostEqual(ctx.exception.total, 1.6, places=9)
+
+    def test_unknown_symbol_rejected(self):
+        with self.assertRaises(WeightValidationError):
+            validate_target_weights({"999999": 0.5}, date="2026-01-05",
+                                    known_symbols=self.KNOWN)
+
+    def test_non_mapping_rejected(self):
+        with self.assertRaises(WeightValidationError):
+            validate_target_weights([("600000", 0.5)], date="2026-01-05")
+
+    def test_valid_boundaries_accepted(self):
+        # 总和恰为 0 / 1 / 容差内略超 1 均合法
+        self.assertEqual(validate_target_weights({}, known_symbols=self.KNOWN), {})
+        self.assertEqual(
+            validate_target_weights({"600000": 0.0}, known_symbols=self.KNOWN),
+            {}, "0 权重 = 不持有，应被剔除且不报错")
+        out = validate_target_weights({"600000": 1.0}, known_symbols=self.KNOWN)
+        self.assertAlmostEqual(out["600000"], 1.0)
+        # 1/3 * 3 == 1.0000000000000002：容差必须吸收浮点误差
+        third = 1.0 / 3.0
+        out = validate_target_weights(
+            {"600000": third, "600519": third, "000001": third},
+            known_symbols=self.KNOWN)
+        self.assertEqual(len(out), 3)
+
+    def test_insertion_order_irrelevant_for_accept_reject(self):
+        a = {"AAA": 0.8, "BBB": 0.8}
+        b = {"BBB": 0.8, "AAA": 0.8}
+        for raw in (a, b):
+            with self.assertRaises(WeightValidationError):
+                validate_target_weights(raw, known_symbols=self.KNOWN)
+        va = validate_target_weights({"AAA": 0.5, "BBB": 0.5},
+                                     known_symbols=self.KNOWN)
+        vb = validate_target_weights({"BBB": 0.5, "AAA": 0.5},
+                                     known_symbols=self.KNOWN)
+        self.assertEqual(va, vb)
+
+    def test_normalize_scales_proportionally(self):
+        raw = validate_target_weights(
+            {"600000": 0.6, "600519": 0.6, "000001": 0.6},
+            known_symbols=self.KNOWN, allow_over_allocation=True)
+        normalized, info = normalize_target_weights(raw)
+        self.assertIsNotNone(info)
+        self.assertAlmostEqual(info["requested_total"], 1.8, places=9)
+        self.assertAlmostEqual(sum(normalized.values()), 1.0, places=9)
         for c in raw:
-            self.assertAlmostEqual(normalized[c] / 0.6, total / 1.8, places=6)
+            self.assertAlmostEqual(normalized[c], 0.6 / 1.8, places=9)
 
-    def test_clean_weights_unchanged(self):
-        raw = {"600000": 0.5, "600519": 0.3}
-        normalized = _normalize_weights(raw)
+    def test_normalize_noop_within_tolerance(self):
+        normalized, info = normalize_target_weights({"600000": 0.5, "600519": 0.3})
+        self.assertIsNone(info, "Σ<=1 不得触发归一化")
         self.assertAlmostEqual(sum(normalized.values()), 0.8)
+
+    # ---------- 引擎级：非法输出不产生交易、不改账户状态 ----------
+
+    @staticmethod
+    def _two_symbol_prices(n=6, start="2026-03-02"):
+        idx = pd.date_range(start, periods=n, freq="B")
+        return {
+            "AAA": _ohlcv(idx, [10.0 + 0.1 * i for i in range(n)]),
+            "BBB": _ohlcv(idx, [10.0 + 0.1 * i for i in range(n)]),  # 同价
+        }
+
+    def test_engine_default_failfast_overallocation_no_trades(self):
+        # Issue 复现：{AAA:0.8, BBB:0.8} 默认必须抛错且零成交
+        price = self._two_symbol_prices()
+        bt = Backtester(initial_capital=100_000)
+        with self.assertRaises(WeightValidationError):
+            bt.run(price, lambda d, p: {"AAA": 0.8, "BBB": 0.8},
+                   rebalance_freq="W")
+
+    def test_engine_nan_weight_failfast_before_state_change(self):
+        price = self._two_symbol_prices()
+        bt = Backtester(initial_capital=100_000)
+        with self.assertRaises(WeightValidationError):
+            bt.run(price, lambda d, p: {"AAA": float("nan")},
+                   rebalance_freq="W")
+
+    def test_engine_unknown_symbol_failfast(self):
+        price = self._two_symbol_prices()
+        bt = Backtester(initial_capital=100_000)
+        with self.assertRaises(WeightValidationError):
+            bt.run(price, lambda d, p: {"ZZZ": 0.5}, rebalance_freq="W")
+
+    def test_engine_optin_normalization_order_independent(self):
+        # 显式 opt-in：0.8/0.8 归一化为 0.5/0.5，结果与插入顺序无关
+        price = self._two_symbol_prices(n=6)
+
+        def run_with(sig):
+            bt = Backtester(initial_capital=100_000, normalize_weights=True,
+                            slippage=0.0, commission_rate=0.0, stamp_duty=0.0)
+            return bt.run(self._two_symbol_prices(n=6), sig, rebalance_freq="W")
+
+        r1 = run_with(lambda d, p: {"AAA": 0.8, "BBB": 0.8})
+        r2 = run_with(lambda d, p: {"BBB": 0.8, "AAA": 0.8})
+
+        h1 = {(t.code, t.direction, t.shares) for t in r1.trades}
+        h2 = {(t.code, t.direction, t.shares) for t in r2.trades}
+        self.assertEqual(h1, h2, "等价 Mapping 插入顺序不得改变成交结果")
+
+        # 同价同权：两标的买入股数必须一致（旧实现 80/20 vs 20/80）
+        buys = {t.code: t.shares for t in r1.trades if t.direction == "buy"}
+        self.assertEqual(buys.get("AAA"), buys.get("BBB"),
+                         "归一化后等权应买入等量股数")
+
+        # 归一化诊断已记录
+        norm_events = [d for d in r1.diagnostics
+                       if d["type"] == "weights_normalized"]
+        self.assertGreaterEqual(len(norm_events), 1)
+        self.assertAlmostEqual(norm_events[0]["requested_total"], 1.6, places=9)
+
+    def test_engine_optin_still_rejects_nonfinite(self):
+        # opt-in 归一化不放宽类型/有限性检查
+        bt = Backtester(initial_capital=100_000, normalize_weights=True)
+        with self.assertRaises(WeightValidationError):
+            bt.run(self._two_symbol_prices(),
+                   lambda d, p: {"AAA": float("inf")}, rebalance_freq="W")
+
+    def test_engine_records_requested_vs_executed(self):
+        price = self._two_symbol_prices()
+        bt = Backtester(initial_capital=100_000)
+        result = bt.run(price, lambda d, p: {"AAA": 0.5, "BBB": 0.5},
+                        rebalance_freq="W")
+        self.assertGreaterEqual(len(result.weight_allocations), 1)
+        rec = result.weight_allocations[0]
+        self.assertAlmostEqual(rec["requested"]["AAA"], 0.5)
+        self.assertIn("AAA", rec["executed"])
+        self.assertIn("BBB", rec["executed"])
+        # 执行权重受整手取整/费用影响，允许偏差但须在合理范围
+        for c in ("AAA", "BBB"):
+            self.assertGreaterEqual(rec["executed"][c], 0.0)
+            self.assertLessEqual(rec["executed"][c], 0.55)
+
+    def test_engine_zero_total_is_liquidation_not_error(self):
+        # 总权重 0（全 0 dict）合法：等价清仓信号，不抛错
+        price = self._two_symbol_prices(n=8)
+        calls = {"n": 0}
+
+        def sig(d, p):
+            calls["n"] += 1
+            return {"AAA": 0.5, "BBB": 0.5} if calls["n"] == 1 else {"AAA": 0.0}
+
+        bt = Backtester(initial_capital=100_000)
+        result = bt.run(price, sig, rebalance_freq="D")   # 不得抛错
+        self.assertFalse(result.equity_curve.isna().any())
 
 
 class TestReturnBaseInitialCapital(unittest.TestCase):

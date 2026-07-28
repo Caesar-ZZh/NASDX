@@ -4,10 +4,12 @@ NASDX V2 — 回测引擎
 支持：策略回测 / 绩效评估 / 参数优化
 """
 from __future__ import annotations
+import numbers
 import warnings
 
 import numpy as np
 import pandas as pd
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Optional, Callable
 
@@ -39,9 +41,13 @@ class BacktestResult:
     equity_curve:    pd.Series = field(default_factory=pd.Series)
     trades:          list[Trade] = field(default_factory=list)
     daily_pnl:       pd.Series = field(default_factory=pd.Series)
-    # 诊断事件（issue #44）：停牌估值 / 跳过交易 / stale 超限告警
-    # 每条为 dict: {"date","code","type","stale_age"?}
+    # 诊断事件（issue #44/#45）：停牌估值 / 跳过交易 / stale 超限 / 权重归一化
+    # 每条为 dict: {"date","code"?,"type",...}
     diagnostics:     list = field(default_factory=list)
+    # 权重执行报告（issue #45）：每个调仓日记录策略请求权重 vs 实际成交后权重，
+    # 暴露整手取整/手续费/现金约束造成的跟踪误差。
+    # 每条为 dict: {"date","requested":{code:w},"executed":{code:w}}
+    weight_allocations: list = field(default_factory=list)
 
     def summary(self) -> str:
         return (
@@ -70,12 +76,19 @@ class Backtester:
         min_shares:      int   = 100,       # 最小交易单位
         slippage:        float = 0.001,     # 滑点（价格的0.1%）
         max_stale_days:  int   = 20,        # 估值价最大陈旧天数（issue #44）
+        normalize_weights: bool = False,    # 显式 opt-in：Σ>1 等比归一化（issue #45）
     ):
         self.initial_capital = initial_capital
         self.commission_rate = commission_rate
         self.stamp_duty      = stamp_duty
         self.min_shares      = min_shares
         self.slippage        = slippage
+        # 权重契约（issue #45）：默认 fail-fast——策略输出含 NaN/inf/负值/
+        # 非数值/未知标的/单权重>1/Σ>1+容差 时抛 WeightValidationError，
+        # 不产生任何交易、不修改账户状态。normalize_weights=True 为显式
+        # opt-in：仅对【类型合法】且 Σ>1 的权重做等比归一化并记录诊断；
+        # NaN/inf/bool/负值/未知标的在任何模式下都直接拒绝。
+        self.normalize_weights = normalize_weights
         # stale-price 策略（issue #44）：持仓估值允许沿用最近有效收盘价，
         # 但连续超过 max_stale_days 个交易日无有效报价时发出显式告警
         # （diagnostics + warnings.warn），提示长期停牌/退市标的估值已不可靠。
@@ -117,6 +130,23 @@ class Backtester:
           收盘价；当日无有效报价的标的既不能买入也不能卖出（含清仓路径），
           持仓保留到恢复报价后再处理。
         - 有效价定义：finite 且 > 0（NaN/inf/0/负价均视为无效）。
+
+        权重契约（issue #45）——validation 与 normalization 分层：
+        - 默认 fail-fast：signal_func 返回值必须是 Mapping，每个权重为
+          实数且 finite、0 <= w <= 1，Σw <= 1 + 容差，标的必须在
+          price_data 中；违反任何一条抛 WeightValidationError（消息含
+          日期/违规权重/总和），该调仓日的现金、持仓、成本、净值、
+          成交记录全部保持不变（异常先于任何状态修改抛出）。
+        - bool / 字符串 / None / 非数值一律拒绝（True 不会被当作 1.0）。
+        - 归一化是显式 opt-in（normalize_weights=True）：仅当权重类型全部
+          合法且 Σ>1 时等比缩放至 Σ=1，并写入 diagnostics
+          （type="weights_normalized"，含 requested/normalized/scale）。
+        - 权重为 0 视为"不持有该标的"被剔除；全部为 0 或空 dict 视为
+          清仓信号（issue #49）。
+        - 每个调仓日在 result.weight_allocations 记录 requested vs
+          executed 权重，暴露整手取整/费用/现金约束造成的跟踪误差。
+        - 等价 Mapping（不同插入顺序）产生相同的校验结果与目标分配：
+          买入顺序按 (权重降序, 代码升序) 确定，与插入顺序无关。
         """
         # 合并所有收盘价
         close_all = pd.DataFrame({
@@ -142,6 +172,7 @@ class Backtester:
         # 支持显式 first/last 约定；用位置掩码避免重复日期双调仓。
         dates = close_all.index
         rebal_positions = _rebalance_positions(dates, rebalance_freq)
+        known_symbols = set(close_all.columns)   # 权重契约校验用（issue #45）
 
         # 初始化
         capital    = self.initial_capital
@@ -150,6 +181,7 @@ class Backtester:
         trades     = []
         pnl_list   = []
         diagnostics: list[dict] = []
+        weight_allocations: list[dict] = []   # requested vs executed（issue #45）
         stale_warned: set[str] = set()   # 已发过超限告警的标的
         last_valid_pos: dict[str, int] = {}  # {code: 最近有效报价的位置}
 
@@ -205,8 +237,24 @@ class Backtester:
                 }
                 target_weights = signal_func(date, past_data) if past_data else {}
 
-                # 权重校验：剔除 NaN/负值，超额权重等比缩放至 Σ≤1（issue #45）
-                target_weights = _normalize_weights(target_weights)
+                # 权重契约（issue #45）：默认 fail-fast，非法输出在任何账户
+                # 状态变化前抛 WeightValidationError；归一化仅显式 opt-in。
+                target_weights = validate_target_weights(
+                    target_weights,
+                    date=date,
+                    known_symbols=known_symbols,
+                    allow_over_allocation=self.normalize_weights,
+                )
+                if self.normalize_weights:
+                    target_weights, norm_info = normalize_target_weights(target_weights)
+                    if norm_info is not None:
+                        diagnostics.append({
+                            "date": str(date),
+                            "type": "weights_normalized",
+                            "requested_total": norm_info["requested_total"],
+                            "scale": norm_info["scale"],
+                            "normalized": dict(target_weights),
+                        })
 
                 # 当日无有效执行价的目标标的：记录跳过交易诊断（issue #44）
                 for c in target_weights:
@@ -239,6 +287,20 @@ class Backtester:
                 )
                 total_equity = capital + market_value
 
+                # requested vs executed 权重报告（issue #45）：
+                # 整手取整/费用/现金约束造成的跟踪误差在此可见。
+                if target_weights:
+                    executed = {
+                        c: (holdings.get(c, 0) * _valuation_price(c) / total_equity
+                            if total_equity > 0 else 0.0)
+                        for c in target_weights
+                    }
+                    weight_allocations.append({
+                        "date": str(date),
+                        "requested": dict(target_weights),
+                        "executed": executed,
+                    })
+
             daily_pnl = total_equity - prev_equity
             pnl_list.append({"date": date, "equity": total_equity, "pnl": daily_pnl})
             prev_equity = total_equity
@@ -253,6 +315,7 @@ class Backtester:
             realized_pnl=realized_pnl,
         )
         result.diagnostics = diagnostics
+        result.weight_allocations = weight_allocations
         return result
 
     def _rebalance(self, date, target_weights, prices, capital, holdings, cost_basis, total_equity):
@@ -294,8 +357,9 @@ class Backtester:
                         del cost_basis[code]
                     new_trades.append(Trade(str(date), code, "sell",
                                             exec_price, sell_sh, amount, commission))
-        # 再买入目标仓位
-        for code, w in sorted(target_weights.items(), key=lambda x: -x[1]):
+        # 再买入目标仓位（issue #45：按 (权重降序, 代码升序) 确定性排序，
+        # 等价 Mapping 不同插入顺序产生完全相同的成交序列）
+        for code, w in sorted(target_weights.items(), key=lambda x: (-x[1], x[0])):
             if w <= 0:
                 continue
             cur_price = _safe(code)   # NaN（停牌）视作 0，跳过买入，避免 int(NaN) 崩溃
@@ -480,22 +544,130 @@ def _rebalance_positions(dates: pd.DatetimeIndex, rebalance_freq: str) -> set[in
     return positions
 
 
-def _normalize_weights(target_weights: dict) -> dict:
-    """权重校验（issue #45）：剔除 NaN/负值，超额权重等比缩放至 Σ≤1"""
+# 权重总和容差（issue #45）：吸收 1/3*3 == 1.0000000000000002 一类浮点误差
+WEIGHT_SUM_TOLERANCE = 1e-6
+
+
+class WeightValidationError(ValueError):
+    """策略权重契约违规（issue #45）。
+
+    在任何账户状态（现金/持仓/成本/净值/成交记录）变化之前抛出，
+    消息包含调仓日期、违规权重与总和，便于定位策略 bug。
+    """
+
+    def __init__(self, message: str, *, date=None, weights=None, total=None):
+        super().__init__(message)
+        self.date = date
+        self.weights = weights
+        self.total = total
+
+
+def validate_target_weights(
+    target_weights,
+    *,
+    date=None,
+    known_symbols: set | None = None,
+    tolerance: float = WEIGHT_SUM_TOLERANCE,
+    allow_over_allocation: bool = False,
+) -> dict[str, float]:
+    """校验策略输出权重（issue #45）——fail-fast，不做任何静默修正。
+
+    契约：
+    - target_weights 必须是 Mapping（None 视为空信号 {}）；
+    - 每个权重必须是实数（bool / np.bool_ / 字符串 / None 一律拒绝，
+      True 不会被当作 1.0）；
+    - 必须 finite（NaN / ±inf 拒绝）；
+    - 必须 >= 0（负权重拒绝——当前引擎只做多；做空需求应实现为
+      文档化的显式模式，而非静默丢弃）；
+    - known_symbols 给定时，未知标的拒绝（不再被静默按 0 元计价）；
+    - 默认（allow_over_allocation=False）单权重 > 1 + tolerance 或
+      Σ > 1 + tolerance 时拒绝；allow_over_allocation=True 仅跳过这
+      两条"超配"检查（供显式 opt-in 归一化使用），类型/有限性/负值/
+      未知标的检查在任何模式下都生效。
+
+    返回：剔除 0 权重后的 {code: float} 副本。全 0 或空输入返回 {}
+    （引擎将其视为清仓信号，issue #49）。
+    违规抛 WeightValidationError，绝不修改输入。
+    """
+    if target_weights is None:
+        return {}
+    if not isinstance(target_weights, Mapping):
+        raise WeightValidationError(
+            f"[{date}] 策略输出必须是 Mapping{{code: weight}}，"
+            f"实际为 {type(target_weights).__name__}",
+            date=date, weights=target_weights,
+        )
+
     cleaned: dict[str, float] = {}
-    for code, w in (target_weights or {}).items():
-        try:
-            wf = float(w)
-        except (TypeError, ValueError):
-            continue
-        if pd.isna(wf) or wf <= 0:
-            continue
-        cleaned[code] = wf
+    for code, w in target_weights.items():
+        if isinstance(w, bool) or isinstance(w, np.bool_):
+            raise WeightValidationError(
+                f"[{date}] 权重必须是实数，标的 {code!r} 为 bool（{w!r}）",
+                date=date, weights=dict(target_weights),
+            )
+        if not isinstance(w, numbers.Real):
+            raise WeightValidationError(
+                f"[{date}] 权重必须是实数，标的 {code!r} 为 "
+                f"{type(w).__name__}（{w!r}）",
+                date=date, weights=dict(target_weights),
+            )
+        wf = float(w)
+        if not np.isfinite(wf):
+            raise WeightValidationError(
+                f"[{date}] 权重必须有限，标的 {code!r} 为 {wf!r}",
+                date=date, weights=dict(target_weights),
+            )
+        if wf < 0:
+            raise WeightValidationError(
+                f"[{date}] 负权重被拒绝（当前引擎只做多），"
+                f"标的 {code!r} 为 {wf!r}",
+                date=date, weights=dict(target_weights),
+            )
+        if known_symbols is not None and code not in known_symbols:
+            raise WeightValidationError(
+                f"[{date}] 未知标的 {code!r} 不在行情数据中，拒绝下单",
+                date=date, weights=dict(target_weights),
+            )
+        if not allow_over_allocation and wf > 1.0 + tolerance:
+            raise WeightValidationError(
+                f"[{date}] 单标的权重不得超过 1，标的 {code!r} 为 {wf!r}",
+                date=date, weights=dict(target_weights),
+            )
+        if wf > 0:
+            cleaned[code] = wf
+
     total = sum(cleaned.values())
-    if total > 1.0:
-        scale = 1.0 / total  # 等比缩放，避免被 cash 静默裁剪
-        cleaned = {c: v * scale for c, v in cleaned.items()}
+    if not allow_over_allocation and total > 1.0 + tolerance:
+        raise WeightValidationError(
+            f"[{date}] 目标权重总和 {total!r} 超过 1 + 容差（{tolerance}），"
+            f"违规权重: {cleaned!r}。若确需自动归一化，请显式使用 "
+            f"Backtester(normalize_weights=True)",
+            date=date, weights=cleaned, total=total,
+        )
     return cleaned
+
+
+def normalize_target_weights(
+    weights: dict[str, float],
+    tolerance: float = WEIGHT_SUM_TOLERANCE,
+) -> tuple[dict[str, float], dict | None]:
+    """显式 opt-in 归一化（issue #45）：Σ>1 时等比缩放至 Σ=1。
+
+    仅接受已通过 validate_target_weights(allow_over_allocation=True)
+    的权重（正、有限）。等比缩放保持相对比例，结果与 dict 插入顺序无关。
+    返回 (normalized, info)：未触发归一化时 info 为 None，
+    触发时 info = {"reason","requested_total","scale"}。
+    """
+    total = sum(weights.values())
+    if total > 1.0 + tolerance:
+        scale = 1.0 / total
+        normalized = {c: v * scale for c, v in weights.items()}
+        return normalized, {
+            "reason": "sum_exceeds_one",
+            "requested_total": total,
+            "scale": scale,
+        }
+    return dict(weights), None
 
 
 # ══════════════════════════════════════════
