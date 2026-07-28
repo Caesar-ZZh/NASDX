@@ -3,7 +3,8 @@
 纯内存构造 DataFrame，不联网、不调用 AkShare / mootdx。
 覆盖：
   #43 调仓日=每个交易周期的第一个交易日（W/M 默认 first，支持 W-last/M-last；
-      周一/月初休市顺延而非跳过；to_period 分组跨年不并组；no-lookahead）
+      周一/月初休市顺延而非跳过；to_period 分组跨年不并组；no-lookahead；
+      引擎级重复时间戳：按位置 iloc 逐行定价，无崩溃/双调仓/lookahead，确定性）
   #44 估值价/执行价分离：持仓估值用最近有效收盘价 ffill（单日停牌不再按
       0 元计价制造虚假暴跌）；当日无有效执行价禁止买卖（含清仓路径）；
       stale 超过 max_stale_days 发显式告警；NaN/inf 永不进入下单算术
@@ -191,6 +192,124 @@ class TestRebalanceScheduleFirstTradingDay(unittest.TestCase):
                           if t.direction == "buy" and str(idx[0]) in t.date}
         self.assertNotIn("600519", buy_codes_day1,
                          "调仓日停牌标的应被跳过而非崩溃")
+
+
+class TestEngineDuplicateTimestamps(unittest.TestCase):
+    """#43 重开验收：引擎级（Backtester.run）重复时间戳路径。
+
+    旧实现 `today_close = close_all.loc[date].to_dict()` 在完全重复的时间戳下
+    会取出 DataFrame，`.to_dict()` 产生嵌套 dict，进而 `float(dict)` 崩溃。
+    现实现按位置 `iloc[i]` 逐行处理：无崩溃、无双调仓、定价按行、确定性。
+    """
+
+    DUP_DATES = ["2024-03-25", "2024-03-26",
+                 "2024-04-01", "2024-04-01",   # 完全重复的时间戳（issue 场景）
+                 "2024-04-02", "2024-04-03"]
+    DUP_CLOSES = [10.0, 10.1, 10.2, 10.25, 10.3, 10.4]
+
+    def _dup_price(self):
+        idx = pd.DatetimeIndex(self.DUP_DATES)
+        return {"600000": _ohlcv(idx, self.DUP_CLOSES)}
+
+    @staticmethod
+    def _full_signal(date, past_data):
+        return {"600000": 1.0}
+
+    def test_run_no_crash_all_frequencies_with_duplicate_timestamps(self):
+        # 重开评论的最小场景 [04-01, 04-01, 04-02]：所有频率均不得崩溃，
+        # equity 全 finite，且逐行记录（长度 == 行数，含重复行）。
+        for freq in ("W", "W-first", "W-last", "M", "M-first", "M-last", "D"):
+            result = Backtester(initial_capital=100_000).run(
+                self._dup_price(), self._full_signal, rebalance_freq=freq)
+            self.assertEqual(len(result.equity_curve), len(self.DUP_DATES),
+                             f"freq={freq}: equity 应逐行记录（含重复行）")
+            self.assertTrue(np.isfinite(result.equity_curve.to_numpy()).all(),
+                            f"freq={freq}: 重复时间戳不得产生 NaN/inf equity")
+
+    def test_run_duplicate_rebalance_day_single_rebalance(self):
+        # 调仓日恰为重复时间戳：该周期只触发一次调仓（单标的至多 1 笔买入）。
+        result = Backtester(initial_capital=100_000).run(
+            self._dup_price(), self._full_signal, rebalance_freq="W")
+        buys_on_dup = [t for t in result.trades
+                       if t.direction == "buy" and t.date.startswith("2024-04-01")]
+        self.assertLessEqual(len(buys_on_dup), 1,
+                             "重复时间戳的调仓日不得双调仓")
+        self.assertEqual(len(result.trades), len(buys_on_dup),
+                         "除该周期外不应有其他交易（首周期 past_data 为空）")
+
+    def test_run_duplicate_rows_priced_positionally(self):
+        # 两条重复行价格不同（10.2 / 10.25）：估值必须按位置逐行取各自价格，
+        # 而非 .loc 合并取错。买入发生在第一条重复行后，第二条重复行的
+        # equity == capital + shares * 10.25。
+        result = Backtester(initial_capital=100_000).run(
+            self._dup_price(), self._full_signal, rebalance_freq="W")
+        buys = [t for t in result.trades if t.direction == "buy"]
+        self.assertEqual(len(buys), 1)
+        t = buys[0]
+        cash_after = 100_000 - t.amount - t.commission
+        self.assertAlmostEqual(result.equity_curve.iloc[2],
+                               cash_after + t.shares * 10.2, places=6,
+                               msg="第一条重复行按自身收盘价 10.2 估值")
+        self.assertAlmostEqual(result.equity_curve.iloc[3],
+                               cash_after + t.shares * 10.25, places=6,
+                               msg="第二条重复行按自身收盘价 10.25 估值")
+
+    def test_run_duplicates_deterministic(self):
+        # 相同输入两次运行：equity/交易完全一致（定价与信号切片确定性）。
+        price = {
+            "600000": _ohlcv(pd.DatetimeIndex(self.DUP_DATES), self.DUP_CLOSES),
+            "600519": _ohlcv(pd.DatetimeIndex(self.DUP_DATES),
+                             [20.0, 20.2, 20.4, 20.5, 20.6, 20.8]),
+        }
+
+        def signal(date, past_data):
+            return {"600000": 0.5, "600519": 0.5}
+
+        r1 = Backtester(initial_capital=100_000).run(price, signal, "W")
+        r2 = Backtester(initial_capital=100_000).run(price, signal, "W")
+        self.assertTrue((r1.equity_curve.to_numpy()
+                         == r2.equity_curve.to_numpy()).all())
+        self.assertEqual([(t.date, t.code, t.direction, t.shares)
+                          for t in r1.trades],
+                         [(t.date, t.code, t.direction, t.shares)
+                          for t in r2.trades])
+
+    def test_run_no_lookahead_with_duplicate_rebalance_day(self):
+        # 调仓日有重复行：信号不得看到该日的任何一条重复行（严格 < date）。
+        violations = []
+
+        def signal(date, past_data):
+            for c, df in past_data.items():
+                if not df.empty and df.index.max() >= pd.Timestamp(date):
+                    violations.append((str(date), c))
+            return {"600000": 1.0}
+
+        Backtester(initial_capital=100_000).run(
+            self._dup_price(), signal, rebalance_freq="W")
+        self.assertEqual(violations, [],
+                         "重复时间戳调仓日的所有同日行都不得进入 past_data")
+
+    def test_run_mismatched_duplicates_across_symbols(self):
+        # 一只标的有重复行、另一只没有：外连接产生 NaN 行也不得崩溃/双调仓。
+        idx_dup = pd.DatetimeIndex(self.DUP_DATES)
+        idx_plain = pd.DatetimeIndex(["2024-03-25", "2024-03-26", "2024-04-01",
+                                      "2024-04-02", "2024-04-03"])
+        price = {
+            "600000": _ohlcv(idx_dup, self.DUP_CLOSES),
+            "600519": _ohlcv(idx_plain, [20.0, 20.2, 20.4, 20.6, 20.8]),
+        }
+
+        def signal(date, past_data):
+            return {"600000": 0.5, "600519": 0.5}
+
+        result = Backtester(initial_capital=100_000).run(price, signal, "M")
+        self.assertTrue(np.isfinite(result.equity_curve.to_numpy()).all())
+        dup_day_buys = {}
+        for t in result.trades:
+            if t.direction == "buy" and t.date.startswith("2024-04-01"):
+                dup_day_buys[t.code] = dup_day_buys.get(t.code, 0) + 1
+        for code, cnt in dup_day_buys.items():
+            self.assertLessEqual(cnt, 1, f"{code} 在重复调仓日不得重复买入")
 
 
 class TestSuspendedNaNEquity(unittest.TestCase):
