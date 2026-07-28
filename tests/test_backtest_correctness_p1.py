@@ -4,14 +4,18 @@
 覆盖：
   #43 调仓日=每个交易周期的第一个交易日（W/M 默认 first，支持 W-last/M-last；
       周一/月初休市顺延而非跳过；to_period 分组跨年不并组；no-lookahead）
-  #44 停牌/缺失价 NaN 不污染 equity（估值时视作 0 市值，再平衡跳过）
+  #44 估值价/执行价分离：持仓估值用最近有效收盘价 ffill（单日停牌不再按
+      0 元计价制造虚假暴跌）；当日无有效执行价禁止买卖（含清仓路径）；
+      stale 超过 max_stale_days 发显式告警；NaN/inf 永不进入下单算术
   #45 权重校验：NaN/负值剔除，Σ>1 等比缩放至 ≤1
   #48 收益基准用 initial_capital 而非首条 equity
   #49 清仓信号（空 target_weights）卖出全部、不留陈旧持仓
   #42 胜率/盈亏比用闭环 realized PnL（卖出价-持仓均成本）
 """
 import unittest
+import warnings
 
+import numpy as np
 import pandas as pd
 
 from quant.backtest import Backtester, _normalize_weights, _rebalance_positions
@@ -217,9 +221,185 @@ class TestSuspendedNaNEquity(unittest.TestCase):
         result = bt.run(nan_price, signal, rebalance_freq="D")
 
         self.assertFalse(result.equity_curve.isna().any(),
-                         "equity 曲线中不得出现 NaN（停牌日估值应视作 0 市值）")
+                         "equity 曲线中不得出现 NaN（停牌日估值用最近有效价，#44）")
         self.assertTrue((result.equity_curve > 0).all(),
                         "equity 应恒为正，未因 NaN 崩溃")
+
+
+class TestValuationExecutionSeparation(unittest.TestCase):
+    """#44 重开验收：估值价（ffill）与执行价（当日原始有效价）分离。"""
+
+    @staticmethod
+    def _hold_both(date, past_data):
+        return {"AAA": 0.5, "BBB": 0.5}
+
+    def test_issue_minimal_repro_no_nan(self):
+        # Issue #44 原始最小复现：BBB 缺 01-06 一根 bar。
+        idx_a = pd.to_datetime(["2026-01-05", "2026-01-06", "2026-01-07"])
+        idx_b = pd.to_datetime(["2026-01-05", "2026-01-07"])
+        price = {
+            "AAA": _ohlcv(idx_a, [10.0, 10.5, 11.0]),
+            "BBB": _ohlcv(idx_b, [20.0, 21.0]),
+        }
+        result = Backtester(slippage=0, commission_rate=0, stamp_duty=0).run(
+            price, self._hold_both, rebalance_freq="D")
+        self.assertFalse(result.equity_curve.isna().any(),
+                         "缺一根 bar 不得让 equity 变 NaN")
+        self.assertTrue(np.isfinite(result.equity_curve).all())
+        self.assertFalse(pd.isna(result.total_return))
+
+    def test_one_day_suspension_valued_at_last_close_not_zero(self):
+        # 持仓标的单日停牌：估值必须用最近有效收盘价，而非 0 元
+        # （0 元计价会制造虚假净值暴跌——重开的核心理由）。
+        idx = pd.date_range("2026-03-02", periods=5, freq="B")
+        closes_a = [10.0, 10.0, 10.0, 10.0, 10.0]
+        closes_b = [20.0, 20.0, float("nan"), 20.0, 20.0]  # 第 3 天停牌
+        price = {"AAA": _ohlcv(idx, closes_a), "BBB": _ohlcv(idx, closes_b)}
+
+        bt = Backtester(initial_capital=100_000, slippage=0.0,
+                        commission_rate=0.0, stamp_duty=0.0)
+        result = bt.run(price, self._hold_both, rebalance_freq="D")
+
+        eq = result.equity_curve
+        self.assertFalse(eq.isna().any())
+        # 价格全程恒定：若停牌日按 0 计价，当日 equity 会骤降 ~50%；
+        # ffill 估值下 equity 应保持平稳（无价格变动、无交易成本）。
+        day2, day3 = eq.iloc[1], eq.iloc[2]
+        self.assertAlmostEqual(
+            day3, day2, delta=day2 * 0.001,
+            msg="停牌日 equity 不得因 0 元估值骤降（应沿用最近有效价）")
+        # 停牌日记录了 stale 诊断
+        stale = [d for d in result.diagnostics if d["type"] == "stale_valuation"
+                 and d["code"] == "BBB"]
+        self.assertGreaterEqual(len(stale), 1, "停牌估值须产生诊断记录")
+
+    def test_no_trade_without_same_day_execution_price(self):
+        # 当日无有效执行价的标的不得发生任何买卖。
+        idx = pd.date_range("2026-03-02", periods=4, freq="B")
+        closes_a = [10.0, 10.0, 10.0, 10.0]
+        closes_b = [20.0, float("nan"), float("nan"), 20.0]
+        price = {"AAA": _ohlcv(idx, closes_a), "BBB": _ohlcv(idx, closes_b)}
+
+        bt = Backtester(initial_capital=100_000)
+        result = bt.run(price, self._hold_both, rebalance_freq="D")
+
+        nan_days = {str(idx[1]), str(idx[2])}
+        bad = [t for t in result.trades
+               if t.code == "BBB" and t.date in nan_days]
+        self.assertEqual(bad, [], "无当日有效报价的标的禁止买卖")
+        # 跳过交易须有诊断
+        skipped = [d for d in result.diagnostics if d["type"] == "skipped_trade"
+                   and d["code"] == "BBB"]
+        self.assertGreaterEqual(len(skipped), 1)
+
+    def test_late_starting_symbol_no_nan_and_bought_after_listing(self):
+        # 标的晚于组合日历上市：上市前不得污染 equity，上市后才可买入。
+        idx_full = pd.date_range("2026-04-01", periods=6, freq="B")
+        idx_late = idx_full[3:]
+        price = {
+            "AAA": _ohlcv(idx_full, [10.0] * 6),
+            "BBB": _ohlcv(idx_late, [20.0] * 3),
+        }
+        bt = Backtester(initial_capital=100_000)
+        result = bt.run(price, self._hold_both, rebalance_freq="D")
+
+        self.assertFalse(result.equity_curve.isna().any())
+        early_days = {str(d) for d in idx_full[:3]}
+        early_b = [t for t in result.trades
+                   if t.code == "BBB" and t.date in early_days]
+        self.assertEqual(early_b, [], "上市前不得交易晚上市标的")
+        self.assertTrue(any(t.code == "BBB" and t.direction == "buy"
+                            for t in result.trades),
+                        "上市后应能正常买入")
+
+    def test_permanently_missing_symbol_triggers_stale_warning(self):
+        # 持仓后永久缺价（退市模拟）：超过 max_stale_days 须发显式告警。
+        n = 10
+        idx = pd.date_range("2026-05-04", periods=n, freq="B")
+        closes_a = [10.0] * n
+        closes_b = [20.0, 20.0] + [float("nan")] * (n - 2)  # 第 3 天起永久缺价
+        price = {"AAA": _ohlcv(idx, closes_a), "BBB": _ohlcv(idx, closes_b)}
+
+        bt = Backtester(initial_capital=100_000, max_stale_days=3)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = bt.run(price, self._hold_both, rebalance_freq="D")
+
+        self.assertFalse(result.equity_curve.isna().any())
+        exceeded = [d for d in result.diagnostics
+                    if d["type"] == "stale_limit_exceeded" and d["code"] == "BBB"]
+        self.assertEqual(len(exceeded), 1, "stale 超限告警恰好一次（不刷屏）")
+        self.assertGreater(exceeded[0]["stale_age"], 3)
+        self.assertTrue(any("BBB" in str(w.message) for w in caught),
+                        "超限须通过 warnings.warn 显式告警")
+
+    def test_missing_price_on_rebalance_date_no_crash_no_int_nan(self):
+        # 调仓日缺价：不得 int(NaN) 崩溃，持仓保留并按最近有效价估值。
+        idx = pd.date_range("2026-06-01", periods=6, freq="B")
+        closes_a = [10.0] * 6
+        closes_b = [20.0, 20.0, 20.0, 20.0, 20.0, float("nan")]
+        price = {"AAA": _ohlcv(idx, closes_a), "BBB": _ohlcv(idx, closes_b)}
+
+        bt = Backtester(initial_capital=100_000)
+        result = bt.run(price, self._hold_both, rebalance_freq="W")
+        self.assertFalse(result.equity_curve.isna().any())
+        self.assertTrue(np.isfinite(result.equity_curve).all())
+
+    def test_liquidate_keeps_suspended_position_until_price_returns(self):
+        # 清仓信号遇停牌标的：不得凭空抹掉股份；恢复报价后卖出。
+        idx = pd.date_range("2026-07-01", periods=6, freq="B")
+        closes_a = [10.0] * 6
+        closes_b = [20.0, 20.0, float("nan"), float("nan"), 20.0, 20.0]
+        price = {"AAA": _ohlcv(idx, closes_a), "BBB": _ohlcv(idx, closes_b)}
+
+        phase = {"n": 0}
+
+        def signal(date, past_data):
+            phase["n"] += 1
+            if phase["n"] <= 2:
+                return {"AAA": 0.5, "BBB": 0.5}
+            return {}  # 第 3 天（BBB 停牌）起清仓
+
+        bt = Backtester(initial_capital=100_000, slippage=0.0,
+                        commission_rate=0.0, stamp_duty=0.0)
+        result = bt.run(price, signal, rebalance_freq="D")
+
+        sells_b = [t for t in result.trades
+                   if t.code == "BBB" and t.direction == "sell"]
+        self.assertEqual(len(sells_b), 1, "停牌期间不能卖出，恢复后须恰好清仓一次")
+        self.assertIn(str(idx[4]), sells_b[0].date,
+                      "BBB 应在恢复报价的当天被清仓")
+        # 停牌期间持仓仍按最近有效价估值 -> equity 无 NaN、无 0 元暴跌
+        self.assertFalse(result.equity_curve.isna().any())
+        # 全部平仓后：equity 终值 == 现金（零费用下等于初始资金）
+        self.assertAlmostEqual(result.equity_curve.iloc[-1], 100_000.0,
+                               delta=1.0)
+
+    def test_inf_price_rejected_in_rebalance(self):
+        # inf 价格不得进入下单算术（float(inf) 通过 <=0 检查的旧漏洞）。
+        bt = Backtester(initial_capital=100_000)
+        capital, holdings, cost_basis, trades, realized = bt._rebalance(
+            "2026-01-05", {"600000": 1.0}, {"600000": float("inf")},
+            100_000.0, {}, {}, 100_000.0)
+        self.assertEqual(trades, [], "inf 执行价必须被拒绝")
+        self.assertEqual(capital, 100_000.0)
+
+        capital2, h2, cb2, t2, r2 = bt._liquidate(
+            "2026-01-05", {"600000": float("inf")},
+            0.0, {"600000": 100}, {"600000": 10.0})
+        self.assertEqual(t2, [], "inf 执行价不得触发清仓卖出")
+        self.assertEqual(h2, {"600000": 100}, "持仓必须保留")
+
+    def test_fully_aligned_data_no_diagnostics(self):
+        # 全对齐数据：行为不变，无任何 #44 诊断事件。
+        idx = pd.date_range("2026-08-03", periods=5, freq="B")
+        price = {"AAA": _ohlcv(idx, [10, 11, 12, 13, 14]),
+                 "BBB": _ohlcv(idx, [20, 21, 22, 23, 24])}
+        bt = Backtester(initial_capital=100_000)
+        result = bt.run(price, self._hold_both, rebalance_freq="D")
+        self.assertEqual(result.diagnostics, [],
+                         "全对齐数据不得产生停牌/跳单诊断")
+        self.assertFalse(result.equity_curve.isna().any())
 
 
 class TestWeightValidation(unittest.TestCase):

@@ -4,6 +4,8 @@ NASDX V2 — 回测引擎
 支持：策略回测 / 绩效评估 / 参数优化
 """
 from __future__ import annotations
+import warnings
+
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
@@ -37,6 +39,9 @@ class BacktestResult:
     equity_curve:    pd.Series = field(default_factory=pd.Series)
     trades:          list[Trade] = field(default_factory=list)
     daily_pnl:       pd.Series = field(default_factory=pd.Series)
+    # 诊断事件（issue #44）：停牌估值 / 跳过交易 / stale 超限告警
+    # 每条为 dict: {"date","code","type","stale_age"?}
+    diagnostics:     list = field(default_factory=list)
 
     def summary(self) -> str:
         return (
@@ -64,12 +69,17 @@ class Backtester:
         stamp_duty:      float = 0.001,     # 千1印花税（卖出）
         min_shares:      int   = 100,       # 最小交易单位
         slippage:        float = 0.001,     # 滑点（价格的0.1%）
+        max_stale_days:  int   = 20,        # 估值价最大陈旧天数（issue #44）
     ):
         self.initial_capital = initial_capital
         self.commission_rate = commission_rate
         self.stamp_duty      = stamp_duty
         self.min_shares      = min_shares
         self.slippage        = slippage
+        # stale-price 策略（issue #44）：持仓估值允许沿用最近有效收盘价，
+        # 但连续超过 max_stale_days 个交易日无有效报价时发出显式告警
+        # （diagnostics + warnings.warn），提示长期停牌/退市标的估值已不可靠。
+        self.max_stale_days  = max_stale_days
 
     def run(
         self,
@@ -89,6 +99,16 @@ class Backtester:
         - "W-last" / "M-last"：周期最后一个交易日调仓
         - "D"：每个交易日调仓
         信号仍只使用严格早于调仓日的数据（no-lookahead）。
+
+        缺价/停牌策略（issue #44）——估值价与执行价分离：
+        - 估值价（valuation price）：持仓市值使用最近一个有效收盘价前向填充
+          （ffill），单日停牌不再把持仓按 0 元计价制造虚假净值暴跌；
+          连续无有效报价超过 max_stale_days 个交易日时发出显式告警
+          （result.diagnostics + warnings.warn），提示长期停牌/退市标的。
+        - 执行价（execution price）：买卖必须使用【当日】有限且为正的原始
+          收盘价；当日无有效报价的标的既不能买入也不能卖出（含清仓路径），
+          持仓保留到恢复报价后再处理。
+        - 有效价定义：finite 且 > 0（NaN/inf/0/负价均视为无效）。
         """
         # 合并所有收盘价
         close_all = pd.DataFrame({
@@ -101,37 +121,70 @@ class Backtester:
         if close_all.empty:
             return BacktestResult()
 
+        # 估值价/执行价分离（issue #44）：
+        #   clean_close：仅保留有限且 >0 的当日原始价（执行价来源）
+        #   valuation_close：clean_close 前向填充（持仓估值来源）
+        numeric_close = close_all.apply(pd.to_numeric, errors="coerce")
+        finite_mask = numeric_close.apply(np.isfinite) & (numeric_close > 0)
+        clean_close = numeric_close.where(finite_mask)
+        valuation_close = clean_close.ffill()
+
         # 确定再平衡日期（issue #43）：
         # 从实际交易日索引按周期分组，默认取每个周期的【第一个交易日】，
         # 支持显式 first/last 约定；用位置掩码避免重复日期双调仓。
         dates = close_all.index
         rebal_positions = _rebalance_positions(dates, rebalance_freq)
 
-        def _safe_price(prices: dict, code: str) -> float:
-            """取当日收盘价，NaN/缺失视作 0（停牌不计入市值，issue #44）"""
-            p = prices.get(code, 0)
-            return 0.0 if (p is None or pd.isna(p)) else float(p)
-
         # 初始化
         capital    = self.initial_capital
         holdings   = {}          # {code: shares}
         cost_basis = {}          # {code: avg_cost}
-        equity     = []
         trades     = []
         pnl_list   = []
+        diagnostics: list[dict] = []
+        stale_warned: set[str] = set()   # 已发过超限告警的标的
+        last_valid_pos: dict[str, int] = {}  # {code: 最近有效报价的位置}
 
         prev_equity = capital
         realized_pnl: list[float] = []  # 闭环已实现盈亏（issue #42）
 
         for i, date in enumerate(dates):
-            # 当日收盘价
-            today_close = close_all.loc[date].to_dict()
+            # 按位置取行，重复时间戳不会取出多行 DataFrame
+            today_exec = clean_close.iloc[i]        # 当日执行价（无效=NaN）
+            today_val  = valuation_close.iloc[i]    # 当日估值价（ffill）
+            today_close = today_exec.to_dict()
 
-            # 计算持仓市值（停牌 NaN 视作 0，issue #44）
-            market_value = sum(
-                holdings.get(c, 0) * _safe_price(today_close, c)
-                for c in holdings
-            )
+            for c, p in today_close.items():
+                if not pd.isna(p):
+                    last_valid_pos[c] = i
+
+            def _valuation_price(code: str) -> float:
+                """持仓估值价：最近有效收盘价；从未有过有效报价则为 0。"""
+                p = today_val.get(code)
+                return 0.0 if (p is None or pd.isna(p)) else float(p)
+
+            # 持仓估值 + stale 诊断（issue #44）
+            market_value = 0.0
+            for c in holdings:
+                market_value += holdings.get(c, 0) * _valuation_price(c)
+                if pd.isna(today_close.get(c)):
+                    stale_age = i - last_valid_pos[c] if c in last_valid_pos else i + 1
+                    diagnostics.append({
+                        "date": str(date), "code": c,
+                        "type": "stale_valuation", "stale_age": stale_age,
+                    })
+                    if stale_age > self.max_stale_days and c not in stale_warned:
+                        stale_warned.add(c)
+                        diagnostics.append({
+                            "date": str(date), "code": c,
+                            "type": "stale_limit_exceeded", "stale_age": stale_age,
+                        })
+                        warnings.warn(
+                            f"[backtest] {c} 已连续 {stale_age} 个交易日无有效报价"
+                            f"（超过 max_stale_days={self.max_stale_days}），"
+                            f"持仓估值沿用最近有效价，可能已不可靠（长期停牌/退市）",
+                            RuntimeWarning,
+                        )
             total_equity = capital + market_value
 
             # 再平衡（按位置判断，重复日期行不会双调仓，issue #43）
@@ -147,8 +200,17 @@ class Backtester:
                 # 权重校验：剔除 NaN/负值，超额权重等比缩放至 Σ≤1（issue #45）
                 target_weights = _normalize_weights(target_weights)
 
+                # 当日无有效执行价的目标标的：记录跳过交易诊断（issue #44）
+                for c in target_weights:
+                    if pd.isna(today_close.get(c)):
+                        diagnostics.append({
+                            "date": str(date), "code": c,
+                            "type": "skipped_trade",
+                        })
+
                 if not target_weights:
-                    # 清仓信号（空 dict）：卖出全部持仓，不留陈旧（issue #49）
+                    # 清仓信号（空 dict）：卖出全部【当日有有效执行价】的持仓；
+                    # 停牌标的保留，恢复报价后再清（issue #44/#49）
                     capital, holdings, cost_basis, day_trades, day_pnl = self._liquidate(
                         date, today_close, capital, holdings, cost_basis
                     )
@@ -162,12 +224,12 @@ class Backtester:
                     trades.extend(day_trades)
                     realized_pnl.extend(day_pnl)
 
-                    # 重新计算（停牌 NaN 视作 0）
-                    market_value = sum(
-                        holdings.get(c, 0) * _safe_price(today_close, c)
-                        for c in holdings
-                    )
-                    total_equity = capital + market_value
+                # 调仓后重新估值（估值价 ffill，issue #44）
+                market_value = sum(
+                    holdings.get(c, 0) * _valuation_price(c)
+                    for c in holdings
+                )
+                total_equity = capital + market_value
 
             daily_pnl = total_equity - prev_equity
             pnl_list.append({"date": date, "equity": total_equity, "pnl": daily_pnl})
@@ -177,20 +239,25 @@ class Backtester:
         equity_ser = result_df["equity"]
         daily_pnl  = result_df["pnl"]
 
-        return self._calc_metrics(
+        result = self._calc_metrics(
             equity_ser, daily_pnl, trades,
             initial_capital=self.initial_capital,
             realized_pnl=realized_pnl,
         )
+        result.diagnostics = diagnostics
+        return result
 
     def _rebalance(self, date, target_weights, prices, capital, holdings, cost_basis, total_equity):
-        """执行再平衡，返回 (capital, holdings, cost_basis, trades, realized_pnl)"""
+        """执行再平衡，返回 (capital, holdings, cost_basis, trades, realized_pnl)
+
+        prices 为【当日执行价】：仅当有限且 >0 时才允许买卖（issue #44）。
+        """
         new_trades = []
         realized = []
 
         def _safe(code):
-            p = prices.get(code, 0)
-            return 0.0 if (p is None or pd.isna(p)) else float(p)
+            """当日执行价：无效（缺失/NaN/inf/<=0）返回 0.0，调用方跳过交易"""
+            return _exec_price(prices, code)
 
         # 先卖出不在目标中或需减仓的
         for code in list(holdings.keys()):
@@ -259,13 +326,18 @@ class Backtester:
         return capital, holdings, cost_basis, new_trades, realized
 
     def _liquidate(self, date, prices, capital, holdings, cost_basis):
-        """清仓：卖出全部持仓，返回 (capital, holdings, cost_basis, trades, realized_pnl)"""
+        """清仓：卖出全部【当日有有效执行价】的持仓。
+
+        无有效执行价（停牌/缺价）的标的保留持仓与成本基础，等恢复报价后
+        再处理——绝不静默抹掉股份（issue #44）。
+        返回 (capital, holdings, cost_basis, trades, realized_pnl)。
+        """
         new_trades = []
         realized = []
         for code in list(holdings.keys()):
-            cur_price = prices.get(code, 0)
-            if cur_price is None or pd.isna(cur_price) or cur_price <= 0:
-                continue
+            cur_price = _exec_price(prices, code)
+            if cur_price <= 0:
+                continue  # 当日无有效执行价：保留持仓，不得凭空清除
             sell_sh   = holdings[code]
             exec_price = cur_price * (1 - self.slippage)
             amount     = sell_sh * exec_price
@@ -273,10 +345,10 @@ class Backtester:
             avg_cost   = cost_basis.get(code, exec_price)
             realized.append((exec_price - avg_cost) * sell_sh - commission)
             capital   += amount - commission
+            del holdings[code]
+            cost_basis.pop(code, None)
             new_trades.append(Trade(str(date), code, "sell",
                                     exec_price, sell_sh, amount, commission))
-        holdings.clear()
-        cost_basis.clear()
         return capital, holdings, cost_basis, new_trades, realized
 
 
@@ -339,6 +411,24 @@ class Backtester:
             trades         = trades,
             daily_pnl      = daily_pnl,
         )
+
+
+def _valid_price(value) -> bool:
+    """有效价守卫（issue #44）：有限且 > 0 才可用于估值/执行。
+
+    NaN、±inf、None、0、负价、不可转 float 的值一律无效。
+    """
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return False
+    return bool(np.isfinite(f)) and f > 0
+
+
+def _exec_price(prices: dict, code: str) -> float:
+    """当日执行价：无效返回 0.0（调用方以 <=0 跳过交易，永不 int(NaN)）"""
+    p = prices.get(code)
+    return float(p) if _valid_price(p) else 0.0
 
 
 def _rebalance_positions(dates: pd.DatetimeIndex, rebalance_freq: str) -> set[int]:
