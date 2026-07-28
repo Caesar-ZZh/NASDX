@@ -2,7 +2,8 @@
 
 纯内存构造 DataFrame，不联网、不调用 AkShare / mootdx。
 覆盖：
-  #43 周期末交易日调仓（周一/月首停牌不再整周期无调仓）
+  #43 调仓日=每个交易周期的第一个交易日（W/M 默认 first，支持 W-last/M-last；
+      周一/月初休市顺延而非跳过；to_period 分组跨年不并组；no-lookahead）
   #44 停牌/缺失价 NaN 不污染 equity（估值时视作 0 市值，再平衡跳过）
   #45 权重校验：NaN/负值剔除，Σ>1 等比缩放至 ≤1
   #48 收益基准用 initial_capital 而非首条 equity
@@ -13,7 +14,7 @@ import unittest
 
 import pandas as pd
 
-from quant.backtest import Backtester, _normalize_weights
+from quant.backtest import Backtester, _normalize_weights, _rebalance_positions
 
 
 def _ohlcv(index, closes, opens=None, highs=None, lows=None, volumes=None):
@@ -38,65 +39,154 @@ def _ohlcv(index, closes, opens=None, highs=None, lows=None, volumes=None):
     )
 
 
-class TestRebalanceOnPeriodEndSuspended(unittest.TestCase):
-    """周频：本周一停牌（无数据）但周内有交易日 -> 仍须在该周期末交易日调仓。"""
+def _schedule_dates(idx: pd.DatetimeIndex, freq: str) -> list:
+    """用调度函数直接取调仓日期列表（按索引位置映射回日期）。"""
+    positions = _rebalance_positions(idx, freq)
+    return [idx[i] for i in sorted(positions)]
 
-    def test_weekly_rebalance_happens_when_monday_suspended(self):
-        # 3 个完整自然周；设计一些标的在周一缺失，但周内有交易日。
-        # 简化：让某标的在整周仅有一天有数据且落在周四，制造"停牌周仍有交易"边界。
-        idx = pd.date_range("2025-03-03", periods=21, freq="D")  # 周一到周日 3 周
-        # 标的 A：每天都有数据
-        a_closes = list(range(100, 121))
-        # 标的 B：周一全部缺失（停牌），只在周二~周日有数据 -> 周一整行被删
-        b_rows = []
-        for i, d in enumerate(idx):
-            if d.weekday() == 0:  # 周一停牌
-                continue
-            c = 50 + i
-            b_rows.append(
-                {"open": float(c), "high": float(c) + 1.0, "low": float(c) - 1.0,
-                 "close": float(c), "volume": 1000}
-            )
-        b_frame = pd.DataFrame(
-            b_rows, index=[d for d in idx if d.weekday() != 0]
-        )
 
-        price = {"600000": _ohlcv(idx, a_closes), "600519": b_frame}
+class TestRebalanceScheduleFirstTradingDay(unittest.TestCase):
+    """#43 重开验收：W/M 默认取每个周期的【第一个交易日】，周一/月初休市顺延不跳过。"""
 
-        state = {"built": {}}
+    def test_weekly_monday_holiday_shifts_to_tuesday(self):
+        # 三个交易周：第 1 周正常（周一起），第 2 周周一休市（从周二起），
+        # 第 3 周正常。周频必须每周恰好调仓一次，第 2 周落在周二。
+        idx = pd.DatetimeIndex([
+            "2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11", "2024-01-12",  # 周1 全勤
+            "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19",               # 周2 周一(15日)休市
+            "2024-01-22", "2024-01-23", "2024-01-24", "2024-01-25", "2024-01-26", # 周3 全勤
+        ])
+        seen = _schedule_dates(idx, "W")
+
+        self.assertEqual(len(seen), 3, "3 个交易周必须各调仓一次")
+        self.assertEqual(seen[0], pd.Timestamp("2024-01-08"), "正常周取周一")
+        self.assertEqual(seen[1], pd.Timestamp("2024-01-16"),
+                         "周一休市必须顺延到周二调仓，而非跳过该周")
+        self.assertEqual(seen[2], pd.Timestamp("2024-01-22"))
+
+    def test_monthly_first_calendar_day_absent_shifts_to_first_trading_day(self):
+        # 2024-06-01 是周六：6 月首个交易日为 6-03；
+        # 2024-09-01 是周日：9 月首个交易日为 9-02。均不得跳过整月。
+        idx = pd.DatetimeIndex([
+            "2024-06-03", "2024-06-04", "2024-06-05",
+            "2024-07-01", "2024-07-02",
+            "2024-09-02", "2024-09-03",
+        ])
+        seen = _schedule_dates(idx, "M")
+
+        self.assertEqual(seen, [pd.Timestamp("2024-06-03"),
+                                pd.Timestamp("2024-07-01"),
+                                pd.Timestamp("2024-09-02")],
+                         "月频取每月首个交易日；1 日休市顺延、跳过无数据月份")
+
+    def test_partial_first_period_still_rebalances(self):
+        # 样本从周四开始（partial week）：该 partial 周期的第一个可用交易日也要调仓。
+        idx = pd.DatetimeIndex(["2024-03-21", "2024-03-22",     # 周四五（partial week）
+                                "2024-03-25", "2024-03-26"])    # 下周一二
+        seen = _schedule_dates(idx, "W")
+        self.assertEqual(seen, [pd.Timestamp("2024-03-21"), pd.Timestamp("2024-03-25")])
+
+        seen_m = _schedule_dates(idx, "M")
+        self.assertEqual(seen_m, [pd.Timestamp("2024-03-21")],
+                         "partial month 也须在首个可用交易日调仓一次")
+
+    def test_weekly_grouping_across_year_boundary(self):
+        # 旧实现用 isocalendar().week（无年份），2024-W2 与 2025-W2 会被并组。
+        # 两年各取 1 月第 2 周的周一，必须各自调仓一次。
+        idx = pd.DatetimeIndex(["2024-01-08", "2024-01-09",
+                                "2025-01-06", "2025-01-07"])
+        seen = _schedule_dates(idx, "W")
+        self.assertEqual(len(seen), 2, "跨年同周号必须分属不同周期，各调仓一次")
+        self.assertEqual(seen, [pd.Timestamp("2024-01-08"), pd.Timestamp("2025-01-06")])
+
+    def test_no_double_rebalance_within_period(self):
+        # 每个周期最多一次：连续完整两周恰好 2 次；重复/日内多行不得双触发。
+        idx = pd.date_range("2024-04-01", periods=10, freq="B")  # 两个完整交易周
+        seen = _schedule_dates(idx, "W")
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(len(set(seen)), len(seen), "调仓日不得重复")
+
+        # 同一天出现两行（脏数据/日内行）：该周期仍只触发一次
+        dup = pd.DatetimeIndex(["2024-04-01", "2024-04-01", "2024-04-02"])
+        self.assertEqual(len(_rebalance_positions(dup, "W")), 1,
+                         "重复日期行不得导致同周期双调仓")
+
+    def test_explicit_last_conventions(self):
+        # W-last / M-last 显式约定：取周期最后一个交易日。
+        idx = pd.DatetimeIndex([
+            "2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11", "2024-01-12",
+            "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19",
+        ])
+        seen = _schedule_dates(idx, "W-last")
+        self.assertEqual(seen, [pd.Timestamp("2024-01-12"), pd.Timestamp("2024-01-19")])
+
+        idx_m = pd.DatetimeIndex(["2024-06-03", "2024-06-28", "2024-07-01", "2024-07-31"])
+        seen_m = _schedule_dates(idx_m, "M-last")
+        self.assertEqual(seen_m, [pd.Timestamp("2024-06-28"), pd.Timestamp("2024-07-31")])
+
+    def test_explicit_first_aliases_match_default(self):
+        idx = pd.date_range("2024-05-06", periods=10, freq="B")
+        self.assertEqual(_schedule_dates(idx, "W"), _schedule_dates(idx, "W-first"))
+        self.assertEqual(_schedule_dates(idx, "M"), _schedule_dates(idx, "M-first"))
+
+    def test_daily_and_empty_index(self):
+        idx = pd.date_range("2024-05-06", periods=3, freq="B")
+        self.assertEqual(len(_rebalance_positions(idx, "D")), 3)
+        self.assertEqual(_rebalance_positions(pd.DatetimeIndex([]), "W"), set())
+
+    def test_engine_rebalances_weekly_via_run(self):
+        # 引擎级验证：第 2 周周一休市，engine 仍在周二产生交易
+        # （首个调仓日 past_data 为空不触发信号，属 no-lookahead 固有行为）。
+        idx = pd.DatetimeIndex([
+            "2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11", "2024-01-12",
+            "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19",
+        ])
+        price = {"600000": _ohlcv(idx, list(range(100, 100 + len(idx))))}
 
         def signal(date, past_data):
-            # 每个调仓日，对所有可见标的等权
-            codes = [c for c in past_data if not past_data[c].empty]
-            if not codes:
-                return {}
-            return {c: 1.0 / len(codes) for c in codes}
-
-        bt = Backtester(initial_capital=100_000)
-        result = bt.run(price, signal, rebalance_freq="W")
-
-        # 断言：存在持仓发生过变化的交易日（即有调仓发生），
-        # 并且标的 B（停牌周标的）在某周被纳入过持仓。
-        trades_codes = {t.code for t in result.trades}
-        self.assertIn("600519", trades_codes,
-                      "停牌周标的应在周期末交易日被调仓，而非整周期被跳过")
-
-    def test_monthly_rebalance_on_last_trading_day(self):
-        # 构造两个月，各 30 天（避开 1 月 1 日所在年界）。让月初几天停牌。
-        idx = pd.date_range("2025-03-01", periods=60, freq="D")
-        a_closes = list(range(100, 160))
-        price = {"600000": _ohlcv(idx, a_closes)}
-        rebalanced = {"count": 0}
-
-        def signal(date, past_data):
-            rebalanced["count"] += 1
             return {"600000": 1.0}
 
-        bt = Backtester(initial_capital=100_000)
-        bt.run(price, signal, rebalance_freq="M")
-        # 两个月 -> 至少 2 个调仓日（每月末交易日）
-        self.assertGreaterEqual(rebalanced["count"], 2,
-                                "月频应至少触发两次周期末调仓")
+        result = Backtester(initial_capital=100_000).run(price, signal,
+                                                         rebalance_freq="W")
+        trade_dates = {t.date for t in result.trades}
+        self.assertTrue(any("2024-01-16" in d for d in trade_dates),
+                        "周一休市的那一周必须在周二（首个交易日）实际发生调仓交易")
+
+    def test_no_lookahead_signal_data_strictly_before_execution(self):
+        # 信号只能看到严格早于调仓日的数据（含周一休市顺延场景）。
+        idx = pd.DatetimeIndex([
+            "2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11", "2024-01-12",
+            "2024-01-16", "2024-01-17",
+        ])
+        price = {"600000": _ohlcv(idx, list(range(100, 107)))}
+        violations = []
+
+        def signal(date, past_data):
+            for c, df in past_data.items():
+                if not df.empty and df.index.max() >= pd.Timestamp(date):
+                    violations.append((date, c))
+            return {"600000": 1.0}
+
+        Backtester(initial_capital=100_000).run(price, signal, rebalance_freq="W")
+        self.assertEqual(violations, [], "信号数据必须严格早于执行日（no-lookahead）")
+
+    def test_suspended_symbol_on_rebalance_day_skipped_without_crash(self):
+        # 调仓日某标的 close=NaN（停牌）：跳过买入且不得 int(NaN) 崩溃。
+        idx = pd.date_range("2024-02-05", periods=5, freq="B")
+        closes_a = [10.0, 10.5, 11.0, 11.5, 12.0]
+        closes_b = [float("nan"), 20.5, 21.0, 21.5, 22.0]  # 周一（调仓日）停牌
+        price = {"600000": _ohlcv(idx, closes_a), "600519": _ohlcv(idx, closes_b)}
+
+        def signal(date, past_data):
+            return {"600000": 0.5, "600519": 0.5}
+
+        result = Backtester(initial_capital=100_000).run(price, signal,
+                                                         rebalance_freq="W")
+        self.assertFalse(result.equity_curve.isna().any())
+        buy_codes_day1 = {t.code for t in result.trades
+                          if t.direction == "buy" and str(idx[0]) in t.date}
+        self.assertNotIn("600519", buy_codes_day1,
+                         "调仓日停牌标的应被跳过而非崩溃")
 
 
 class TestSuspendedNaNEquity(unittest.TestCase):

@@ -169,7 +169,11 @@ def render_quant_page(st):
         p1,p2,p3 = st.columns(3)
         with p1: days = st.select_slider("历史天数",[90,180,252,365],value=252)
         with p2: top_n = st.slider("Top-N 组合",3,10,5)
-        with p3: freq = st.selectbox("调仓频率",["W 每周","M 每月","D 每日"]).split()[0]
+        with p3: freq = st.selectbox(
+            "调仓频率", ["W 每周", "M 每月", "D 每日"],
+            help="按实际交易日历调仓：周频=每个交易周第一个交易日（周一休市顺延周二）；"
+                 "月频=每月第一个交易日（1 日休市顺延）。信号只用调仓日之前的数据。"
+        ).split()[0]
 
         pool_n = len(_load_etf50_pool())
         est = max(3, pool_n * days // 5000)

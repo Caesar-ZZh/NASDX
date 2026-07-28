@@ -75,12 +75,20 @@ class Backtester:
         self,
         price_data:  dict[str, pd.DataFrame],  # {code: OHLCV}
         signal_func: Callable,                  # 信号函数
-        rebalance_freq: str = "W",              # W=周 M=月 D=日
+        rebalance_freq: str = "W",              # W/W-first/W-last/M/M-first/M-last/D
     ) -> BacktestResult:
         """
         运行回测
         signal_func(date, past_data) → dict{code: weight}（权重合计≤1）
         past_data 只包含 date 之前的行情，避免用当日收盘生成同日成交信号。
+
+        调仓约定（issue #43）：调仓日从【实际交易日索引】按周期分组产生，
+        每个周期恰好一次；周一/月初休市不会跳过整个周期。
+        - "W"  == "W-first"：每个交易周的第一个交易日调仓（周一休市→顺延周二）
+        - "M"  == "M-first"：每个交易月的第一个交易日调仓（1 日休市→顺延首个交易日）
+        - "W-last" / "M-last"：周期最后一个交易日调仓
+        - "D"：每个交易日调仓
+        信号仍只使用严格早于调仓日的数据（no-lookahead）。
         """
         # 合并所有收盘价
         close_all = pd.DataFrame({
@@ -93,18 +101,11 @@ class Backtester:
         if close_all.empty:
             return BacktestResult()
 
-        # 确定再平衡日期：取每个调仓周期内的【最后一个交易日】（issue #43）
-        # 原实现取周一/月首，若当天停牌则整周期无调仓；改为周期末交易日触发。
+        # 确定再平衡日期（issue #43）：
+        # 从实际交易日索引按周期分组，默认取每个周期的【第一个交易日】，
+        # 支持显式 first/last 约定；用位置掩码避免重复日期双调仓。
         dates = close_all.index
-        if rebalance_freq == "W":
-            period_key = dates.to_series().dt.isocalendar().week
-        elif rebalance_freq == "M":
-            period_key = dates.to_series().dt.to_period("M").astype(str)
-        else:
-            period_key = pd.Series(range(len(dates)), index=dates)
-        rebal_dates = set()
-        for _, idx in period_key.groupby(period_key):
-            rebal_dates.add(idx.index[-1])  # 该周期最后一个交易日（groupby yield (key, sub-series)）
+        rebal_positions = _rebalance_positions(dates, rebalance_freq)
 
         def _safe_price(prices: dict, code: str) -> float:
             """取当日收盘价，NaN/缺失视作 0（停牌不计入市值，issue #44）"""
@@ -133,8 +134,8 @@ class Backtester:
             )
             total_equity = capital + market_value
 
-            # 再平衡
-            if date in rebal_dates:
+            # 再平衡（按位置判断，重复日期行不会双调仓，issue #43）
+            if i in rebal_positions:
                 # 信号只能看见上一根 bar；当日价格仅用于执行与估值。
                 past_data = {
                     c: sliced
@@ -222,7 +223,7 @@ class Backtester:
         for code, w in sorted(target_weights.items(), key=lambda x: -x[1]):
             if w <= 0:
                 continue
-            cur_price = prices.get(code, 0)
+            cur_price = _safe(code)   # NaN（停牌）视作 0，跳过买入，避免 int(NaN) 崩溃
             if cur_price <= 0:
                 continue
             target_val = total_equity * w
@@ -338,6 +339,47 @@ class Backtester:
             trades         = trades,
             daily_pnl      = daily_pnl,
         )
+
+
+def _rebalance_positions(dates: pd.DatetimeIndex, rebalance_freq: str) -> set[int]:
+    """生成调仓日的【位置索引】集合（issue #43）。
+
+    从实际交易日索引按周期分组（to_period 含年份，跨年不会把不同年份的
+    同周号并组），每个周期恰好触发一次：
+      - "W" / "W-first"：交易周第一个交易日（周一休市→顺延到周二等）
+      - "W-last"       ：交易周最后一个交易日
+      - "M" / "M-first"：交易月第一个交易日（1 日休市→顺延到首个交易日）
+      - "M-last"       ：交易月最后一个交易日
+      - "D" 及其他     ：每个交易日
+    返回位置集合而非日期集合：重复/日内多行时同一周期只触发一次，
+    且不会因日期比较把重复行各调一次仓。
+    """
+    n = len(dates)
+    if n == 0:
+        return set()
+
+    freq = (rebalance_freq or "D").strip()
+    key = freq.upper()
+    if key in ("W", "W-FIRST", "W-LAST"):
+        periods = dates.normalize().to_period("W")
+    elif key in ("M", "M-FIRST", "M-LAST"):
+        periods = dates.normalize().to_period("M")
+    else:  # "D" 或未知频率：每个交易日
+        return set(range(n))
+
+    take_last = key.endswith("-LAST")
+    positions: set[int] = set()
+    prev_period = None
+    for pos, p in enumerate(periods):
+        if p != prev_period:
+            if take_last and prev_period is not None:
+                positions.add(pos - 1)   # 上一周期的最后一行
+            if not take_last:
+                positions.add(pos)       # 本周期的第一行
+            prev_period = p
+    if take_last:
+        positions.add(n - 1)             # 最后一个周期的末行
+    return positions
 
 
 def _normalize_weights(target_weights: dict) -> dict:
