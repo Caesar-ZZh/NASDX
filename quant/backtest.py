@@ -78,7 +78,10 @@ class Backtester:
         max_stale_days:  int   = 20,        # 估值价最大陈旧天数（issue #44）
         normalize_weights: bool = False,    # 显式 opt-in：Σ>1 等比归一化（issue #45）
     ):
-        self.initial_capital = initial_capital
+        # 初始资金 fail-fast 校验（issue #48）：必须是有限正数。
+        # NaN/inf/0/负数/不可转 float 的值在模拟开始前直接拒绝，
+        # 绝不静默回退到首条 equity。
+        self.initial_capital = _validate_initial_capital(initial_capital)
         self.commission_rate = commission_rate
         self.stamp_duty      = stamp_duty
         self.min_shares      = min_shares
@@ -432,23 +435,42 @@ class Backtester:
         initial_capital: float = 100_000.0,
         realized_pnl: list[float] | None = None,
     ) -> BacktestResult:
-        """计算绩效指标"""
+        """计算绩效指标。
+
+        统一初始 NAV 基线（issue #48）：total_return、annual_return、
+        最大回撤、夏普输入收益序列全部基于同一条【前置了
+        initial_capital 的净值序列】计算——首日交易成本/盈亏同时计入
+        总收益、首期收益观测和回撤基线；一日回测的负收益不会再出现
+        "total_return<0 但 max_drawdown==0、夏普无首期亏损"的不一致。
+        年化周期数 = 收益观测数 = len(equity)（初始点→每个记录日），
+        与 252/total_days 的年化口径一致。
+
+        initial_capital 必须为有限正数（构造 Backtester 时已 fail-fast
+        校验；直接调用本方法时同样拒绝非法值，不回退首条 equity）。
+        """
         if equity.empty:
             return BacktestResult()
 
+        initial_capital = _validate_initial_capital(initial_capital)
+
         total_days   = len(equity)
-        # 收益基准用初始资金而非首条 equity（避免首日持仓市值污染，issue #48）
-        base = initial_capital if initial_capital > 0 else equity.iloc[0]
-        total_return = equity.iloc[-1] / base - 1
+        # 前置初始资金，构成统一基线净值序列（issue #48）
+        nav = pd.concat(
+            [pd.Series([float(initial_capital)]),
+             equity.astype(float).reset_index(drop=True)],
+            ignore_index=True,
+        )
+        total_return = nav.iloc[-1] / initial_capital - 1
         annual_return = (1 + total_return) ** (252 / total_days) - 1
 
-        # 最大回撤
-        roll_max = equity.cummax()
-        drawdown = (equity - roll_max) / roll_max
+        # 最大回撤（基线含初始资金：首日亏损立即体现为回撤）
+        roll_max = nav.cummax()
+        drawdown = (nav - roll_max) / roll_max
         max_dd   = drawdown.min()
 
-        # 夏普比率（年化）
-        daily_ret = equity.pct_change().dropna()
+        # 夏普比率（年化）：收益序列同样从初始资金起算，
+        # 首期观测 = equity[0]/initial_capital - 1（含首日交易成本）
+        daily_ret = nav.pct_change().dropna()
         sharpe = daily_ret.mean() / (daily_ret.std() + 1e-9) * np.sqrt(252)
 
         # 卡玛比率
@@ -483,6 +505,24 @@ class Backtester:
             trades         = trades,
             daily_pnl      = daily_pnl,
         )
+
+
+def _validate_initial_capital(value) -> float:
+    """校验初始资金（issue #48）：必须是有限正数，否则抛 ValueError。
+
+    NaN、±inf、0、负数、bool、字符串、None 等一律拒绝——在模拟开始前
+    fail-fast，绝不静默回退到首条 equity 作为收益基准。
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
+        raise ValueError(
+            f"initial_capital 必须是数值类型，收到 {type(value).__name__}: {value!r}"
+        )
+    f = float(value)
+    if not np.isfinite(f) or f <= 0:
+        raise ValueError(
+            f"initial_capital 必须是有限正数，收到 {value!r}"
+        )
+    return f
 
 
 def _valid_price(value) -> bool:

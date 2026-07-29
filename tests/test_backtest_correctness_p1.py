@@ -736,6 +736,129 @@ class TestReturnBaseInitialCapital(unittest.TestCase):
                         msg="恒定价格下 total_return 应仅含交易损耗（<1%），证明其基于 initial_capital 而非首条 equity")
 
 
+class TestInitialNavBaseline(unittest.TestCase):
+    """#48 重开验收：total/annual/回撤/夏普共用【前置 initial_capital 的
+    净值基线】；非法初始资金在模拟前 fail-fast。"""
+
+    @staticmethod
+    def _flat_price(days=1, px=100.0, start="2025-05-06"):
+        idx = pd.date_range(start, periods=days, freq="D")
+        return {"600000": _ohlcv(idx, [px] * days)}, idx
+
+    def test_one_day_equity_negative_return_and_drawdown_whitebox(self):
+        """一日 equity 低于初始资金：total_return<0 且 max_drawdown<0
+        （重开点：旧实现 cummax 从首条 equity 起算 -> 回撤恒 0）。"""
+        bt = Backtester(initial_capital=100_000)
+        idx = pd.date_range("2025-05-06", periods=1, freq="D")
+        equity = pd.Series([99_900.0], index=idx)
+        pnl = pd.Series([-100.0], index=idx)
+        result = bt._calc_metrics(equity, pnl, trades=[],
+                                  initial_capital=100_000)
+        self.assertAlmostEqual(result.total_return, -0.001, places=12)
+        self.assertLess(result.max_drawdown, 0,
+                        "一日亏损必须体现在回撤中（基线=initial_capital）")
+        self.assertAlmostEqual(result.max_drawdown, result.total_return, places=12,
+                               msg="一日回测中回撤与总收益共用同一初始 NAV 基线")
+
+    def test_first_trade_day_costs_in_return_and_drawdown(self):
+        """引擎级：首个建仓日（no-lookahead 下为第 2 个交易日）的交易成本
+        必须同时计入 total_return 与 max_drawdown。"""
+        price, _ = self._flat_price(days=2)
+        init = 100_000.0
+        result = Backtester(initial_capital=init,
+                            commission_rate=0.0003,
+                            slippage=0.001).run(
+            price, lambda d, p: {"600000": 1.0}, rebalance_freq="D")
+
+        self.assertGreaterEqual(len(result.trades), 1, "第 2 天必须建仓")
+        final = result.equity_curve.iloc[-1]
+        self.assertLess(final, init, "建仓成本必须使净值低于初始资金")
+        self.assertAlmostEqual(result.total_return, final / init - 1, places=12)
+        self.assertLess(result.total_return, 0)
+        self.assertLess(result.max_drawdown, 0,
+                        "建仓成本必须体现在回撤中（基线=initial_capital）")
+        self.assertAlmostEqual(result.max_drawdown, final / init - 1, places=12)
+
+    def test_no_trade_flat_price_exact_zero(self):
+        """无交易+平价：total_return 恰为 0，回撤为 0。"""
+        price, _ = self._flat_price(days=5)
+        result = Backtester(initial_capital=50_000).run(
+            price, lambda d, p: {}, rebalance_freq="D")
+        self.assertEqual(result.total_return, 0.0)
+        self.assertEqual(result.max_drawdown, 0.0)
+        self.assertEqual(result.annual_return, 0.0)
+
+    def test_sharpe_includes_first_period_loss(self):
+        """夏普输入收益序列必须含首期观测 equity[0]/init - 1（白盒验证）。"""
+        bt = Backtester(initial_capital=100_000)
+        idx = pd.date_range("2025-05-06", periods=3, freq="D")
+        equity = pd.Series([99_000.0, 99_500.0, 99_200.0], index=idx)
+        daily_pnl = equity.diff().fillna(equity.iloc[0] - 100_000)
+        result = bt._calc_metrics(equity, daily_pnl, trades=[],
+                                  initial_capital=100_000)
+        nav = pd.Series([100_000.0, 99_000.0, 99_500.0, 99_200.0])
+        rets = nav.pct_change().dropna()
+        expected_sharpe = rets.mean() / (rets.std() + 1e-9) * np.sqrt(252)
+        self.assertAlmostEqual(result.sharpe_ratio, expected_sharpe, places=9,
+                               msg="夏普收益序列须从 initial_capital 起算（含首期亏损）")
+        roll = nav.cummax()
+        expected_dd = ((nav - roll) / roll).min()
+        self.assertAlmostEqual(result.max_drawdown, expected_dd, places=12)
+
+    def test_first_day_vs_delayed_trade_same_baseline(self):
+        """首日建仓 vs 次日建仓：收益基线一致（都基于 initial_capital），
+        各自的建仓成本都被计入，不因建仓时点漂移。"""
+        init = 100_000.0
+        price, _ = self._flat_price(days=4)
+
+        def sig_day1(date, past):
+            return {"600000": 1.0}
+
+        state = {"n": 0}
+
+        def sig_day2(date, past):
+            state["n"] += 1
+            return {"600000": 1.0} if state["n"] >= 2 else {}
+
+        r1 = Backtester(initial_capital=init).run(price, sig_day1, "D")
+        state["n"] = 0
+        r2 = Backtester(initial_capital=init).run(price, sig_day2, "D")
+        # 平价场景下两者的成本相同（同价建仓一次）——total_return 应相等
+        self.assertLess(r1.total_return, 0)
+        self.assertLess(r2.total_return, 0)
+        self.assertAlmostEqual(r1.total_return, r2.total_return, places=9,
+                               msg="建仓推迟一天不得改变成本是否计入收益")
+        self.assertAlmostEqual(r1.max_drawdown, r2.max_drawdown, places=9)
+
+    def test_multi_day_total_return_uses_initial_capital(self):
+        idx = pd.date_range("2025-05-06", periods=10, freq="D")
+        price = {"600000": _ohlcv(idx, list(range(100, 110)))}
+        init = 200_000.0
+        result = Backtester(initial_capital=init).run(
+            price, lambda d, p: {"600000": 1.0}, rebalance_freq="W")
+        self.assertAlmostEqual(
+            result.total_return,
+            result.equity_curve.iloc[-1] / init - 1, places=12)
+
+    def test_invalid_initial_capital_rejected_at_construction(self):
+        """<=0/NaN/inf/非数值在构造时 fail-fast，模拟前拒绝。"""
+        for bad in (0, -1, -100.5, float("nan"), float("inf"),
+                    float("-inf"), "100000", None, True):
+            with self.assertRaises((ValueError, TypeError),
+                                   msg=f"initial_capital={bad!r} 必须被拒绝"):
+                Backtester(initial_capital=bad)
+
+    def test_calc_metrics_rejects_invalid_capital_no_fallback(self):
+        """直接调用 _calc_metrics 传非法资金：抛异常而非回退首条 equity。"""
+        bt = Backtester(initial_capital=100_000)
+        idx = pd.date_range("2025-05-06", periods=2, freq="D")
+        equity = pd.Series([99_000.0, 99_500.0], index=idx)
+        pnl = pd.Series([0.0, 500.0], index=idx)
+        for bad in (0, -5, float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                bt._calc_metrics(equity, pnl, trades=[], initial_capital=bad)
+
+
 class TestLiquidateSignal(unittest.TestCase):
     """清空信号（空 dict）卖出全部、不留陈旧持仓。"""
 

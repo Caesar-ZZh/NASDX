@@ -404,7 +404,7 @@ def render_quant_page(st):
                                     ["factor_rank","momentum","mean_reversion"],
                                     format_func={"factor_rank":"多因子排名","momentum":"动量","mean_reversion":"均值回归"}.get,
                                     key="bt_strat")
-            bt_cap   = st.number_input("初始资金",value=100000,step=10000,key="bt_cap")
+            bt_cap   = st.number_input("初始资金",value=100000,step=10000,min_value=1000,key="bt_cap")
         with bc2:
             bt_days  = st.select_slider("历史天数",[180,252,365,500,730],value=365,key="bt_days")
             bt_rebal = st.selectbox("调仓频率",["W","M","D"],key="bt_rebal",
