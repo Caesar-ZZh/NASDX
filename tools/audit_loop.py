@@ -7,7 +7,9 @@ NASDX 自主功能审查循环 harness
   2. analyze : 用 LLM（复用 nasdx.llm）做产品层分析，产出结构化 findings。
   3. report  : 生成详细使用报告（功能描述/步骤/预期实际对比 + 产品分析）。
   4. issues  : 为每个 finding 建 GitHub Issue（gh）。
-  5. fix     : 对每个开放 issue 生成补丁→测→PR→评论→关闭（有界批次）。
+  5. fix     : 对每个开放 issue 生成补丁→测→PR（有界批次）。仅记录 PR 已开，不关闭 Issue。
+  6. verify  : 核实 PR 已合并且合并提交可达默认分支后，才标记 fixed 并关闭 Issue；
+               未合并即关闭的 PR 会清除状态使 finding 可重试，误关的 Issue 会被重开。
 
 用法：
   python tools/audit_loop.py                 # 全循环（execute→analyze→report→issues→fix）
@@ -16,6 +18,7 @@ NASDX 自主功能审查循环 harness
   python tools/audit_loop.py --phase report
   python tools/audit_loop.py --phase issues
   python tools/audit_loop.py --phase fix --max-fix 3
+  python tools/audit_loop.py --phase verify   # 核实 PR 合并状态并推进 Issue 生命周期
   python tools/audit_loop.py --no-net        # 跳过网络依赖探针
   python tools/audit_loop.py --limit-modules 8
 """
@@ -47,20 +50,40 @@ NET_TIMEOUT = 240
 # --------------------------------------------------------------------------
 # 状态
 # --------------------------------------------------------------------------
-def load_state() -> Dict[str, Any]:
-    if STATE_PATH.exists():
-        try:
-            return json.loads(STATE_PATH.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
+def _default_state() -> Dict[str, Any]:
     return {
         "executed": {},          # module_id -> result dict
         "findings": [],          # 分析结果
         "issues": {},            # finding_id -> issue_number
-        "fixed": {},             # finding_id -> pr_number
+        "prs": {},               # finding_id -> pr_number（PR 已开，尚未验证合并到默认分支）
+        "fixed": {},             # finding_id -> pr_number（已验证：PR 合并且提交在默认分支上）
         "skipped_modules": [],
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
+
+
+def _migrate_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    """旧 schema 迁移（#61）。
+
+    旧版把「PR 已创建」直接写进 ``fixed``，导致未合并的 PR 也被视为已完成、
+    finding 永远不可重试。新 schema 下 ``fixed`` 仅表示「已验证合并进默认分支」。
+    因此把缺少 ``prs`` 键的旧状态中的 ``fixed`` 条目整体降级到 ``prs``，
+    交由 phase_verify 重新核实。
+    """
+    if "prs" not in state:
+        state["prs"] = dict(state.get("fixed") or {})
+        state["fixed"] = {}
+    state.setdefault("fixed", {})
+    return state
+
+
+def load_state() -> Dict[str, Any]:
+    if STATE_PATH.exists():
+        try:
+            return _migrate_state(json.loads(STATE_PATH.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return _default_state()
 
 
 def save_state(state: Dict[str, Any]) -> None:
@@ -685,8 +708,17 @@ def write_report(state: Dict[str, Any]) -> Path:
     for i, f in enumerate(findings):
         fid = f.get("id", f"F{i}")
         issue = state["issues"].get(fid, "")
-        pr = state["fixed"].get(fid, "")
-        st = "已关闭" if pr else ("已建" if issue else "待建")
+        pr_fixed = state["fixed"].get(fid, "")
+        pr_open = state.get("prs", {}).get(fid, "")
+        pr = pr_fixed or pr_open
+        if pr_fixed:
+            st = "已合并验证并关闭"
+        elif pr_open:
+            st = "PR 待合并（Issue 开放）"
+        elif issue:
+            st = "已建"
+        else:
+            st = "待建"
         lines.append(f"| {f.get('title','')} | {f.get('severity','')} | #{issue} | {('#'+str(pr)) if pr else ''} | {st} |")
 
     lines.append("\n---\n> 本报告由 NASDX 自主审查 harness（tools/audit_loop.py）生成；Issue/PR 闭环由同脚本在授权下自动推进。\n")
@@ -735,6 +767,66 @@ def gh_issue_close(number: int) -> None:
         ["gh", "issue", "close", str(number), "--repo", REPO],
         cwd=str(ROOT), text=True, capture_output=True,
     )
+
+
+def gh_issue_reopen(number: int) -> None:
+    subprocess.run(
+        ["gh", "issue", "reopen", str(number), "--repo", REPO],
+        cwd=str(ROOT), text=True, capture_output=True,
+    )
+
+
+def gh_issue_state(number: int) -> Optional[str]:
+    """返回 issue 状态（'OPEN'/'CLOSED'），查询失败返回 None。"""
+    proc = subprocess.run(
+        ["gh", "issue", "view", str(number), "--repo", REPO, "--json", "state"],
+        cwd=str(ROOT), text=True, encoding="utf-8", errors="replace", capture_output=True,
+    )
+    if proc.returncode != 0:
+        return None
+    try:
+        return json.loads(proc.stdout).get("state")
+    except (json.JSONDecodeError, AttributeError):
+        return None
+
+
+def gh_pr_view(number: int) -> Optional[Dict[str, Any]]:
+    """查询 PR 状态。返回 {'state','mergedAt','mergeCommitSha'}；查询失败返回 None。"""
+    proc = subprocess.run(
+        ["gh", "pr", "view", str(number), "--repo", REPO,
+         "--json", "state,mergedAt,mergeCommit"],
+        cwd=str(ROOT), text=True, encoding="utf-8", errors="replace", capture_output=True,
+    )
+    if proc.returncode != 0:
+        return None
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+    merge_commit = data.get("mergeCommit") or {}
+    return {
+        "state": data.get("state"),                       # OPEN / MERGED / CLOSED
+        "mergedAt": data.get("mergedAt"),
+        "mergeCommitSha": merge_commit.get("oid") if isinstance(merge_commit, dict) else None,
+    }
+
+
+def _git(args: List[str], timeout: int = 120) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git"] + args, cwd=str(ROOT), text=True,
+        encoding="utf-8", errors="replace", capture_output=True, timeout=timeout,
+    )
+
+
+def commit_reachable_on_default(sha: str, default_branch: str = "master") -> bool:
+    """校验提交是否可达于最新默认分支（fetch 失败或不可达都返回 False）。"""
+    if not sha:
+        return False
+    fetch = _git(["fetch", "origin", default_branch])
+    if fetch.returncode != 0:
+        return False
+    anc = _git(["merge-base", "--is-ancestor", sha, "FETCH_HEAD"])
+    return anc.returncode == 0
 
 
 # --------------------------------------------------------------------------
@@ -816,14 +908,19 @@ def phase_issues(state: Dict[str, Any]) -> None:
 
 
 def phase_fix(state: Dict[str, Any], max_fix: int) -> None:
-    """有界修复闭环：仅处理已有 issue 且尚未修复的发现；补丁经测试验证后才 PR+合并+关闭。"""
+    """有界修复闭环（#61 语义）。
+
+    本阶段只推进到「PR 已创建」（记入 ``state['prs']``），**不会**关闭 Issue、
+    也不会把 finding 标成 ``fixed``。Issue 的关闭与 ``fixed`` 判定统一由
+    :func:`phase_verify` 在确认 PR 已合并且合并提交可达默认分支后执行。
+    """
     done = 0
     for f in state["findings"]:
         if done >= max_fix:
             break
         fid = f["id"]
         issue = state["issues"].get(fid)
-        if not issue or fid in state["fixed"]:
+        if not issue or fid in state["fixed"] or fid in state["prs"]:
             continue
         file_hint = f.get("file", "")
         if not file_hint:
@@ -849,14 +946,63 @@ def phase_fix(state: Dict[str, Any], max_fix: int) -> None:
             branch,
         )
         if pr:
-            state["fixed"][fid] = pr
+            # #61：只记录「PR 已开」，不关 Issue、不标 fixed。
+            # PR body 已含 "Closes #issue"，GitHub 会在合并进默认分支时自动关闭；
+            # phase_verify 负责显式核实合并与默认分支可达性。
+            state["prs"][fid] = pr
             save_state(state)
-            gh_issue_comment(issue, f"已修复并通过测试，PR #{pr}。Closes #{issue}")
-            gh_issue_close(issue)
-            print(f"  [fixed] F{fid} -> PR #{pr}, issue #{issue} 关闭")
+            gh_issue_comment(
+                issue,
+                f"补丁已通过本地测试，已创建 PR #{pr}（分支 `{branch}`）。"
+                f"Issue 将在 PR 合并进默认分支并验证后关闭。",
+            )
+            print(f"  [pr-open] F{fid} -> PR #{pr}, issue #{issue} 保持开放待合并验证")
             done += 1
         else:
             print(f"  [skip] F{fid} PR 创建失败")
+
+
+def phase_verify(state: Dict[str, Any], default_branch: str = "master") -> None:
+    """核实 ``state['prs']`` 中每个 PR 的真实生命周期状态（#61）。
+
+    - PR 已合并且合并提交可达默认分支 → 记入 ``fixed``、评论并关闭 Issue；
+    - PR 已合并但提交尚不可达默认分支（如 fetch 失败）→ 保持待验证，下轮重试；
+    - PR 未合并即被关闭 → 清除 ``prs`` 条目使 finding 可重试，Issue 若已被关则重开；
+    - PR 仍开放 / 查询失败 → 不改状态。
+    """
+    for fid in list(state["prs"].keys()):
+        pr = state["prs"][fid]
+        issue = state["issues"].get(fid)
+        info = gh_pr_view(pr)
+        if info is None:
+            print(f"  [verify] F{fid} PR #{pr} 查询失败，保持待验证")
+            continue
+        pr_state = (info.get("state") or "").upper()
+        merged = pr_state == "MERGED" or bool(info.get("mergedAt"))
+        if merged:
+            sha = info.get("mergeCommitSha") or ""
+            if not commit_reachable_on_default(sha, default_branch):
+                print(f"  [verify] F{fid} PR #{pr} 已合并但提交 {sha[:9] or '?'} 未确认在 {default_branch}，下轮重试")
+                continue
+            state["fixed"][fid] = pr
+            state["prs"].pop(fid, None)
+            save_state(state)
+            if issue:
+                gh_issue_comment(issue, f"PR #{pr} 已合并进 `{default_branch}`（{sha[:9]}），修复已验证生效。")
+                if gh_issue_state(issue) != "CLOSED":
+                    gh_issue_close(issue)
+            print(f"  [verified] F{fid} PR #{pr} 合并已达默认分支，issue #{issue} 关闭")
+        elif pr_state == "CLOSED":
+            # 未合并即关闭：清除状态使 finding 可重试；误关的 Issue 重开
+            state["prs"].pop(fid, None)
+            save_state(state)
+            if issue:
+                gh_issue_comment(issue, f"PR #{pr} 未合并即被关闭，修复未生效；finding 重新进入待修复队列。")
+                if gh_issue_state(issue) == "CLOSED":
+                    gh_issue_reopen(issue)
+            print(f"  [retry] F{fid} PR #{pr} 未合并被关闭，finding 可重试")
+        else:
+            print(f"  [verify] F{fid} PR #{pr} 仍开放（state={pr_state or '?'}），issue #{issue} 保持开放")
 
 
 def _generate_patch(target: Path, f: Dict[str, Any]) -> Optional[str]:
@@ -890,8 +1036,11 @@ def _apply_and_test(branch: str, target: Path, patch: str, test: str) -> bool:
     patch_path = ROOT / ".audit_patch.diff"
     patch_path.write_text(patch, encoding="utf-8")
     try:
-        subprocess.run(["git", "checkout", "-B", branch], cwd=str(ROOT), capture_output=True, check=True)
-        ap = subprocess.run(["git", "apply", str(patch_path)], cwd=str(ROOT), text=True, capture_output=True)
+        co = _git(["checkout", "-B", branch])
+        if co.returncode != 0:
+            print(f"    [checkout fail] {co.stderr[:200]}")
+            return False
+        ap = _git(["apply", str(patch_path)])
         if ap.returncode != 0:
             print(f"    [patch apply fail] {ap.stderr[:200]}")
             return False
@@ -905,10 +1054,19 @@ def _apply_and_test(branch: str, target: Path, patch: str, test: str) -> bool:
             if t.returncode != 0:
                 print(f"    [test fail] {test}: {t.stdout[-300:]}")
                 return False
-        # 提交
-        subprocess.run(["git", "add", str(rel)], cwd=str(ROOT), capture_output=True)
-        subprocess.run(["git", "commit", "-m", f"fix(audit): {target.name} 自主审查修复"], cwd=str(ROOT), capture_output=True)
-        subprocess.run(["git", "push", "-u", "origin", branch], cwd=str(ROOT), capture_output=True)
+        # 提交/推送：任何一步失败都不能声称修复分支已发布（#61）
+        add = _git(["add", str(rel)])
+        if add.returncode != 0:
+            print(f"    [git add fail] {add.stderr[:200]}")
+            return False
+        cm = _git(["commit", "-m", f"fix(audit): {target.name} 自主审查修复"])
+        if cm.returncode != 0:
+            print(f"    [git commit fail] {cm.stderr[:200]}")
+            return False
+        push = _git(["push", "-u", "origin", branch], timeout=300)
+        if push.returncode != 0:
+            print(f"    [git push fail] {push.stderr[:200]}")
+            return False
         return True
     except Exception:  # noqa: BLE001
         return False
@@ -925,7 +1083,7 @@ def _apply_and_test(branch: str, target: Path, patch: str, test: str) -> bool:
 # --------------------------------------------------------------------------
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--phase", default="all", choices=["all", "execute", "analyze", "report", "issues", "fix"])
+    ap.add_argument("--phase", default="all", choices=["all", "execute", "analyze", "report", "issues", "fix", "verify"])
     ap.add_argument("--no-net", action="store_true", help="跳过网络依赖探针")
     ap.add_argument("--limit-modules", type=int, default=None)
     ap.add_argument("--max-fix", type=int, default=3)
@@ -947,6 +1105,8 @@ def main() -> None:
         phase_issues(state)
     if args.phase in ("all", "fix"):
         phase_fix(state, args.max_fix)
+    if args.phase in ("all", "verify"):
+        phase_verify(state)
     if args.phase == "all":
         phase_report(state)
     save_state(state)
