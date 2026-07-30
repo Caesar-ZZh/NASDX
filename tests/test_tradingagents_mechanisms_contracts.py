@@ -196,13 +196,37 @@ class DebateReviewContractsTest(unittest.TestCase):
         self.assertTrue(out["bear_points"])
 
 
+import contextlib
+
+
+@contextlib.contextmanager
+def _env_var(key, value):
+    """只设置/还原单个环境变量（避免 patch.dict 还原整个 os.environ
+    在本环境因超长变量报 ValueError）。value=None 表示删除。"""
+    old = os.environ.get(key)
+    try:
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+        yield
+    finally:
+        if old is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = old
+
+
 class MemoryContractsTest(unittest.TestCase):
-    """#58 决策记忆层"""
+    """#58 决策记忆层（#63 后：持久化需显式开启 NASDX_MEMORY_ENABLED=1）"""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
+        self._env = _env_var("NASDX_MEMORY_ENABLED", "1")
+        self._env.__enter__()
 
     def tearDown(self):
+        self._env.__exit__(None, None, None)
         self._tmp.cleanup()
 
     def test_jsonl_record_and_recall(self):

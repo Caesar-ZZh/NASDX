@@ -107,6 +107,24 @@ def _sanitize_str(s: str) -> str:
     return s
 
 
+def sanitize_text(s: str, limit: Optional[int] = None) -> str:
+    """公共脱敏入口：抹除字符串中的凭据形态并按 limit 截断。
+
+    供其他持久化路径（如 nasdx.memory，#63）复用，保证隐私策略集中在一处。
+    limit=None 使用默认 _STR_LIMIT；limit<=0 表示不保留正文（返回空串）。
+    """
+    if not isinstance(s, str):
+        s = str(s)
+    if limit is not None and limit <= 0:
+        return ""
+    for rx in _SENSITIVE_VALUE_RES:
+        s = rx.sub(_REDACTED, s)
+    cap = _STR_LIMIT if limit is None else limit
+    if len(s) > cap:
+        s = s[:cap] + "...(truncated)"
+    return s
+
+
 def _sanitize(obj: Any, depth: int = 0) -> Any:
     """递归脱敏 + 安全序列化：不使用 repr() 落未知对象内容。"""
     if depth > _MAX_DEPTH:
