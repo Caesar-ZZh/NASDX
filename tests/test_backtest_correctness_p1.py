@@ -15,6 +15,10 @@
   #48 收益基准用 initial_capital 而非首条 equity
   #49 清仓信号（空 target_weights）卖出全部、不留陈旧持仓
   #42 胜率/盈亏比用闭环 realized PnL（卖出价-持仓均成本）
+  #64 执行/成本参数构造期 fail-fast：负/非有限 slippage 与费率、非正整数
+      min_shares、负 max_stale_days、非 bool 开关一律在 Backtester(...)
+      构造时拒绝——不可能造出负执行价、免费持仓、非有限净值或下单
+      ZeroDivisionError；合法默认值与自定义配置结果保持不变
 """
 import unittest
 import warnings
@@ -27,6 +31,7 @@ from quant.backtest import (
     WeightValidationError,
     _rebalance_positions,
     normalize_target_weights,
+    validate_backtester_config,
     validate_target_weights,
 )
 
@@ -1086,6 +1091,186 @@ class TestEntryFeeAmortization(unittest.TestCase):
         # 订单数与闭环交易数分开报告
         self.assertEqual(win.total_trades, 2)
         self.assertIn("闭环交易", win.summary())
+
+
+class TestExecutionConfigValidation(unittest.TestCase):
+    """#64：执行/成本配置参数必须在构造期 fail-fast，不能跑出不可能的结果。"""
+
+    def _flat_price(self, periods=4, price=100.0):
+        idx = pd.date_range("2026-01-01", periods=periods, freq="D")
+        return {"600000": _ohlcv(idx, [price] * periods)}
+
+    # ---------- slippage ----------
+    def test_invalid_slippage_rejected_at_construction(self):
+        for bad in (-2, -1e-9, 1.0, 1.5, float("nan"), float("inf"),
+                    float("-inf"), np.nan, "0.001", None, True, [0.001]):
+            with self.subTest(slippage=bad):
+                with self.assertRaises(ValueError) as ctx:
+                    Backtester(initial_capital=100_000, slippage=bad)
+                self.assertIn("slippage", str(ctx.exception),
+                              "错误信息必须点名是哪个参数")
+
+    def test_valid_slippage_boundaries_accepted(self):
+        for ok in (0, 0.0, 0.001, 0.5, 0.999999, np.float64(0.002)):
+            with self.subTest(slippage=ok):
+                self.assertAlmostEqual(
+                    Backtester(initial_capital=100_000, slippage=ok).slippage,
+                    float(ok))
+
+    # ---------- commission_rate / stamp_duty ----------
+    def test_invalid_cost_rates_rejected(self):
+        for name in ("commission_rate", "stamp_duty"):
+            for bad in (-1, -0.0001, 1.0, 2.0, float("nan"), float("inf"),
+                        float("-inf"), "0.001", None, True):
+                with self.subTest(param=name, value=bad):
+                    with self.assertRaises(ValueError) as ctx:
+                        Backtester(initial_capital=100_000, **{name: bad})
+                    self.assertIn(name, str(ctx.exception))
+
+    def test_valid_cost_rates_accepted(self):
+        bt = Backtester(initial_capital=100_000, commission_rate=0,
+                        stamp_duty=0.001)
+        self.assertEqual(bt.commission_rate, 0.0)
+        self.assertAlmostEqual(bt.stamp_duty, 0.001)
+
+    # ---------- min_shares ----------
+    def test_invalid_min_shares_rejected_before_sizing(self):
+        for bad in (0, -1, -100, True, False, 100.0, 100.5, np.float64(100),
+                    "100", None):
+            with self.subTest(min_shares=bad):
+                with self.assertRaises(ValueError) as ctx:
+                    Backtester(initial_capital=100_000, min_shares=bad)
+                self.assertIn("min_shares", str(ctx.exception))
+
+    def test_valid_min_shares_accepted(self):
+        for ok in (1, 100, 200, np.int64(100)):
+            with self.subTest(min_shares=ok):
+                bt = Backtester(initial_capital=100_000, min_shares=ok)
+                self.assertEqual(bt.min_shares, int(ok))
+                self.assertIsInstance(bt.min_shares, int)
+
+    def test_zero_min_shares_never_reaches_zero_division(self):
+        # 修复前：构造成功 -> 下单时 / self.min_shares 抛 ZeroDivisionError
+        with self.assertRaises(ValueError):
+            Backtester(initial_capital=100_000, min_shares=0).run(
+                self._flat_price(), lambda d, past: {"600000": 1.0},
+                rebalance_freq="D")
+
+    # ---------- max_stale_days ----------
+    def test_invalid_max_stale_days_rejected(self):
+        for bad in (-1, -20, 1.5, 20.0, True, float("nan"), float("inf"),
+                    "20", None):
+            with self.subTest(max_stale_days=bad):
+                with self.assertRaises(ValueError) as ctx:
+                    Backtester(initial_capital=100_000, max_stale_days=bad)
+                self.assertIn("max_stale_days", str(ctx.exception))
+
+    def test_valid_max_stale_days_accepted(self):
+        for ok in (0, 1, 20, np.int64(3)):
+            with self.subTest(max_stale_days=ok):
+                bt = Backtester(initial_capital=100_000, max_stale_days=ok)
+                self.assertEqual(bt.max_stale_days, int(ok))
+
+    # ---------- normalize_weights ----------
+    def test_normalize_weights_requires_strict_bool(self):
+        for bad in (1, 0, "yes", None, 1.0, [], np.float64(1)):
+            with self.subTest(normalize_weights=bad):
+                with self.assertRaises(ValueError) as ctx:
+                    Backtester(initial_capital=100_000, normalize_weights=bad)
+                self.assertIn("normalize_weights", str(ctx.exception))
+        for ok in (True, False, np.bool_(True)):
+            with self.subTest(normalize_weights=ok):
+                bt = Backtester(initial_capital=100_000, normalize_weights=ok)
+                self.assertIs(bt.normalize_weights, bool(ok))
+
+    # ---------- fail-fast 时机 ----------
+    def test_validation_runs_before_signal_func_and_any_state(self):
+        calls = {"n": 0}
+
+        def signal(date, past_data):
+            calls["n"] += 1
+            return {"600000": 1.0}
+
+        for kwargs in ({"slippage": -2}, {"commission_rate": -1},
+                       {"min_shares": 0}, {"max_stale_days": -5},
+                       {"stamp_duty": float("nan")}):
+            with self.subTest(**kwargs):
+                with self.assertRaises(ValueError):
+                    Backtester(initial_capital=100_000, **kwargs).run(
+                        self._flat_price(), signal, rebalance_freq="D")
+        self.assertEqual(calls["n"], 0,
+                         "非法配置必须早于 signal_func 调用就被拒绝")
+
+    # ---------- 回归：不可能造钱 ----------
+    def test_invalid_config_cannot_create_money(self):
+        # #64 复现：slippage=-2 曾让恒定价回测的净值 10万 -> 30万 -> 70万
+        with self.assertRaises(ValueError):
+            Backtester(initial_capital=100_000, slippage=-2).run(
+                self._flat_price(), lambda d, past: {"600000": 1.0},
+                rebalance_freq="D")
+        # commission_rate=-1 曾让买入变成净流入现金
+        with self.assertRaises(ValueError):
+            Backtester(initial_capital=100_000, commission_rate=-1).run(
+                self._flat_price(), lambda d, past: {"600000": 1.0},
+                rebalance_freq="D")
+
+    def test_valid_config_run_stays_finite_and_costed(self):
+        price = self._flat_price()
+        r = Backtester(initial_capital=100_000).run(
+            price, lambda d, past: {"600000": 1.0}, rebalance_freq="D")
+        self.assertTrue(np.isfinite(r.equity_curve.to_numpy()).all())
+        # 恒定价 + 正费用：净值只可能 <= 初始资金，绝不凭空增长
+        self.assertLessEqual(float(r.equity_curve.max()), 100_000 + 1e-9)
+        for t in r.trades:
+            self.assertGreater(t.price, 0, "执行价必须为正")
+            self.assertGreaterEqual(t.commission, 0, "费用不能为负")
+
+    # ---------- 合法配置结果不变 ----------
+    def test_defaults_unchanged_by_validation(self):
+        bt = Backtester(initial_capital=100_000)
+        self.assertAlmostEqual(bt.commission_rate, 0.0003)
+        self.assertAlmostEqual(bt.stamp_duty, 0.001)
+        self.assertEqual(bt.min_shares, 100)
+        self.assertAlmostEqual(bt.slippage, 0.001)
+        self.assertEqual(bt.max_stale_days, 20)
+        self.assertIs(bt.normalize_weights, False)
+
+    def test_explicit_defaults_match_implicit_defaults(self):
+        price = self._flat_price(periods=6)
+
+        def signal(date, past_data):
+            return {"600000": 1.0}
+
+        implicit = Backtester(initial_capital=100_000).run(
+            price, signal, rebalance_freq="D")
+        explicit = Backtester(initial_capital=100_000, commission_rate=0.0003,
+                              stamp_duty=0.001, min_shares=100, slippage=0.001,
+                              max_stale_days=20,
+                              normalize_weights=False).run(
+            price, signal, rebalance_freq="D")
+        pd.testing.assert_series_equal(implicit.equity_curve,
+                                       explicit.equity_curve)
+        self.assertEqual(implicit.total_trades, explicit.total_trades)
+
+    # ---------- 集中式校验器 ----------
+    def test_validate_backtester_config_normalizes_types(self):
+        cfg = validate_backtester_config(
+            initial_capital=np.int64(100_000), commission_rate=0,
+            stamp_duty=0, min_shares=np.int64(200), slippage=0,
+            max_stale_days=np.int64(5), normalize_weights=np.bool_(True))
+        self.assertIsInstance(cfg["initial_capital"], float)
+        self.assertIsInstance(cfg["commission_rate"], float)
+        self.assertIsInstance(cfg["min_shares"], int)
+        self.assertIsInstance(cfg["max_stale_days"], int)
+        self.assertIs(cfg["normalize_weights"], True)
+        self.assertEqual(cfg["min_shares"], 200)
+
+    def test_initial_capital_validation_still_enforced(self):
+        # #48 的既有契约不能因为集中式校验而回退
+        for bad in (0, -1, float("nan"), float("inf"), "100000", None, True):
+            with self.subTest(initial_capital=bad):
+                with self.assertRaises(ValueError):
+                    Backtester(initial_capital=bad)
 
 
 if __name__ == "__main__":

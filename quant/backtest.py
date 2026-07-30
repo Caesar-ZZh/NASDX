@@ -66,6 +66,25 @@ class Backtester:
     """
     轻量级回测引擎
     参考 VnPy BacktestingEngine 设计
+
+    构造参数契约（issue #64，全部在 ``__init__`` 里 fail-fast 校验）：
+
+    ==================  ====================================================
+    参数                 合法取值
+    ==================  ====================================================
+    initial_capital     有限正数（issue #48）
+    commission_rate     有限实数，0 <= x < 1（不允许负费率＝凭空返现）
+    stamp_duty          有限实数，0 <= x < 1
+    slippage            有限实数，0 <= x < 1（负滑点会造成负执行价＝凭空造钱；
+                        >=1 会让卖出执行价 <= 0）
+    min_shares          正整数（每手股数），拒绝 0/负数/bool/float/str
+    max_stale_days      非负整数，拒绝 bool/float/NaN
+    normalize_weights   严格 bool（issue #45 的显式 opt-in 开关）
+    ==================  ====================================================
+
+    任何非法值都在【构造时】抛 ValueError，早于 ``signal_func`` 调用、
+    早于任何行情读取与账户状态产生，因此不可能出现"负执行价 / 免费持仓 /
+    非有限净值 / 下单时 ZeroDivisionError"这类跑到一半才暴露的问题。
     """
 
     def __init__(
@@ -78,24 +97,33 @@ class Backtester:
         max_stale_days:  int   = 20,        # 估值价最大陈旧天数（issue #44）
         normalize_weights: bool = False,    # 显式 opt-in：Σ>1 等比归一化（issue #45）
     ):
-        # 初始资金 fail-fast 校验（issue #48）：必须是有限正数。
-        # NaN/inf/0/负数/不可转 float 的值在模拟开始前直接拒绝，
-        # 绝不静默回退到首条 equity。
-        self.initial_capital = _validate_initial_capital(initial_capital)
-        self.commission_rate = commission_rate
-        self.stamp_duty      = stamp_duty
-        self.min_shares      = min_shares
-        self.slippage        = slippage
+        # 执行/成本参数 fail-fast 校验（issue #48 初始资金 + issue #64 其余参数）。
+        # 所有非法配置在【构造时】就被拒绝——早于 signal_func 调用、早于任何
+        # 行情读取与账户状态产生，杜绝"跑完才崩"或"跑出不可能的收益"。
+        cfg = validate_backtester_config(
+            initial_capital   = initial_capital,
+            commission_rate   = commission_rate,
+            stamp_duty        = stamp_duty,
+            min_shares        = min_shares,
+            slippage          = slippage,
+            max_stale_days    = max_stale_days,
+            normalize_weights = normalize_weights,
+        )
+        self.initial_capital = cfg["initial_capital"]
+        self.commission_rate = cfg["commission_rate"]
+        self.stamp_duty      = cfg["stamp_duty"]
+        self.min_shares      = cfg["min_shares"]
+        self.slippage        = cfg["slippage"]
         # 权重契约（issue #45）：默认 fail-fast——策略输出含 NaN/inf/负值/
         # 非数值/未知标的/单权重>1/Σ>1+容差 时抛 WeightValidationError，
         # 不产生任何交易、不修改账户状态。normalize_weights=True 为显式
         # opt-in：仅对【类型合法】且 Σ>1 的权重做等比归一化并记录诊断；
         # NaN/inf/bool/负值/未知标的在任何模式下都直接拒绝。
-        self.normalize_weights = normalize_weights
+        self.normalize_weights = cfg["normalize_weights"]
         # stale-price 策略（issue #44）：持仓估值允许沿用最近有效收盘价，
         # 但连续超过 max_stale_days 个交易日无有效报价时发出显式告警
         # （diagnostics + warnings.warn），提示长期停牌/退市标的估值已不可靠。
-        self.max_stale_days  = max_stale_days
+        self.max_stale_days  = cfg["max_stale_days"]
 
     def run(
         self,
@@ -523,6 +551,112 @@ def _validate_initial_capital(value) -> float:
             f"initial_capital 必须是有限正数，收到 {value!r}"
         )
     return f
+
+
+def _is_real_number(value) -> bool:
+    """是否为可参与算术的实数标量（bool 不算：True/False 不是费率/价格）"""
+    return (not isinstance(value, bool)
+            and isinstance(value, (int, float, np.integer, np.floating)))
+
+
+def _is_integer(value) -> bool:
+    """是否为真整数标量（拒绝 bool / float / numpy 浮点 / 字符串）"""
+    return (not isinstance(value, bool)
+            and isinstance(value, (int, np.integer)))
+
+
+def _validate_unit_fraction(value, name: str, *, why: str) -> float:
+    """成本/滑点类比例参数（issue #64）：必须是有限实数且 0 <= x < 1。
+
+    负值会把成本变成返现、把执行价压成负数（凭空造钱）；>= 1 会让
+    卖出执行价 <= 0 或单笔费用吞掉全部本金。NaN/±inf 会顺着现金、
+    执行价、手续费一路污染到净值和整数下单量，因此一并拒绝。
+    """
+    if not _is_real_number(value):
+        raise ValueError(
+            f"{name} 必须是数值类型，收到 {type(value).__name__}: {value!r}"
+        )
+    f = float(value)
+    if not np.isfinite(f):
+        raise ValueError(f"{name} 必须是有限数值（不能是 NaN/inf），收到 {value!r}")
+    if f < 0:
+        raise ValueError(f"{name} 不能为负（{why}），收到 {value!r}")
+    if f >= 1:
+        raise ValueError(f"{name} 必须小于 1（100%），收到 {value!r}")
+    return f
+
+
+def _validate_min_shares(value) -> int:
+    """最小交易单位（issue #64）：必须是正整数。
+
+    0 会在 ``_rebalance()`` 的 ``/ self.min_shares`` 处触发
+    ZeroDivisionError（下单时才崩），负数/浮点/bool/字符串同样会让
+    整数化手数失去意义，全部在构造时拒绝。
+    """
+    if not _is_integer(value):
+        raise ValueError(
+            f"min_shares 必须是正整数（每手股数），"
+            f"收到 {type(value).__name__}: {value!r}"
+        )
+    iv = int(value)
+    if iv <= 0:
+        raise ValueError(f"min_shares 必须是正整数（每手股数），收到 {value!r}")
+    return iv
+
+
+def _validate_max_stale_days(value) -> int:
+    """估值价最大陈旧天数（issue #64）：必须是非负整数（0 = 不容忍陈旧价）。"""
+    if not _is_integer(value):
+        raise ValueError(
+            f"max_stale_days 必须是非负整数（交易日数），"
+            f"收到 {type(value).__name__}: {value!r}"
+        )
+    iv = int(value)
+    if iv < 0:
+        raise ValueError(f"max_stale_days 必须是非负整数（交易日数），收到 {value!r}")
+    return iv
+
+
+def _validate_bool(value, name: str) -> bool:
+    """严格布尔开关（issue #64）：只接受 bool / numpy.bool_。"""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, np.bool_):
+        return bool(value)
+    raise ValueError(
+        f"{name} 必须是 bool，收到 {type(value).__name__}: {value!r}"
+    )
+
+
+def validate_backtester_config(
+    *,
+    initial_capital,
+    commission_rate,
+    stamp_duty,
+    min_shares,
+    slippage,
+    max_stale_days,
+    normalize_weights,
+) -> dict:
+    """集中式回测配置校验（issue #64）。
+
+    在任何行情读取、策略回调、账户状态产生之前一次性校验全部
+    执行/成本参数，非法配置抛 ValueError（参数名 + 收到的原值）。
+    规则见 ``Backtester`` 类文档。返回规范化后的配置字典
+    （数值统一为 float/int，便于调用方直接落盘或复现）。
+    """
+    return {
+        "initial_capital": _validate_initial_capital(initial_capital),
+        "commission_rate": _validate_unit_fraction(
+            commission_rate, "commission_rate", why="负手续费等于凭空返现"),
+        "stamp_duty": _validate_unit_fraction(
+            stamp_duty, "stamp_duty", why="负印花税等于凭空返现"),
+        "slippage": _validate_unit_fraction(
+            slippage, "slippage", why="负滑点会造成负执行价，等于买入还倒贴现金"),
+        "min_shares": _validate_min_shares(min_shares),
+        "max_stale_days": _validate_max_stale_days(max_stale_days),
+        "normalize_weights": _validate_bool(normalize_weights, "normalize_weights"),
+    }
 
 
 def _valid_price(value) -> bool:
