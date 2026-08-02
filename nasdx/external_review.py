@@ -146,3 +146,34 @@ def _failure_action(status_code: str) -> str:
     if status_code == "avoid":
         return "继续回避，等待下一轮报告和数据修复。"
     return "保持观察，等待证据增强。"
+
+
+def record_manual_review_evidence(
+    code: str,
+    conclusion: str,
+    *,
+    source_name: str = "人工复核",
+    source_url: str = "",
+    reviewer: str = "",
+    checked_at: Any = None,
+    event_type: str = "other",
+    summary: str = "",
+):
+    """把一次人工外部复核的结论录入为带来源和时间的 EvidenceItem（#69）。
+
+    自动证据层无法覆盖的来源（交易所页面、券商终端、电话确认等）仍由本模块
+    生成人工复核任务；复核完成后调用本函数，即可让人工结论与自动抓取的公告
+    共用同一套证据、去重和新鲜度语义，而不是留在报告正文里无法追溯。
+    """
+    from nasdx.evidence import manual_evidence  # 局部导入，避免加重本模块导入成本
+
+    return manual_evidence(
+        code=code,
+        title=conclusion,
+        source_name=source_name,
+        source_url=source_url,
+        published_at=checked_at,
+        event_type=event_type,
+        summary=summary,
+        reviewer=reviewer,
+    )
