@@ -54,4 +54,6 @@ desktop_*.log
 desktop_logs/
 focus_ind.json
 nasdx_history.db
+nasdx_portfolio.db
+nasdx_portfolio_*.db
 models/signal_confidence.json
