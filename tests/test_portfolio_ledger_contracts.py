@@ -291,6 +291,239 @@ class TestLotRules(PortfolioLedgerTestBase):
         self.assertTrue(result["lot_warnings"])
 
 
+class TestCorrectionLotRules(PortfolioLedgerTestBase):
+    """#70：correct_event 必须与 add_event 共用同一套手数校验。"""
+
+    def _ledger_fingerprint(self):
+        status = ps.portfolio_status(db_path=self.db)
+        snap = ps.build_snapshot(prices={"601101": 11.0, "688981": 50.0}, db_path=self.db)
+        return (
+            status["event_count"],
+            status["active_event_count"],
+            status["portfolio_version"],
+            snap.snapshot_hash,
+        )
+
+    # --- 验收 1：买入修正为不足最小买入量 ---------------------------------
+    def test_buy_corrected_below_min_lot_is_rejected(self):
+        original = ps.add_trade(
+            "601101", "buy", 100, 10.73, "2026-08-03 09:31:00", db_path=self.db
+        )
+        with self.assertRaises(te.LotSizeError):
+            ps.correct_event(original["event_id"], db_path=self.db, quantity=50, reason="修改数量")
+        snap = ps.build_snapshot(prices={"601101": 11.0}, db_path=self.db)
+        self.assertAlmostEqual(snap.position("601101")["quantity"], 100.0)
+
+    def test_buy_corrected_to_non_multiple_of_lot_is_rejected(self):
+        original = ps.add_trade("601101", "buy", 200, 10.0, "2026-08-01", db_path=self.db)
+        with self.assertRaises(te.LotSizeError):
+            ps.correct_event(original["event_id"], db_path=self.db, quantity=250)
+        ps.correct_event(original["event_id"], db_path=self.db, quantity=300)
+        snap = ps.build_snapshot(prices={"601101": 11.0}, db_path=self.db)
+        self.assertAlmostEqual(snap.position("601101")["quantity"], 300.0)
+
+    # --- 验收 2：非清仓卖出修正为零碎股 -----------------------------------
+    def test_partial_sell_corrected_to_odd_lot_is_rejected(self):
+        ps.add_trade("601101", "buy", 300, 10.0, "2026-08-01 09:31:00", db_path=self.db)
+        sell = ps.add_trade("601101", "sell", 100, 11.0, "2026-08-02 09:31:00", db_path=self.db)
+        with self.assertRaises(te.LotSizeError):
+            ps.correct_event(sell["event_id"], db_path=self.db, quantity=50, reason="改数量")
+        snap = ps.build_snapshot(prices={"601101": 11.0}, db_path=self.db)
+        self.assertAlmostEqual(snap.position("601101")["quantity"], 200.0)
+
+    # --- 验收 3 + 6：零碎股清仓，且 held 排除原事件 ------------------------
+    def test_odd_lot_liquidation_correction_is_allowed(self):
+        ps.add_trade("601101", "buy", 100, 10.0, "2026-08-01", db_path=self.db)
+        ps.add_trade("601101", "adjustment", 50, 0, "2026-08-02", note="送股", db_path=self.db)
+        sell = ps.add_trade("601101", "sell", 100, 11.0, "2026-08-03", db_path=self.db)
+        # 若 held 没有排除被修正的卖出，基线会变成 50 股，150 股清仓会被误判为零碎股。
+        result = ps.correct_event(sell["event_id"], db_path=self.db, quantity=150, reason="全部卖出")
+        self.assertEqual(result["status"], "corrected")
+        self.assertEqual(result["lot_warnings"], [])
+        snap = ps.build_snapshot(prices={"601101": 11.0}, db_path=self.db)
+        self.assertEqual(snap.positions, [])
+
+    def test_held_baseline_excludes_the_superseded_event_for_buys(self):
+        first = ps.add_trade("601101", "buy", 100, 10.0, "2026-08-01", db_path=self.db)
+        ps.add_trade("601101", "buy", 200, 10.5, "2026-08-02", db_path=self.db)
+        ps.correct_event(first["event_id"], db_path=self.db, quantity=400)
+        snap = ps.build_snapshot(prices={"601101": 11.0}, db_path=self.db)
+        self.assertAlmostEqual(snap.position("601101")["quantity"], 600.0)
+
+    # --- 验收 4：各板块 / ETF / 自定义 override 与 add_event 完全一致 -------
+    def test_star_board_rules_apply_to_corrections(self):
+        original = ps.add_trade("688981", "buy", 253, 50.0, "2026-08-01", db_path=self.db)
+        with self.assertRaises(te.LotSizeError):
+            ps.correct_event(original["event_id"], db_path=self.db, quantity=150)
+        ps.correct_event(original["event_id"], db_path=self.db, quantity=201)
+        snap = ps.build_snapshot(prices={"688981": 50.0}, db_path=self.db)
+        self.assertAlmostEqual(snap.position("688981")["quantity"], 201.0)
+
+    def test_bse_board_rules_apply_to_corrections(self):
+        original = ps.add_trade("830799", "buy", 137, 12.0, "2026-08-01", db_path=self.db)
+        ps.correct_event(original["event_id"], db_path=self.db, quantity=113)
+        snap = ps.build_snapshot(prices={"830799": 12.0}, db_path=self.db)
+        self.assertAlmostEqual(snap.position("830799")["quantity"], 113.0)
+        latest = ps.list_events(db_path=self.db)[0]
+        with self.assertRaises(te.LotSizeError):
+            ps.correct_event(latest["event_id"], db_path=self.db, quantity=99)
+
+    def test_etf_rules_apply_to_corrections(self):
+        original = ps.add_trade("510300", "buy", 500, 4.1, "2026-08-01", db_path=self.db)
+        with self.assertRaises(te.LotSizeError):
+            ps.correct_event(original["event_id"], db_path=self.db, quantity=450)
+        ps.correct_event(original["event_id"], db_path=self.db, quantity=400)
+        snap = ps.build_snapshot(prices={"510300": 4.2}, db_path=self.db)
+        self.assertAlmostEqual(snap.position("510300")["quantity"], 400.0)
+
+    def test_custom_overrides_apply_to_corrections(self):
+        te.set_lot_rule_overrides(
+            {"601101": te.LotRule(lot_size=1, min_buy_quantity=1, label="测试")}
+        )
+        original = ps.add_trade("601101", "buy", 137, 10.0, "2026-08-01", db_path=self.db)
+        ps.correct_event(original["event_id"], db_path=self.db, quantity=37)
+        snap = ps.build_snapshot(prices={"601101": 11.0}, db_path=self.db)
+        self.assertAlmostEqual(snap.position("601101")["quantity"], 37.0)
+
+        te.set_lot_rule_overrides(None)
+        latest = ps.list_events(db_path=self.db)[0]
+        with self.assertRaises(te.LotSizeError):
+            ps.correct_event(latest["event_id"], db_path=self.db, quantity=45)
+
+    # --- 验收 5：修正 code / side 后按 replacement 重新判定 -----------------
+    def test_cross_code_correction_uses_the_replacement_board_rule(self):
+        original = ps.add_trade("601101", "buy", 100, 10.0, "2026-08-01", db_path=self.db)
+        with self.assertRaises(te.LotSizeError):
+            ps.correct_event(original["event_id"], db_path=self.db, code="688981", reason="改代码")
+        ps.correct_event(
+            original["event_id"], db_path=self.db, code="688981", quantity=250, reason="改代码"
+        )
+        snap = ps.build_snapshot(prices={"688981": 50.0}, db_path=self.db)
+        self.assertIsNone(snap.position("601101"))
+        self.assertAlmostEqual(snap.position("688981")["quantity"], 250.0)
+
+    def test_side_change_is_revalidated_as_the_replacement_side(self):
+        original = ps.add_trade(
+            "601101", "adjustment", 50, 0, "2026-08-01", note="送股", db_path=self.db
+        )
+        # adjustment 不受手数约束，改成 buy 之后必须按买入规则重新校验。
+        with self.assertRaises(te.LotSizeError):
+            ps.correct_event(original["event_id"], db_path=self.db, side="buy", price=10.0)
+        self.assertEqual(ps.portfolio_status(db_path=self.db)["active_event_count"], 1)
+
+    # --- 验收 7：校验失败不留痕 -------------------------------------------
+    def test_rejected_correction_rolls_everything_back(self):
+        original = ps.add_trade("601101", "buy", 100, 10.0, "2026-08-01", db_path=self.db)
+        before = self._ledger_fingerprint()
+        with self.assertRaises(te.LotSizeError):
+            ps.correct_event(original["event_id"], db_path=self.db, quantity=50, reason="改数量")
+        self.assertEqual(self._ledger_fingerprint(), before)
+        rows = ps.list_events(db_path=self.db, include_superseded=True)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["superseded_by"], "")
+        # 原事件仍可被正常修正，失败的尝试没有把它锁死。
+        self.assertEqual(
+            ps.correct_event(original["event_id"], db_path=self.db, quantity=200)["status"],
+            "corrected",
+        )
+
+    # --- 验收 8：两种 replacement 入口共用同一校验 -------------------------
+    def test_replacement_object_entry_point_is_validated(self):
+        original = ps.add_trade("601101", "buy", 100, 10.0, "2026-08-01", db_path=self.db)
+        bad = te.build_trade_event(
+            code="601101", side="buy", quantity=37, price=10.0, occurred_at="2026-08-01"
+        )
+        with self.assertRaises(te.LotSizeError):
+            ps.correct_event(original["event_id"], db_path=self.db, replacement=bad)
+        self.assertEqual(ps.portfolio_status(db_path=self.db)["active_event_count"], 1)
+
+        good = te.build_trade_event(
+            code="601101", side="buy", quantity=300, price=10.0, occurred_at="2026-08-01"
+        )
+        self.assertEqual(
+            ps.correct_event(original["event_id"], db_path=self.db, replacement=good)["status"],
+            "corrected",
+        )
+
+    def test_replacement_must_be_a_trade_event(self):
+        original = ps.add_trade("601101", "buy", 100, 10.0, "2026-08-01", db_path=self.db)
+        with self.assertRaises(te.TradeEventError):
+            ps.correct_event(original["event_id"], db_path=self.db, replacement={"quantity": 100})
+        self.assertEqual(ps.portfolio_status(db_path=self.db)["active_event_count"], 1)
+
+    # --- 逃生口与既有行为 --------------------------------------------------
+    def test_explicit_escape_hatch_records_but_still_warns(self):
+        original = ps.add_trade("601101", "buy", 100, 10.0, "2026-08-01", db_path=self.db)
+        result = ps.correct_event(
+            original["event_id"],
+            db_path=self.db,
+            quantity=137,
+            reason="券商真实回单",
+            enforce_lot_rules=False,
+        )
+        self.assertEqual(result["status"], "corrected")
+        self.assertTrue(result["lot_warnings"])
+        snap = ps.build_snapshot(prices={"601101": 11.0}, db_path=self.db)
+        self.assertAlmostEqual(snap.position("601101")["quantity"], 137.0)
+
+    def test_price_only_correction_of_a_historical_odd_lot_is_not_re_judged(self):
+        # 券商真实回单的 137 股通过 enforce_lot_rules=False 入账，
+        # 之后只改价格不会改变手数敞口，不应被本次校验误拦。
+        original = ps.add_trade(
+            "601101", "buy", 137, 10.0, "2026-08-01", db_path=self.db, enforce_lot_rules=False
+        )
+        priced = ps.correct_event(original["event_id"], db_path=self.db, price=10.5, reason="改价")
+        self.assertEqual(priced["status"], "corrected")
+        self.assertEqual(priced["lot_warnings"], [])
+        snap = ps.build_snapshot(prices={"601101": 11.0}, db_path=self.db)
+        self.assertAlmostEqual(snap.position("601101")["quantity"], 137.0)
+
+    def test_price_only_correction_of_a_liquidation_survives_later_fills(self):
+        ps.add_trade("601101", "buy", 100, 10.0, "2026-08-01", db_path=self.db)
+        ps.add_trade("601101", "adjustment", 50, 0, "2026-08-02", note="送股", db_path=self.db)
+        sell = ps.add_trade("601101", "sell", 150, 11.0, "2026-08-03", db_path=self.db)
+        ps.add_trade("601101", "buy", 200, 10.2, "2026-08-04", db_path=self.db)
+        # 后续买入改变了当前持仓，但只改价格的修正没有引入新的手数敞口。
+        result = ps.correct_event(sell["event_id"], db_path=self.db, price=11.2, reason="改价")
+        self.assertEqual(result["status"], "corrected")
+        snap = ps.build_snapshot(prices={"601101": 11.0}, db_path=self.db)
+        self.assertAlmostEqual(snap.position("601101")["quantity"], 200.0)
+
+    def test_void_is_unaffected_by_the_lot_guard(self):
+        original = ps.add_trade(
+            "601101", "buy", 137, 10.0, "2026-08-01", db_path=self.db, enforce_lot_rules=False
+        )
+        voided = ps.correct_event(original["event_id"], db_path=self.db, reason="重复录入")
+        self.assertEqual(voided["status"], "voided")
+        self.assertEqual(voided["lot_warnings"], [])
+        self.assertEqual(ps.build_snapshot(db_path=self.db).positions, [])
+
+    def test_cli_correct_is_fail_closed_by_default(self):
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            ps.main(["--db", self.db, "add-trade", "--code", "601101", "--side", "buy",
+                     "--qty", "100", "--price", "10.0", "--at", "2026-08-01 09:31:00"])
+        event_id = json.loads(buffer.getvalue())["event_id"]
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = ps.main(["--db", self.db, "correct", "--event-id", event_id, "--qty", "50"])
+        output = buffer.getvalue()
+        self.assertEqual(code, 2)
+        self.assertIn("错误：", output)
+        self.assertIn("A股普通股票", output)
+        self.assertEqual(ps.portfolio_status(db_path=self.db)["active_event_count"], 1)
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = ps.main(["--db", self.db, "correct", "--event-id", event_id,
+                            "--qty", "50", "--allow-odd-lot"])
+        self.assertEqual(code, 0)
+        payload = json.loads(buffer.getvalue())
+        self.assertEqual(payload["status"], "corrected")
+        self.assertTrue(payload["lot_warnings"])
+
+
 class TestFailClosed(PortfolioLedgerTestBase):
     def test_missing_price_blocks_the_snapshot(self):
         ps.set_cash_baseline(100000, db_path=self.db)

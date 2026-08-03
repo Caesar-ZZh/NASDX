@@ -10,6 +10,10 @@ Design contract
 ---------------
 * Events are never mutated or deleted. Corrections insert a replacement event
   and mark the original ``superseded_by``; the audit chain stays intact.
+* Every write path shares one guard, ``_validate_event_against_ledger``: a
+  correction can never introduce a fill that ``add_event`` would have rejected
+  (#70). Corrections are judged against the holdings that remain *after* the
+  superseded event is removed.
 * ``event_id`` is unique. Re-submitting the same id (or re-importing the same
   CSV row, whose id is derived from its economics) is a no-op.
 * Snapshots fail **closed**: missing prices, an unset cash baseline, negative
@@ -24,6 +28,7 @@ CLI::
     python -m nasdx.portfolio_store add-trade --code 601101 --side buy --qty 100 --price 10.73
     python -m nasdx.portfolio_store import-csv trades.csv
     python -m nasdx.portfolio_store correct --event-id <id> --price 10.75
+    python -m nasdx.portfolio_store correct --event-id <id> --qty 137 --allow-odd-lot
     python -m nasdx.portfolio_store set-cash --amount 100000
     python -m nasdx.portfolio_store status | export | backup | clear
 """
@@ -264,8 +269,7 @@ def add_event(
                 "portfolio_version": int(_read_meta(conn, "version", "0") or 0),
                 "lot_warnings": [],
             }
-        held = _held_quantity(conn, event.code)
-        lot_warnings = check_lot_size(event.code, event.side, event.quantity, held_quantity=held)
+        lot_warnings = _validate_event_against_ledger(conn, event)
         if lot_warnings and enforce_lot_rules:
             raise LotSizeError("；".join(lot_warnings))
         with conn:
@@ -377,12 +381,26 @@ def correct_event(
     db_path: str | Path | None = None,
     reason: str = "",
     replacement: TradeEvent | None = None,
+    enforce_lot_rules: bool = True,
     **replacement_fields: Any,
 ) -> Dict[str, Any]:
     """Supersede an event with a compensating replacement (or void it).
 
     The original row is preserved and flagged; snapshots replay only active
     events. Pass no replacement fields to void the event entirely.
+
+    A replacement that changes the security, the direction or the size goes
+    through the same board/lot guard as ``add_event`` (#70), measured against
+    the holdings that remain once the original event is superseded. Corrections
+    that only touch price/fee/tax/time keep the exposure the ledger already
+    accepted and are not re-judged. Validation runs *before* the transaction
+    opens, so a rejected correction leaves the original active and the ledger
+    byte-identical.
+
+    ``enforce_lot_rules=False`` is a high-risk audit/migration escape hatch: it
+    still reports every violation in ``lot_warnings`` instead of silently
+    accepting an unexecutable quantity. The CLI keeps it fail-closed unless
+    ``--allow-odd-lot`` is passed explicitly.
     """
     target_id = str(event_id or "").strip()
     if not target_id:
@@ -417,6 +435,20 @@ def correct_event(
             new_event = build_trade_event(**payload)
 
         if new_event is not None:
+            if not isinstance(new_event, TradeEvent):
+                raise TradeEventError(
+                    f"correct_event 的 replacement 需要 TradeEvent，收到 {type(new_event).__name__}"
+                )
+            # Guard first: nothing is written until the replacement is legal, so
+            # a rejected correction cannot leave the original superseded or a
+            # half-applied replacement behind.
+            lot_warnings: List[str] = []
+            if _changes_lot_exposure(row, new_event):
+                lot_warnings = _validate_event_against_ledger(
+                    conn, new_event, replacing_event_id=target_id
+                )
+                if lot_warnings and enforce_lot_rules:
+                    raise LotSizeError("；".join(lot_warnings))
             new_event = _ensure_unique_event_id(conn, new_event, target_id)
             with conn:
                 conn.execute(
@@ -453,6 +485,7 @@ def correct_event(
                 "original_event_id": target_id,
                 "replacement_event_id": new_event.event_id,
                 "portfolio_version": version,
+                "lot_warnings": lot_warnings,
             }
 
         with conn:
@@ -467,6 +500,7 @@ def correct_event(
             "original_event_id": target_id,
             "replacement_event_id": "",
             "portfolio_version": version,
+            "lot_warnings": [],
         }
 
 
@@ -557,16 +591,30 @@ def list_events(
         return [dict(row) for row in conn.execute(query, params).fetchall()]
 
 
-def _held_quantity(conn: sqlite3.Connection, code: str) -> float:
+def _held_quantity(
+    conn: sqlite3.Connection,
+    code: str,
+    exclude_event_ids: Sequence[str] | None = None,
+) -> float:
+    """Active holdings for ``code``, optionally ignoring events about to leave.
+
+    ``exclude_event_ids`` is used by the correction path: the event that is
+    being superseded must not count towards the baseline the replacement is
+    judged against, otherwise a resized fill is measured against holdings that
+    include the very fill it replaces.
+    """
     normalized = normalize_code(code)
     if not normalized:
         return 0.0
     rows = conn.execute(
-        "select side, quantity from trade_events where code = ? and superseded_by = ''",
+        "select event_id, side, quantity from trade_events where code = ? and superseded_by = ''",
         (normalized,),
     ).fetchall()
+    excluded = {str(item) for item in (exclude_event_ids or []) if item}
     total = 0.0
     for row in rows:
+        if row["event_id"] in excluded:
+            continue
         if row["side"] == "buy":
             total += float(row["quantity"])
         elif row["side"] == "sell":
@@ -574,6 +622,44 @@ def _held_quantity(conn: sqlite3.Connection, code: str) -> float:
         elif row["side"] == "adjustment":
             total += float(row["quantity"])
     return max(total, 0.0)
+
+
+def _validate_event_against_ledger(
+    conn: sqlite3.Connection,
+    event: TradeEvent,
+    replacing_event_id: str | None = None,
+) -> List[str]:
+    """Check a pending event against the ledger state it is about to join (#70).
+
+    Shared by ``add_event`` and ``correct_event`` so both write paths apply the
+    identical board/lot rule. The rule is resolved from ``event.code`` and
+    ``event.side``, so a correction that changes the security or the direction
+    is re-validated as the *replacement*, not as the original.
+
+    Returns the list of violations (empty when compliant); callers decide
+    whether to raise. Read-only: never mutates the ledger.
+    """
+    exclude = [replacing_event_id] if replacing_event_id else []
+    held = _held_quantity(conn, event.code, exclude_event_ids=exclude)
+    return check_lot_size(event.code, event.side, event.quantity, held_quantity=held)
+
+
+def _changes_lot_exposure(original: Mapping[str, Any], replacement: TradeEvent) -> bool:
+    """True when a correction alters the security, the direction or the size.
+
+    A price/fee/timestamp-only correction carries exactly the lot exposure the
+    ledger already accepted, so re-checking it would reject legitimate fixes to
+    historical odd lots (broker receipts imported with
+    ``enforce_lot_rules=False``) for a violation the correction never
+    introduced — or reject a valid odd-lot liquidation simply because unrelated
+    fills were recorded afterwards. Only exposure-changing corrections are
+    re-validated.
+    """
+    if normalize_code(original["code"]) != replacement.code:
+        return True
+    if original["side"] != replacement.side:
+        return True
+    return abs(float(original["quantity"]) - float(replacement.quantity)) > _QUANTITY_EPS
 
 
 def _resolve_price(entry: Any) -> Tuple[float | None, str]:
@@ -1113,8 +1199,15 @@ def _build_parser() -> argparse.ArgumentParser:
     fix.add_argument("--fee", default=None)
     fix.add_argument("--tax", default=None)
     fix.add_argument("--at", dest="occurred_at", default=None)
+    fix.add_argument("--code", default=None, help="改正证券代码（按新代码重新校验手数）")
+    fix.add_argument("--side", default=None, help="改正买卖方向（按新方向重新校验手数）")
     fix.add_argument("--reason", default="")
     fix.add_argument("--void", action="store_true", help="作废该事件而不替换")
+    fix.add_argument(
+        "--allow-odd-lot",
+        action="store_true",
+        help="【高风险】跳过整数手校验，仅用于券商真实回单或历史迁移；违规项仍会在 lot_warnings 中列出",
+    )
 
     cash = sub.add_parser("set-cash", help="设置现金基线")
     cash.add_argument("--amount", required=True)
@@ -1176,6 +1269,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     ("fee", args.fee),
                     ("tax", args.tax),
                     ("occurred_at", args.occurred_at),
+                    ("code", args.code),
+                    ("side", args.side),
                 )
                 if value is not None
             }
@@ -1183,7 +1278,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fields = {}
             print(
                 json.dumps(
-                    correct_event(args.event_id, db_path=db_path, reason=args.reason, **fields),
+                    correct_event(
+                        args.event_id,
+                        db_path=db_path,
+                        reason=args.reason,
+                        enforce_lot_rules=not args.allow_odd_lot,
+                        **fields,
+                    ),
                     ensure_ascii=False,
                 )
             )
