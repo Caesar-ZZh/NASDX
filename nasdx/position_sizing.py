@@ -1,9 +1,16 @@
 """
 Position sizing calculator for NASDX investment briefs.
 
-The calculator converts percentage allocation bands into money amounts for a
-temporary account snapshot. It does not fetch prices, store account data, or
-turn research candidates into automatic trade instructions.
+The calculator converts percentage allocation bands into money amounts. It does
+not fetch prices or turn research candidates into automatic trade instructions.
+
+Two exposure sources are supported:
+
+* the legacy manual snapshot (``current_etf_exposure`` and friends), kept for
+  ad-hoc "what if" sizing, and
+* the authoritative ledger snapshot from :mod:`nasdx.portfolio_store` passed as
+  ``portfolio`` (Issue #66), which supersedes the manual amounts and makes a
+  fail-closed ledger block every new-money suggestion.
 """
 from __future__ import annotations
 
@@ -11,10 +18,12 @@ import json
 import math
 import re
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Tuple
 
 
 PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+
+PORTFOLIO_BLOCKED_GATE = "portfolio_fail_closed"
 
 
 def parse_percent_band(value: Any) -> Tuple[float, float]:
@@ -30,22 +39,55 @@ def parse_percent_band(value: Any) -> Tuple[float, float]:
 
 def build_position_sizing(
     brief: Dict[str, Any],
-    total_capital: float,
+    total_capital: float | None = None,
     current_etf_exposure: float = 0.0,
     current_stock_exposure: float = 0.0,
     current_other_exposure: float = 0.0,
     round_to: float = 100.0,
     now: datetime | None = None,
+    portfolio: Any = None,
 ) -> Dict[str, Any]:
-    """Build a money-based position plan from a NASDX investment brief."""
-    capital = _nonnegative(total_capital)
+    """Build a money-based position plan from a NASDX investment brief.
+
+    When ``portfolio`` (a ``PortfolioSnapshot`` or its ``to_dict()`` mapping) is
+    supplied, exposures and cash come from the authoritative ledger instead of
+    manually retyped amounts, ``total_capital`` defaults to the snapshot total
+    assets, and a fail-closed snapshot forces every candidate to zero new money.
+    """
+    now = now or datetime.now()
+    snapshot = _as_snapshot(portfolio)
+    portfolio_notes: List[str] = []
+
+    if snapshot is None:
+        capital = _nonnegative(total_capital)
+        etf_current = _nonnegative(current_etf_exposure)
+        stock_current = _nonnegative(current_stock_exposure)
+        other_current = _nonnegative(current_other_exposure)
+        snapshot_cash: float | None = None
+        portfolio_context: Dict[str, Any] = {"portfolio_linked": False}
+    else:
+        derived = _exposures_from_snapshot(snapshot)
+        manual_total = (
+            _nonnegative(current_etf_exposure)
+            + _nonnegative(current_stock_exposure)
+            + _nonnegative(current_other_exposure)
+        )
+        if manual_total > 0:
+            portfolio_notes.append(
+                "已接入组合账本快照，手工填写的当前敞口被忽略，以账本为准。"
+            )
+        etf_current = derived["ETF"]
+        stock_current = derived["股票"]
+        other_current = derived["其他"]
+        snapshot_cash = _optional_float(snapshot.get("cash"))
+        capital = _nonnegative(total_capital)
+        if capital <= 0:
+            capital = _nonnegative(snapshot.get("total_assets"))
+        portfolio_context = _portfolio_context(snapshot)
+
     if capital <= 0:
         raise ValueError("total_capital must be greater than 0")
 
-    now = now or datetime.now()
-    etf_current = _nonnegative(current_etf_exposure)
-    stock_current = _nonnegative(current_stock_exposure)
-    other_current = _nonnegative(current_other_exposure)
     current_total = etf_current + stock_current + other_current
 
     allocation = brief.get("allocation") or {}
@@ -63,11 +105,22 @@ def build_position_sizing(
     max_stock_budget = capital * bands["stock_budget"][1]
     single_stock_cap = capital * bands["single_stock_cap"][1]
     min_cash_buffer = capital * bands["cash_buffer"][0]
-    current_cash = max(capital - current_total, 0.0)
+    current_cash = snapshot_cash if snapshot_cash is not None else max(capital - current_total, 0.0)
 
     remaining_total = max(max_total_amount - current_total, 0.0)
     remaining_etf = max(max_etf_budget - etf_current, 0.0)
     remaining_stock = max(max_stock_budget - stock_current, 0.0)
+    if snapshot_cash is not None:
+        # Never suggest more new money than the ledger says is actually available.
+        available_cash = max(snapshot_cash, 0.0)
+        remaining_total = min(remaining_total, available_cash)
+        remaining_etf = min(remaining_etf, available_cash)
+        remaining_stock = min(remaining_stock, available_cash)
+
+    portfolio_blocked = bool(portfolio_context.get("fail_closed"))
+    effective_gate = (
+        PORTFOLIO_BLOCKED_GATE if portfolio_blocked else str(brief.get("action_gate") or "")
+    )
 
     audits = _candidate_audits(brief)
     trial_etfs = [item for item in audits if _is_trial(item) and item.get("type") == "ETF"]
@@ -75,7 +128,7 @@ def build_position_sizing(
     candidate_sizing = [
         _candidate_size(
             audit=item,
-            action_gate=str(brief.get("action_gate") or ""),
+            action_gate=effective_gate,
             remaining_total=remaining_total,
             remaining_etf=remaining_etf,
             remaining_stock=remaining_stock,
@@ -94,6 +147,7 @@ def build_position_sizing(
         current_cash=current_cash,
         min_cash_buffer=min_cash_buffer,
         action_gate=str(brief.get("action_gate") or ""),
+        portfolio_notes=portfolio_notes + _portfolio_warnings(portfolio_context),
     )
 
     return {
@@ -127,11 +181,12 @@ def build_position_sizing(
         },
         "candidate_sizing": candidate_sizing,
         "warnings": warnings,
-        "assumptions": [
-            "本计算只把路线百分比换算成金额，不读取也不保存真实账户信息。",
-            "候选金额是单候选上限，不代表可以同时买满所有候选。",
-            "真实执行前仍需复核最新行情、公告、流动性、交易成本和个人风险承受能力。",
-        ],
+        "portfolio_linked": bool(portfolio_context.get("portfolio_linked")),
+        "portfolio_context": portfolio_context,
+        "portfolio_snapshot_hash": str(portfolio_context.get("snapshot_hash") or ""),
+        "portfolio_version": int(portfolio_context.get("portfolio_version") or 0),
+        "allow_new_position": not portfolio_blocked,
+        "assumptions": _assumptions(portfolio_context),
         "disclaimer": "研究辅助和仓位纪律换算，不构成投资建议或下单指令。",
     }
 
@@ -232,9 +287,95 @@ def _candidate_size(
     }
 
 
+def _as_snapshot(portfolio: Any) -> Dict[str, Any] | None:
+    """Coerce a PortfolioSnapshot / mapping into a plain dict."""
+    if portfolio is None:
+        return None
+    if isinstance(portfolio, Mapping):
+        return dict(portfolio)
+    to_dict = getattr(portfolio, "to_dict", None)
+    if callable(to_dict):
+        candidate = to_dict()
+        if isinstance(candidate, Mapping):
+            return dict(candidate)
+    raise TypeError(
+        "portfolio must be a PortfolioSnapshot or mapping, got " f"{type(portfolio).__name__}"
+    )
+
+
+def _exposures_from_snapshot(snapshot: Mapping[str, Any]) -> Dict[str, float]:
+    """Split ledger market value into ETF / stock / other buckets."""
+    buckets = {"ETF": 0.0, "股票": 0.0, "其他": 0.0}
+    exposure = snapshot.get("asset_class_exposure")
+    if isinstance(exposure, Mapping):
+        for key, value in exposure.items():
+            amount = _nonnegative(value)
+            bucket = str(key) if str(key) in buckets else "其他"
+            buckets[bucket] += amount
+    return {key: round(value, 4) for key, value in buckets.items()}
+
+
+def _portfolio_context(snapshot: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        "portfolio_linked": True,
+        "schema": str(snapshot.get("schema") or ""),
+        "generated_at": str(snapshot.get("generated_at") or ""),
+        "snapshot_hash": str(snapshot.get("snapshot_hash") or ""),
+        "portfolio_version": int(_nonnegative(snapshot.get("portfolio_version"))),
+        "fail_closed": bool(snapshot.get("fail_closed")),
+        "cash": _optional_float(snapshot.get("cash")),
+        "cash_status": str(snapshot.get("cash_status") or "unknown"),
+        "total_assets": _optional_float(snapshot.get("total_assets")),
+        "total_market_value": _optional_float(snapshot.get("total_market_value")),
+        "position_count": len(snapshot.get("positions") or []),
+        "blocking_reasons": [
+            str(item) for item in (snapshot.get("blocking_reasons") or []) if str(item).strip()
+        ],
+    }
+
+
+def _portfolio_warnings(context: Mapping[str, Any]) -> List[str]:
+    if not context.get("portfolio_linked"):
+        return []
+    if not context.get("fail_closed"):
+        return []
+    reasons = list(context.get("blocking_reasons") or [])
+    return ["组合账本 fail-closed，本次不分配任何新增金额：" + item for item in reasons] or [
+        "组合账本 fail-closed，本次不分配任何新增金额。"
+    ]
+
+
+def _assumptions(context: Mapping[str, Any]) -> List[str]:
+    if context.get("portfolio_linked"):
+        return [
+            "当前敞口与现金来自本地组合账本快照，不再依赖手工填写的汇总金额。",
+            "候选金额是单候选上限，不代表可以同时买满所有候选。",
+            "真实执行前仍需复核最新行情、公告、流动性、交易成本和个人风险承受能力。",
+        ]
+    return [
+        "本计算只把路线百分比换算成金额，不读取也不保存真实账户信息。",
+        "候选金额是单候选上限，不代表可以同时买满所有候选。",
+        "真实执行前仍需复核最新行情、公告、流动性、交易成本和个人风险承受能力。",
+    ]
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    return number
+
+
 def _blocked_candidate(audit: Dict[str, Any], action_gate: str) -> Dict[str, Any]:
     status = str(audit.get("audit_status") or "")
-    if action_gate != "normal":
+    if action_gate == PORTFOLIO_BLOCKED_GATE:
+        reason = "组合账本 fail-closed（缺价/缺现金/账本损坏），不输出确定性买入金额。"
+    elif action_gate != "normal":
         reason = "行动闸门未打开，先刷新或修复数据，不新增仓位。"
     elif audit.get("status_code") == "needs_report":
         reason = "缺少深度报告，先补报告后再评估金额。"
@@ -295,8 +436,9 @@ def _warnings(
     current_cash: float,
     min_cash_buffer: float,
     action_gate: str,
+    portfolio_notes: List[str] | None = None,
 ) -> List[str]:
-    warnings: List[str] = []
+    warnings: List[str] = list(portfolio_notes or [])
     if current_total > capital:
         warnings.append("当前已投入金额超过总资金，请检查输入。")
     if current_total > max_total_amount:

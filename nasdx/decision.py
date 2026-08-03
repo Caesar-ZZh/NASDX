@@ -6,9 +6,20 @@ this layer standardizes action, sizing, risk caps, and review rules.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict
 
+from nasdx.portfolio_gate import (
+    STATUS_BLOCKED,
+    STATUS_NORMAL,
+    STATUS_UNKNOWN,
+    PortfolioGate,
+    evaluate_portfolio_gate,
+)
 from nasdx.schema import AnalysisResult
+
+
+_PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
 
 
 RISK_PROFILES = {
@@ -45,6 +56,12 @@ RISK_PROFILES = {
 }
 
 
+ADD_ACTIONS = ("分批布局", "轻仓试错")
+ACTION_HOLD_NO_ADD = "维持持仓，不加仓"
+ACTION_WAIT = "观察等待"
+ACTION_REVIEW_REQUIRED = "暂停新增，先修复组合数据"
+
+
 def build_decision_plan(
     stock_code: str,
     stock_name: str,
@@ -54,8 +71,18 @@ def build_decision_plan(
     synthesis: AnalysisResult,
     risk_profile: str = "balanced",
     data_quality: Dict[str, Any] | None = None,
+    portfolio: Any = None,
+    industry: str | None = None,
 ) -> Dict[str, Any]:
-    """Build a standardized decision plan from multi-agent evidence."""
+    """Build a standardized decision plan from multi-agent evidence.
+
+    ``portfolio`` accepts a :class:`~nasdx.portfolio_store.PortfolioSnapshot`
+    (or its ``to_dict()`` mapping). When supplied, the portfolio-level gate runs
+    after the single-name evidence is scored and *before* the plan is returned,
+    so a bullish single-name view can never override a fail-closed ledger, the
+    single-name weight cap, industry concentration or an empty cash balance.
+    Passing ``None`` keeps the pre-#66 single-name-only behaviour unchanged.
+    """
     profile_key = risk_profile if risk_profile in RISK_PROFILES else "balanced"
     profile = RISK_PROFILES[profile_key]
     position_map = profile["position_map"]
@@ -133,7 +160,15 @@ def build_decision_plan(
             "key_points": result.key_points[:3],
         }
 
-    return {
+    gate = evaluate_portfolio_gate(stock_code, portfolio=portfolio, industry=industry)
+    action, position_band, max_new_position_pct, gate_flags = _apply_portfolio_gate(
+        action=action,
+        position_band=position_band,
+        gate=gate,
+    )
+    risk_flags.extend(gate_flags)
+
+    plan = {
         "stock_code": stock_code,
         "stock_name": stock_name,
         "direction": direction,
@@ -153,6 +188,70 @@ def build_decision_plan(
         "evidence": evidence,
         "note": "研究辅助，不保证收益；下单前需结合账户风险承受能力和最新公告/行情复核。",
     }
+    plan["portfolio_linked"] = gate.is_enabled
+    plan["portfolio_gate"] = gate.to_dict()
+    plan["portfolio_context"] = dict(gate.context)
+    plan["portfolio_snapshot_hash"] = gate.snapshot_hash
+    plan["portfolio_version"] = gate.portfolio_version
+    plan["allow_new_position"] = bool(gate.allow_add if gate.held else gate.allow_new_entry)
+    plan["max_new_position_pct"] = max_new_position_pct
+    return plan
+
+
+def _apply_portfolio_gate(
+    action: str,
+    position_band: str,
+    gate: PortfolioGate,
+) -> tuple[str, str, float | None, list[str]]:
+    """Downgrade buy/add actions that the portfolio layer forbids.
+
+    Reduce/avoid actions are never upgraded or blocked here: a fail-closed
+    ledger must not stop risk reduction, it must only stop new money.
+    """
+    if gate.status == STATUS_UNKNOWN:
+        return action, position_band, None, []
+
+    flags = list(gate.reasons) if gate.status != STATUS_NORMAL else []
+    wants_new_money = action in ADD_ACTIONS
+    allowed = gate.allow_add if gate.held else gate.allow_new_entry
+
+    if not wants_new_money:
+        headroom = gate.max_new_position_pct if allowed else 0.0
+        return action, position_band, headroom, flags
+
+    if not allowed:
+        blocked_action = ACTION_REVIEW_REQUIRED if gate.status == STATUS_BLOCKED else (
+            ACTION_HOLD_NO_ADD if gate.held else ACTION_WAIT
+        )
+        return blocked_action, "0%-0%", 0.0, flags
+
+    headroom = gate.max_new_position_pct
+    return action, _cap_position_pct(position_band, headroom), headroom, flags
+
+
+def _cap_position_pct(band: str, max_pct: float | None) -> str:
+    """Clamp a ``low%-high%`` band so its upper bound respects the headroom."""
+    if max_pct is None:
+        return band
+    if max_pct <= 0:
+        return "0%-0%"
+    numbers = [float(item) for item in _PERCENT_RE.findall(str(band or ""))]
+    if not numbers:
+        return band
+    low = numbers[0]
+    high = numbers[1] if len(numbers) > 1 else numbers[0]
+    if low > high:
+        low, high = high, low
+    if high <= max_pct:
+        return band
+    capped_high = round(max_pct, 2)
+    capped_low = min(low, capped_high)
+    return f"{_trim(capped_low)}%-{_trim(capped_high)}%"
+
+
+def _trim(value: float) -> str:
+    text = f"{value:.2f}".rstrip("0").rstrip(".")
+    return text or "0"
 
 
 def format_decision_plan(plan: Dict[str, Any]) -> str:
@@ -161,6 +260,7 @@ def format_decision_plan(plan: Dict[str, Any]) -> str:
         f"方向：{plan.get('direction', '未知')} · 动作：{plan.get('action', '观察')} · 仓位区间：{plan.get('position_band', '0%-10%')}",
         f"风险画像：{plan.get('risk_profile_label', '均衡')} · 周期：{plan.get('horizon', '待定')} · 看多占比：{plan.get('bullish_pct', 50):.1f}% · 综合置信度：{plan.get('confidence', 0.5):.0%}",
         "数据状态：" + plan.get("data_quality", {}).get("message", "未评估"),
+        _format_portfolio_line(plan),
         "入场条件：" + "；".join(plan.get("entry_conditions", [])[:3]),
         "退出/止损：" + "；".join(plan.get("exit_conditions", [])[:3]),
         "复核触发：" + "；".join(plan.get("review_triggers", [])[:3]),
@@ -168,6 +268,61 @@ def format_decision_plan(plan: Dict[str, Any]) -> str:
         plan.get("note", ""),
     ]
     return "\n".join(line for line in lines if line)
+
+
+def _format_portfolio_line(plan: Dict[str, Any]) -> str:
+    """Render the portfolio-gate summary; empty when no snapshot was wired in."""
+    if not plan.get("portfolio_linked"):
+        return ""
+    context = plan.get("portfolio_context") or {}
+    gate = plan.get("portfolio_gate") or {}
+    if context.get("held"):
+        holding = "持有 {qty:.0f} 股 · 成本 {cost} · 现价 {price} · 浮动 {pnl} · 占比 {weight}".format(
+            qty=float(context.get("held_quantity") or 0.0),
+            cost=_fmt_price(context.get("avg_cost")),
+            price=_fmt_price(context.get("last_price")),
+            pnl=_fmt_signed_pct(context.get("unrealized_pct")),
+            weight=_fmt_pct(context.get("weight_pct")),
+        )
+    else:
+        holding = "当前未持有"
+    allow = "可新增" if plan.get("allow_new_position") else "禁止新增"
+    return (
+        f"组合状态：{holding} · 现金 {_fmt_cash(context.get('cash'))} · "
+        f"闸门 {gate.get('status', 'unknown')}（{allow}）"
+    )
+
+
+def _fmt_price(value: Any) -> str:
+    number = _to_float(value)
+    return "未知" if number is None else f"{number:,.3f}".rstrip("0").rstrip(".")
+
+
+def _fmt_pct(value: Any) -> str:
+    number = _to_float(value)
+    return "未知" if number is None else f"{number:.2f}%"
+
+
+def _fmt_signed_pct(value: Any) -> str:
+    number = _to_float(value)
+    return "未知" if number is None else f"{number:+.2f}%"
+
+
+def _fmt_cash(value: Any) -> str:
+    number = _to_float(value)
+    return "未知" if number is None else f"{number:,.0f} 元"
+
+
+def _to_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    return number
 
 
 def _is_bullish(result: AnalysisResult | None, min_conf: float) -> bool:
@@ -180,6 +335,7 @@ def _is_bearish(result: AnalysisResult | None, min_conf: float) -> bool:
 
 def _cap_position(current: str, cap: str) -> str:
     order = {
+        "0%-0%": -1,
         "0%-5%": 0,
         "0%-10%": 1,
         "0%-15%": 2,
