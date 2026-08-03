@@ -6,6 +6,9 @@ stocks.json.bak
 # 报告输出（HTML/JSON，动态生成）
 reports/
 
+# 分析快照缓存（#65 运行期用户数据，绝不入库、也不进发布产物）
+cache/
+
 # Python
 __pycache__/
 *.pyc

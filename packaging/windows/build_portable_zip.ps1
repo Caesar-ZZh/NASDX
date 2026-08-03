@@ -33,6 +33,7 @@ function Get-ForbiddenPackageArtifacts {
     $ForbiddenDirectoryNames = @(
         "__pycache__",
         "reports",
+        "cache",
         ".git",
         "dist",
         "build",

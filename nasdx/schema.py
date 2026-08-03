@@ -84,3 +84,9 @@ class FinalReport(BaseModel):
     operation_advice: str = ""
     decision_plan: Dict[str, Any] = Field(default_factory=dict)
     data_quality: Dict[str, Any] = Field(default_factory=dict)
+    # #65 执行深度与缓存可审计性
+    analysis_depth: str = "full"
+    #: {dimension|battle|synthesis: {status: refreshed/reused, refreshed_at, age_seconds, ttl_seconds, reason}}
+    freshness: Dict[str, Any] = Field(default_factory=dict)
+    #: 耗时 / LLM 调用数 / 缓存命中等观测指标
+    performance: Dict[str, Any] = Field(default_factory=dict)

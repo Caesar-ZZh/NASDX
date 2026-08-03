@@ -5,7 +5,7 @@ Research 环境 — 并行/顺序运行多个专家 Agent，汇总分析结果
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from nasdx.schema import AnalysisResult
 from nasdx.agents.technical import TechnicalAgent
@@ -47,29 +47,45 @@ class ResearchEnvironment:
         stock_code: str,
         stock_data: Dict[str, Any],
         verbose: bool = True,
+        dimensions: Sequence[str] | None = None,
     ) -> Dict[str, AnalysisResult]:
         """
-        并发执行所有专家 Agent。若 max_workers=1，则退回顺序执行。
+        并发执行专家 Agent。若 max_workers=1，则退回顺序执行。
+
+        Args:
+            dimensions: 仅执行给定维度（增量刷新用，#65）。None 表示全部维度，
+                与历史行为完全一致。
 
         Returns:
             {dimension: AnalysisResult}
         """
+        agent_order = self._selected_order(dimensions)
+        if not agent_order:
+            return {}
         if self.max_workers <= 1:
-            return self._run_sequential(stock_code, stock_data, verbose=verbose)
+            return self._run_sequential(stock_code, stock_data, verbose=verbose, agent_order=agent_order)
 
-        return self._run_parallel(stock_code, stock_data, verbose=verbose)
+        return self._run_parallel(stock_code, stock_data, verbose=verbose, agent_order=agent_order)
+
+    def _selected_order(self, dimensions: Sequence[str] | None) -> List[tuple]:
+        if dimensions is None:
+            return list(self.AGENT_ORDER)
+        wanted = {str(d) for d in dimensions}
+        return [item for item in self.AGENT_ORDER if item[0] in wanted]
 
     def _run_sequential(
         self,
         stock_code: str,
         stock_data: Dict[str, Any],
         verbose: bool = True,
+        agent_order: List[tuple] | None = None,
     ) -> Dict[str, AnalysisResult]:
         """顺序执行 Agent，用于调试、限流或单线程环境。"""
         results: Dict[str, AnalysisResult] = {}
-        total = len(self.AGENT_ORDER)
+        agent_order = agent_order if agent_order is not None else list(self.AGENT_ORDER)
+        total = len(agent_order)
 
-        for i, (dim, label) in enumerate(self.AGENT_ORDER, 1):
+        for i, (dim, label) in enumerate(agent_order, 1):
             if verbose:
                 print(f"  [{i}/{total}] {label} Agent 分析中...")
 
@@ -89,18 +105,21 @@ class ResearchEnvironment:
         stock_code: str,
         stock_data: Dict[str, Any],
         verbose: bool = True,
+        agent_order: List[tuple] | None = None,
     ) -> Dict[str, AnalysisResult]:
         """使用线程池并发执行 Phase 1 Agent，并按 AGENT_ORDER 返回结果。"""
-        total = len(self.AGENT_ORDER)
+        agent_order = agent_order if agent_order is not None else list(self.AGENT_ORDER)
+        total = len(agent_order)
         if verbose:
-            for i, (_dim, label) in enumerate(self.AGENT_ORDER, 1):
+            for i, (_dim, label) in enumerate(agent_order, 1):
                 print(f"  [{i}/{total}] {label} Agent 已提交...")
 
         completed: Dict[str, AnalysisResult] = {}
-        with ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="nasdx-agent") as executor:
+        workers = max(1, min(self.max_workers, total))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="nasdx-agent") as executor:
             futures = {
                 executor.submit(self._run_one_agent, dim, stock_code, stock_data): dim
-                for dim, _label in self.AGENT_ORDER
+                for dim, _label in agent_order
                 if self.agents.get(dim)
             }
             for future in as_completed(futures):
@@ -112,7 +131,7 @@ class ResearchEnvironment:
 
         return {
             dim: completed.get(dim) or _fallback_result(dim, "Agent 未返回结果")
-            for dim, _label in self.AGENT_ORDER
+            for dim, _label in agent_order
             if self.agents.get(dim)
         }
 

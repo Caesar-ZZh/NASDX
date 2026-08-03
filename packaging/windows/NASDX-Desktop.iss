@@ -57,7 +57,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Files]
-Source: "{#PortableDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "reports\*,stock_data_*.json,nasdx_history.db,config.toml,.env,*.log,*_log*.txt,pip_*.txt,__pycache__\*,.git\*,dist\*,build\*,wheelhouse\*,models\signal_confidence.json"
+Source: "{#PortableDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "reports\*,cache\*,stock_data_*.json,nasdx_history.db,config.toml,.env,*.log,*_log*.txt,pip_*.txt,__pycache__\*,.git\*,dist\*,build\*,wheelhouse\*,models\signal_confidence.json"
 
 [Icons]
 Name: "{group}\NASDX Desktop"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"

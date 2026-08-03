@@ -440,6 +440,24 @@ Streamlit 页面里的 API Key / Base URL / 模型名只保存在当前会话，
 
 LLM Agent 会在提示词末尾追加统一 JSON 契约，优先读取 `signal`、`confidence`、`conclusion`、`key_points` 字段；若模型未返回合法 JSON，才回退到旧的 `【信号】/【置信度】` 文本解析。最终审计会检查这条结构化输出链路。
 
+### 分析深度与增量缓存（#65）
+
+深度分析支持三种执行深度，通过 `NasdxAnalyzer(depth=...)` 或 `analyze(..., depth=...)` 控制，`run_analysis.py` 也接受 `--depth`：
+
+| 深度 | 行为 | 何时用 |
+|---|---|---|
+| `full` | Research→Battle→Synthesis 完整跑（历史默认行为，命令/报告格式不变） | 首次分析、行情大变、模型/提示版本升级后 |
+| `intraday` | 只刷新失效的行情类维度，复用慢变量结论；最多 1 次综合调用。缓存缺失/损坏/慢维度未缓存时安全回退 `full` | 盘中同一标的的重复刷新 |
+| `refresh` | 只重跑被失效规则命中的维度；有维度重跑才重开辩论与综合 | 只想确认某几个维度是否变化 |
+
+缓存契约（模块 `nasdx/analysis_cache`，用户数据目录，绝不入库、不进发布产物）：
+
+- **硬身份键（文件名）**：`stock_code` / `provider` / `model` / `prompt_version` / `agent_config_version` / `cache_schema_version`。任一变化 → 不同快照文件 → 旧结论不会被新模型或新提示误用。
+- **软失效输入（逐维度）**：`price_fingerprint` / `sector_fingerprint` / `fundamental_fingerprint` / `risk_profile` / `portfolio_snapshot_hash` / `trading_day`。仅让真正依赖它的维度失效（例如改持仓快照只失效 `risk`，改板块只失效 `sector`）。
+- **逐维度 TTL**：`technical`/`fund_flow` 300s、`risk` 900s、`sector` 1800s、`chokepoint` 14400s，可用 `NASDX_ANALYSIS_TTL_<DIMENSION>`（秒）覆盖。
+- **绝不静默复用**：缺失/不可读/损坏/身份不符/版本不符的快照一律按 miss 处理（带 reason）。任何复用在报告 `freshness` 中逐维度标注「本次刷新 `refreshed`」还是「复用上一轮结论 `reused`」，并显示数据/缓存时间；`intraday` 不会声称重新核验了它未刷新的公告/基本面/行业信息。
+- 缓存目录默认落在用户运行时数据目录（`get_analysis_cache_dir()`，`NASDX_ANALYSIS_CACHE_DIR` 可覆盖），已被 `.gitignore` 与所有打包脚本排除。
+
 保存报告、最终简报、建议复盘、账户复盘和扫描结果时，会同步追加到本地 `nasdx_history.db`。它只做历史索引，不替代 `reports/` 下的 Markdown/JSON；如需改位置，可设置 `NASDX_HISTORY_DB`。
 
 ### 子代理协作

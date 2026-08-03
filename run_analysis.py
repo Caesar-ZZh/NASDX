@@ -28,6 +28,21 @@ parser.add_argument(
     default=os.environ.get("NASDX_RISK_PROFILE", "balanced"),
 )
 parser.add_argument(
+    "--depth",
+    choices=["full", "intraday", "refresh"],
+    default=os.environ.get("NASDX_ANALYSIS_DEPTH", "full"),
+    help=(
+        "full=完整多智能体分析（默认，行为不变）；"
+        "intraday=盘中增量，复用缓存的慢变量结论，只刷新失效的行情维度，不重跑辩论；"
+        "refresh=只重跑被失效规则命中的维度。与 --mode 相互独立。"
+    ),
+)
+parser.add_argument(
+    "--no-cache",
+    action="store_true",
+    help="禁用分析快照缓存（既不读也不写），等价于每次强制完整重算",
+)
+parser.add_argument(
     "--fact-check",
     action="store_true",
     help="开启 quant 事实校验：对最终结论做数值一致性检查（真相源经 NASDX_FACT_GROUND JSON 提供）",
@@ -38,6 +53,8 @@ rounds = args.rounds
 risk_profile = args.risk_profile
 analysis_mode = args.mode
 fact_check = args.fact_check
+analysis_depth = args.depth
+use_cache = not args.no_cache
 
 from nasdx.analyzer import NasdxAnalyzer
 from nasdx.rule_based_analysis import build_rule_based_report, save_rule_based_report
@@ -68,6 +85,8 @@ def _run_llm():
         agent_delay=0.2,
         battle_delay=0.2,
         risk_profile=risk_profile,
+        depth=analysis_depth,
+        use_cache=use_cache,
     )
     report = analyzer.analyze(stock_code, verbose=True)
     html_path = analyzer.save_report(report, fmt='html')
@@ -91,6 +110,17 @@ try:
     mode_label = report.data_quality.get("analysis_mode_label") if report.data_quality else None
     print(f'   模式: {mode_label or "LLM多智能体"}')
     print(f'   信号: {report.final_signal}  看多占比: {report.bullish_pct:.1f}%')
+    perf = getattr(report, "performance", None) or {}
+    if perf:
+        print(
+            f'   深度: {perf.get("effective_depth", analysis_depth)}'
+            f'  LLM调用: {perf.get("llm_call_count", "-")} 次'
+            f'  耗时: {perf.get("total_elapsed_ms", "-")} ms'
+        )
+        if perf.get("cache_hit_dimensions"):
+            print(f'   复用维度: {", ".join(perf["cache_hit_dimensions"])}（未重新核验）')
+        if perf.get("degraded_reason"):
+            print(f'   ⚠️ 深度回退: {perf["degraded_reason"]}')
     print(f'   HTML: {html_path}')
     print(f'   JSON: {json_path}')
 

@@ -10,6 +10,7 @@ APP_ROOT_ENV = "NASDX_APP_ROOT"
 RUNTIME_DIR_ENV = "NASDX_RUNTIME_DIR"
 REPORTS_DIR_ENV = "NASDX_REPORTS_DIR"
 DATA_DIR_ENV = "NASDX_DATA_DIR"
+ANALYSIS_CACHE_DIR_ENV = "NASDX_ANALYSIS_CACHE_DIR"
 
 
 def get_project_dir() -> Path:
@@ -50,6 +51,24 @@ def get_market_data_dir(create: bool = False) -> Path:
     """Return the directory used for stock_data_YYYYMMDD.json snapshots."""
     configured = os.environ.get(DATA_DIR_ENV)
     path = Path(configured).expanduser().resolve() if configured else get_runtime_dir(create=create)
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def get_analysis_cache_dir(create: bool = False) -> Path:
+    """Return the writable directory holding analysis snapshots (#65).
+
+    Snapshots are runtime user data: they never belong in the repository or in
+    a packaged release artifact. ``NASDX_ANALYSIS_CACHE_DIR`` allows desktop
+    launchers and tests to redirect them.
+    """
+    configured = os.environ.get(ANALYSIS_CACHE_DIR_ENV)
+    path = (
+        Path(configured).expanduser().resolve()
+        if configured
+        else get_runtime_dir(create=create) / "cache" / "analysis"
+    )
     if create:
         path.mkdir(parents=True, exist_ok=True)
     return path

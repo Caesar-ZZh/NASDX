@@ -23,8 +23,8 @@ def generate_html_report(report: FinalReport) -> str:
         "neutral": "➡️ 中性",
     }.get(report.final_signal, "中性")
 
-    # 各维度卡片
-    dim_cards = _build_dim_cards(report.research_results)
+    # 各维度卡片（带 #65 新鲜度标注）
+    dim_cards = _build_dim_cards(report.research_results, report.freshness)
 
     # 辩论记录
     battle_html = _build_battle_html(report.battle_transcript)
@@ -32,6 +32,7 @@ def generate_html_report(report: FinalReport) -> str:
     # 投票结果
     vote_html = _build_vote_html(report.votes, report.bullish_pct)
     data_quality_html = _build_data_quality_html(report.data_quality)
+    freshness_note = _build_freshness_note(report)
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -138,6 +139,19 @@ def generate_html_report(report: FinalReport) -> str:
   .bearish .dim-signal {{ background: var(--red)22; color: var(--red); }}
   .neutral .dim-signal {{ background: var(--yellow)22; color: var(--yellow); }}
   .dim-confidence {{ color: var(--text-muted); font-size: 12px; margin-bottom: 8px; }}
+  .dim-freshness {{ font-size: 11px; margin-bottom: 8px; }}
+  .dim-freshness .fresh {{ color: var(--green); }}
+  .dim-freshness .reused {{ color: var(--yellow); }}
+  .freshness-note {{
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--blue);
+    background: var(--card);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 20px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }}
   .dim-points {{ list-style: none; }}
   .dim-points li {{ color: var(--text-muted); font-size: 13px; padding: 2px 0; }}
   .dim-points li::before {{ content: "•  "; color: var(--blue); }}
@@ -208,6 +222,7 @@ def generate_html_report(report: FinalReport) -> str:
   </div>
 
   <!-- 综合摘要 -->
+  {freshness_note}
   {data_quality_html}
 
   <div class="summary-box">
@@ -263,7 +278,89 @@ def _escape_html(text: str) -> str:
     )
 
 
-def _build_dim_cards(research_results: Dict[str, Any]) -> str:
+_DEPTH_LABELS = {
+    "full": "完整分析（全部维度本次重跑）",
+    "intraday": "盘中增量（复用慢变量结论，仅刷新失效的行情维度）",
+    "refresh": "增量刷新（仅重跑被失效规则命中的维度）",
+}
+
+
+def _format_age(age_seconds: Any) -> str:
+    try:
+        value = float(age_seconds)
+    except (TypeError, ValueError):
+        return ""
+    if value < 0:
+        return ""
+    if value < 60:
+        return f"{value:.0f}秒前"
+    if value < 3600:
+        return f"{value / 60:.0f}分钟前"
+    return f"{value / 3600:.1f}小时前"
+
+
+def _build_freshness_badge(entry: Any) -> str:
+    """Render the per-dimension 本次刷新 / 复用 badge."""
+    if not isinstance(entry, dict):
+        return ""
+    status = str(entry.get("status") or "")
+    refreshed_at = _escape_html(str(entry.get("refreshed_at") or ""))
+    if status == "reused":
+        age = _format_age(entry.get("age_seconds"))
+        suffix = f"（{age}）" if age else ""
+        return (
+            '<div class="dim-freshness"><span class="reused">♻️ 复用上一轮结论</span> '
+            f"· 上次刷新 {refreshed_at}{suffix}</div>"
+        )
+    if status == "refreshed":
+        return (
+            '<div class="dim-freshness"><span class="fresh">🟢 本次刷新</span> '
+            f"· {refreshed_at}</div>"
+        )
+    return ""
+
+
+def _build_freshness_note(report: FinalReport) -> str:
+    """Top-of-report banner: depth, reuse boundary and observability counters."""
+    freshness = report.freshness or {}
+    performance = report.performance or {}
+    if not freshness and not performance:
+        return ""
+
+    depth = str(report.analysis_depth or performance.get("effective_depth") or "full")
+    parts: List[str] = [f"<b>执行深度</b>：{_escape_html(depth)} — {_DEPTH_LABELS.get(depth, '')}"]
+
+    degraded = str(performance.get("degraded_reason") or "")
+    if degraded:
+        requested = _escape_html(str(performance.get("requested_depth") or ""))
+        parts.append(f"⚠️ 请求 {requested} 已安全回退为 {depth}：{_escape_html(degraded)}")
+
+    reused = [k for k, v in freshness.items() if isinstance(v, dict) and v.get("status") == "reused"]
+    refreshed = [
+        k for k, v in freshness.items() if isinstance(v, dict) and v.get("status") == "refreshed"
+    ]
+    if refreshed:
+        parts.append("本次刷新：" + _escape_html("、".join(sorted(refreshed))))
+    if reused:
+        parts.append(
+            "复用缓存：" + _escape_html("、".join(sorted(reused)))
+            + " —— 这些维度未在本次重新核验，不代表公告/基本面已被重新检查。"
+        )
+    snapshot_as_of = performance.get("snapshot_data_as_of")
+    if snapshot_as_of:
+        parts.append(f"缓存数据日期：{_escape_html(str(snapshot_as_of))}")
+    if performance:
+        parts.append(
+            "观测：LLM 调用 {calls} 次 · 总耗时 {ms} ms".format(
+                calls=performance.get("llm_call_count", "-"),
+                ms=performance.get("total_elapsed_ms", "-"),
+            )
+        )
+    return '<div class="freshness-note">' + "<br>".join(parts) + "</div>"
+
+
+def _build_dim_cards(research_results: Dict[str, Any], freshness: Dict[str, Any] | None = None) -> str:
+    freshness = freshness or {}
     dim_labels = {
         "technical": ("📈 技术面", "均线/MACD/RSI/布林带"),
         "fund_flow": ("💰 资金流向", "主力/超大单/大单"),
@@ -295,6 +392,7 @@ def _build_dim_cards(research_results: Dict[str, Any]) -> str:
     <span class="dim-signal">{signal_text}</span>
   </div>
   <div class="dim-confidence">置信度 {conf_pct} · {subtitle}</div>
+  {_build_freshness_badge(freshness.get(dim))}
   {points_html}
 </div>""")
 

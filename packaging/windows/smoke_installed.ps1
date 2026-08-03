@@ -96,7 +96,7 @@ foreach ($RelativePath in $RequiredFiles) {
     }
 }
 
-foreach ($Forbidden in @("config.toml", ".env", "nasdx_history.db", "reports")) {
+foreach ($Forbidden in @("config.toml", ".env", "nasdx_history.db", "reports", "cache")) {
     if (Test-Path -LiteralPath (Join-Path $InstallPath $Forbidden)) {
         throw "Installed app directory contains runtime/user artifact: $Forbidden"
     }

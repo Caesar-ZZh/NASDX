@@ -75,6 +75,7 @@ if (-not [string]::IsNullOrWhiteSpace($WheelhouseDir)) {
 
 $ExcludedPatterns = @(
     "reports/",
+    "cache/",
     "stock_data_*.json",
     "nasdx_history.db",
     "config.toml",
@@ -102,6 +103,7 @@ $ScrubbedPatterns = @(
     "*.pyc",
     "*.pyo",
     "reports/",
+    "cache/",
     "stock_data_*.json",
     "nasdx_history.db",
     "config.toml",
@@ -223,6 +225,7 @@ function Remove-PackageExcludedArtifacts {
     $DirectoryNames = @(
         "__pycache__",
         "reports",
+        "cache",
         ".git",
         "dist",
         "build",

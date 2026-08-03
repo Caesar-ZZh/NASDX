@@ -3,10 +3,34 @@ Battle 环境 — 多轮专家辩论 + 投票决策
 对应 FinGenius 的 BattleEnvironment
 博弈论核心：各 Agent 站在对立立场辩论，最终投票
 """
+import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Tuple
 from nasdx.schema import AnalysisResult, BattleVote
 from nasdx.llm import llm
+
+# 5 位投票者互相独立，可并发执行；返回时按本列表顺序重排，保证报告顺序稳定。
+VOTERS: Tuple[Tuple[str, str], ...] = (
+    ("短线交易员", "你专注3-5日短线机会，对技术信号最敏感"),
+    ("中线投资者", "你关注1-3个月走势，重视资金流和板块趋势"),
+    ("风险控制官", "你优先考虑下行风险，宁可错过也不愿亏损"),
+    ("多头辩手",   "你已充分表达了看多立场"),
+    ("空头辩手",   "你已充分表达了看空立场"),
+)
+
+
+def _resolve_vote_workers(max_workers: int | None, default_workers: int) -> int:
+    """Resolve the voter thread-pool size (``NASDX_VOTE_MAX_WORKERS`` override)."""
+    if max_workers is not None:
+        return max(1, min(int(max_workers), default_workers))
+    raw = os.environ.get("NASDX_VOTE_MAX_WORKERS", "")
+    if raw:
+        try:
+            return max(1, min(int(raw), default_workers))
+        except ValueError:
+            pass
+    return default_workers
 
 
 # 辩论角色配置
@@ -46,9 +70,10 @@ class BattleEnvironment:
     支持多轮辩论（每轮多空各发言一次）
     """
 
-    def __init__(self, debate_rounds: int = 2, delay: float = 0.5):
+    def __init__(self, debate_rounds: int = 2, delay: float = 0.5, vote_workers: int | None = None):
         self.debate_rounds = debate_rounds
         self.delay = delay
+        self.vote_workers = _resolve_vote_workers(vote_workers, len(VOTERS))
 
     def run(
         self,
@@ -205,51 +230,87 @@ class BattleEnvironment:
         history: List[str],
         judge_verdict: str,
     ) -> List[BattleVote]:
-        """让5个模拟投票者独立给出信号"""
-        VOTERS = [
-            ("短线交易员", "你专注3-5日短线机会，对技术信号最敏感"),
-            ("中线投资者", "你关注1-3个月走势，重视资金流和板块趋势"),
-            ("风险控制官", "你优先考虑下行风险，宁可错过也不愿亏损"),
-            ("多头辩手",   "你已充分表达了看多立场"),
-            ("空头辩手",   "你已充分表达了看空立场"),
-        ]
+        """让5个模拟投票者独立给出信号。
 
+        投票者之间没有依赖，因此并发执行（#65）；结果按模块级 ``VOTERS``
+        顺序重排，报告顺序与串行版本完全一致。单个投票失败只把该投票降级为
+        中性，不影响其余投票，也不会中断整个 Battle 阶段。
+        """
         full_context = (
             f"{base_context}\n\n【辩论记录】\n"
             + "\n".join(history)
             + f"\n\n【裁判意见】\n{judge_verdict}"
         )
 
-        votes = []
-        for voter_name, voter_desc in VOTERS:
-            system = f"""你是{voter_name}。{voter_desc}。
+        if self.vote_workers <= 1:
+            collected = [
+                self._run_one_vote(voter, full_context, stock_code, stock_name)
+                for voter in VOTERS
+            ]
+            return collected
+
+        results: Dict[str, BattleVote] = {}
+        with ThreadPoolExecutor(
+            max_workers=self.vote_workers, thread_name_prefix="nasdx-vote"
+        ) as executor:
+            futures = {
+                executor.submit(
+                    self._run_one_vote, voter, full_context, stock_code, stock_name
+                ): voter[0]
+                for voter in VOTERS
+            }
+            for future, voter_name in futures.items():
+                try:
+                    results[voter_name] = future.result()
+                except Exception as e:  # noqa: BLE001 - 线程池自身异常兜底
+                    results[voter_name] = BattleVote(
+                        agent_name=voter_name, vote="neutral", reasoning=f"投票失败：{e}"
+                    )
+
+        return [
+            results.get(
+                voter_name,
+                BattleVote(agent_name=voter_name, vote="neutral", reasoning="投票失败：未返回结果"),
+            )
+            for voter_name, _desc in VOTERS
+        ]
+
+    def _run_one_vote(
+        self,
+        voter: Tuple[str, str],
+        full_context: str,
+        stock_code: str,
+        stock_name: str,
+    ) -> BattleVote:
+        """执行单个投票，异常收敛为中性票（只降级本票）。"""
+        voter_name, voter_desc = voter
+        system = f"""你是{voter_name}。{voter_desc}。
 基于以上所有信息，给出你对 {stock_code} {stock_name} 的最终投票。
 只回复3行：
 投票：bullish 或 bearish 或 neutral
 理由：（一句话，30字以内）
 结束"""
-            messages = [{"role": "user", "content": full_context}]
-            try:
-                response = llm.ask(messages, system=system, temperature=0.2)
-                vote_val = "neutral"
-                reasoning = ""
-                for line in response.split("\n"):
-                    if "投票：" in line or "投票:" in line:
-                        for v in ("bullish", "bearish", "neutral"):
-                            if v in line.lower():
-                                vote_val = v
-                                break
-                    if "理由：" in line or "理由:" in line:
-                        reasoning = line.split("：", 1)[-1].split(":", 1)[-1].strip()
-                votes.append(BattleVote(
-                    agent_name=voter_name,
-                    vote=vote_val,
-                    reasoning=reasoning or response[:50],
-                ))
-            except Exception as e:
-                votes.append(BattleVote(
-                    agent_name=voter_name,
-                    vote="neutral",
-                    reasoning=f"投票失败：{e}",
-                ))
-        return votes
+        messages = [{"role": "user", "content": full_context}]
+        try:
+            response = llm.ask(messages, system=system, temperature=0.2)
+            vote_val = "neutral"
+            reasoning = ""
+            for line in response.split("\n"):
+                if "投票：" in line or "投票:" in line:
+                    for v in ("bullish", "bearish", "neutral"):
+                        if v in line.lower():
+                            vote_val = v
+                            break
+                if "理由：" in line or "理由:" in line:
+                    reasoning = line.split("：", 1)[-1].split(":", 1)[-1].strip()
+            return BattleVote(
+                agent_name=voter_name,
+                vote=vote_val,
+                reasoning=reasoning or response[:50],
+            )
+        except Exception as e:  # noqa: BLE001 - 单票失败不影响其他投票
+            return BattleVote(
+                agent_name=voter_name,
+                vote="neutral",
+                reasoning=f"投票失败：{e}",
+            )

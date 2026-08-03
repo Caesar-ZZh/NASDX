@@ -359,6 +359,70 @@ def _call_with_deadline(call, kwargs: Dict[str, Any], *, timeout: float):
     raise value
 
 
+class _LLMCallCounters:
+    """Process-wide LLM call counters used by the #65 performance contracts.
+
+    Only calls routed through the shared ``llm`` proxy are counted; that is the
+    seam every agent/environment uses, and it keeps counting valid when tests
+    inject a fake client through ``LLMClient._instance``.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.calls = 0
+        self.failures = 0
+
+    def record(self, failed: bool) -> None:
+        with self._lock:
+            self.calls += 1
+            if failed:
+                self.failures += 1
+
+    def snapshot(self) -> Dict[str, int]:
+        with self._lock:
+            return {"calls": self.calls, "failures": self.failures}
+
+    def reset(self) -> None:
+        with self._lock:
+            self.calls = 0
+            self.failures = 0
+
+
+_LLM_COUNTERS = _LLMCallCounters()
+
+
+def llm_counters() -> Dict[str, int]:
+    """Return cumulative ``{"calls", "failures"}`` for the shared LLM proxy."""
+    return _LLM_COUNTERS.snapshot()
+
+
+def reset_llm_counters() -> None:
+    """Reset the cumulative LLM proxy counters."""
+    _LLM_COUNTERS.reset()
+
+
+class LLMCallMeter:
+    """Delta view over the global counters for a single measured section."""
+
+    def __init__(self) -> None:
+        self._start = _LLM_COUNTERS.snapshot()
+        self._end: Dict[str, int] | None = None
+
+    def stop(self) -> None:
+        self._end = _LLM_COUNTERS.snapshot()
+
+    def _current(self) -> Dict[str, int]:
+        return self._end if self._end is not None else _LLM_COUNTERS.snapshot()
+
+    @property
+    def calls(self) -> int:
+        return self._current()["calls"] - self._start["calls"]
+
+    @property
+    def failures(self) -> int:
+        return self._current()["failures"] - self._start["failures"]
+
+
 class _LazyLLMClient:
     def __init__(self):
         self._client: LLMClient | None = None
@@ -377,10 +441,24 @@ class _LazyLLMClient:
         return client
 
     def ask(self, *args, **kwargs):
-        return self._get_client().ask(*args, **kwargs)
+        failed = True
+        try:
+            result = self._get_client().ask(*args, **kwargs)
+            failed = False
+            return result
+        finally:
+            _LLM_COUNTERS.record(failed)
 
     def ask_json(self, *args, **kwargs):
-        return self._get_client().ask_json(*args, **kwargs)
+        # 计一次：LLMClient.ask_json 内部调用的是 LLMClient.ask（不经过本代理），
+        # 因此这里不会与 ask() 的计数重复。
+        failed = True
+        try:
+            result = self._get_client().ask_json(*args, **kwargs)
+            failed = False
+            return result
+        finally:
+            _LLM_COUNTERS.record(failed)
 
 
 # ---------------------------------------------------------------------------
