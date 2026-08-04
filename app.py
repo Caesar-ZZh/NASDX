@@ -323,7 +323,7 @@ for k, v in DEFAULTS.items():
 
 # URL 是可分享的路由来源；回调会同时更新 session，避免双重 rerun。
 _qp = st.query_params
-_valid_pages = {"home","plan","history","etf50","stocks60","deep","quant","selector","ths"}
+_valid_pages = {"home","plan","history","etf50","stocks60","deep","quant","selector","ths","cockpit"}
 _url_page = _qp.get("page", "home")
 if isinstance(_url_page, list):
     _url_page = _url_page[0] if _url_page else "home"
@@ -366,6 +366,7 @@ with st.sidebar:
         ("etf50",    "📊", "ETF 50"),
         ("stocks60", "📈", "个股扫描"),
         ("deep",     "🤖", "深度分析"),
+        ("cockpit",  "🚦", "盘中驾驶舱"),
         ("quant",    "⚗️", "量化引擎"),
         ("selector", "🎯", "今日选股"),
         ("ths",      "🔗", "同花顺"),
@@ -1609,4 +1610,56 @@ elif pg == "quant":
     except Exception as _e:
         import traceback
         st.error(f"量化引擎加载失败：{_e}")
+        st.code(traceback.format_exc())
+
+
+# ══════════════════════════════════════════════════════
+#  盘中驾驶舱页（Issue #67：账本 + 行情 + 规则信号 → 半小时快照）
+# ══════════════════════════════════════════════════════
+elif pg == "cockpit":
+    try:
+        st.title("🚦 盘中驾驶舱")
+        st.caption("把权威账本 + 行情 + 规则信号压成一份半小时快照。纯研究辅助，系统永不自动下单。")
+
+        from nasdx.intraday_copilot import run_checkpoint, format_intraday_snapshot
+
+        col_refresh, col_force = st.columns([1, 1])
+        with col_force:
+            force = st.button("⏩ 强制生成快照（忽略检查点窗口）", help="仅用于演示/调试，仍绝不自动下单。")
+        with col_refresh:
+            if st.button("🧹 清除账本/快照缓存"):
+                try:
+                    load_ledger_snapshot.clear()
+                except Exception:
+                    pass
+
+        result = run_checkpoint(force=force, save=True)
+        if not result.get("ran"):
+            st.info(f"⏭️ {result.get('reason')}\n\n当前非检查点窗口，不生成快照。可点「强制生成」预览，或等下一个半小时检查点（09:59/10:29/.../14:59）。")
+        else:
+            snap = result["snapshot"]
+            pf = snap.get("portfolio") or {}
+            st.success(
+                f"✅ {snap.get('checkpoint')} 检查点快照已生成　盘面：{pf.get('market_state')}　"
+                f"组合：{pf.get('health')}　LLM 调用：{snap.get('performance', {}).get('llm_calls')}（系统不会自动下单）"
+            )
+            # 权威账本持仓面板（接入时）
+            if pf.get("linked"):
+                try:
+                    from nasdx.ui.plan_tables import portfolio_snapshot_table
+                    positions = (load_ledger_snapshot() or {}).get("positions") or []
+                    if positions:
+                        with st.expander("📒 权威账本持仓", expanded=False):
+                            st.markdown(portfolio_snapshot_table(positions), unsafe_allow_html=True)
+                except Exception as _le:
+                    st.warning(f"账本持仓渲染失败：{_le}")
+            # 快照正文
+            with st.container():
+                st.markdown(format_intraday_snapshot(snap), unsafe_allow_html=False)
+            paths = result.get("paths") or {}
+            if paths:
+                st.caption(f"快照已保存：{paths.get('snapshot')}")
+    except Exception as _e:
+        import traceback
+        st.error(f"盘中驾驶舱加载失败：{_e}")
         st.code(traceback.format_exc())

@@ -105,6 +105,20 @@ def save_rule_based_report(report: FinalReport, output_dir: str | Path | None = 
     return {"html": str(html_path), "json": str(json_path)}
 
 
+def technical_signal(stock: Dict[str, Any]) -> AnalysisResult:
+    """Deterministic technical verdict for one stock dict (no LLM, no I/O).
+
+    Public entry point so the intraday copilot (#67) can reuse the exact same
+    rules instead of re-implementing them.
+    """
+    return _technical_result(stock)
+
+
+def fund_flow_signal(stock: Dict[str, Any]) -> AnalysisResult:
+    """Deterministic fund-flow verdict for one stock dict (no LLM, no I/O)."""
+    return _fund_flow_result(stock)
+
+
 def _technical_result(stock: Dict[str, Any]) -> AnalysisResult:
     ind = stock.get("indicators", {}) or {}
     scan_score = _optional_num(stock.get("scan_score"))
