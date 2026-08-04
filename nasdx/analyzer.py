@@ -88,15 +88,20 @@ def _bullish_pct_from_votes(votes: List[BattleVote]) -> float:
 
 
 def _portfolio_snapshot_hash(stock_code: str, portfolio: Any) -> str:
-    """Derive the portfolio invalidation input; empty when no ledger is linked."""
+    """Derive the portfolio invalidation input; empty **only** when no ledger is linked.
+
+    一旦传入了组合，返回值必须非空：空串是"未接入组合"的缓存键，复用它会让
+    接入账本后的盘中运行读到无组合时算出的结论（#66 验收 #6）。
+    """
     if portfolio is None:
         return ""
     try:
         from nasdx.portfolio_gate import evaluate_portfolio_gate
 
-        return str(evaluate_portfolio_gate(stock_code, portfolio).snapshot_hash or "")
+        digest = str(evaluate_portfolio_gate(stock_code, portfolio).snapshot_hash or "")
     except Exception:
-        return ""
+        return "portfolio-unresolved"
+    return digest or "portfolio-linked-unhashed"
 
 
 class NasdxAnalyzer:
@@ -120,6 +125,7 @@ class NasdxAnalyzer:
         depth: str = DEPTH_FULL,
         use_cache: bool = True,
         cache_dir: Optional[str] = None,
+        link_portfolio: bool = False,
     ):
         self.max_steps = max_steps
         self.debate_rounds = debate_rounds
@@ -127,6 +133,8 @@ class NasdxAnalyzer:
         self.depth = normalize_depth(depth)
         self.use_cache = bool(use_cache)
         self.cache_dir = cache_dir
+        # 库层默认关闭：显式传 portfolio= 才接组合。CLI 入口默认开启（#66）。
+        self.link_portfolio = bool(link_portfolio)
         self.output_dir = Path(output_dir) if output_dir else get_reports_dir(create=True)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -148,6 +156,7 @@ class NasdxAnalyzer:
         verbose: bool = True,
         depth: Optional[str] = None,
         portfolio: Any = None,
+        link_portfolio: Optional[bool] = None,
     ) -> FinalReport:
         """
         分析单只股票，返回完整报告
@@ -157,7 +166,11 @@ class NasdxAnalyzer:
             data: 预加载的完整数据（None 则自动加载最新文件）
             verbose: 是否打印进度
             depth: full / intraday / refresh，缺省沿用构造参数
-            portfolio: 可选持仓快照，参与组合闸门与缓存失效
+            portfolio: 可选持仓快照，参与组合闸门与缓存失效。缺省且启用了账本
+                接线时，自动从权威账本解析（账本未初始化则保持 None，行为与
+                未接入组合一致）
+            link_portfolio: 覆盖构造参数的账本接线开关；批量入口已解析过快照时
+                传 False 可避免逐只重复解析
         """
         started = time.perf_counter()
         meter = LLMCallMeter()
@@ -175,6 +188,15 @@ class NasdxAnalyzer:
 
         stock_name = stock_data.get("name", stock_code)
         date_str = data.get("date", datetime.now().strftime("%Y%m%d"))
+
+        # 1b. 组合账本接线（#66）：显式传入优先；否则按开关从账本解析。
+        should_link = self.link_portfolio if link_portfolio is None else bool(link_portfolio)
+        if portfolio is None and should_link:
+            from nasdx.portfolio_link import describe_portfolio_link, resolve_portfolio
+
+            portfolio = resolve_portfolio(data)
+            if verbose:
+                print(f"📒 {describe_portfolio_link(portfolio)}")
 
         # 2. 缓存身份与失效输入
         identity = build_identity(stock_code)
@@ -334,6 +356,10 @@ class NasdxAnalyzer:
             risk_profile=self.risk_profile,
             data_quality=data_quality,
             portfolio=portfolio,
+            # 未持有的新标的没有 position.industry 可回落，必须显式带板块，
+            # 否则行业集中度上限对"新增同类标的"永远不生效（#66 验收 #7）。
+            # 取值口径与 portfolio_link.market_industry_map 一致（板块名）。
+            industry=str(stock_data.get("sector_name") or stock_data.get("industry") or "") or None,
         )
 
         now_dt = datetime.now(timezone.utc)
@@ -599,16 +625,39 @@ class NasdxAnalyzer:
         stock_codes: List[str],
         verbose: bool = True,
         depth: Optional[str] = None,
+        portfolio: Any = None,
     ) -> Dict[str, FinalReport]:
-        """批量分析多只股票"""
+        """批量分析多只股票
+
+        组合快照只解析一次并复用到每只标的，保证同一批次里所有建议看到的是
+        同一个 ``portfolio_snapshot_hash``（#66）。
+        """
         data = load_latest_data()  # 只加载一次
         results = {}
+
+        resolved_once = False
+        if portfolio is None and self.link_portfolio:
+            from nasdx.portfolio_link import describe_portfolio_link, resolve_portfolio
+
+            portfolio = resolve_portfolio(data)
+            resolved_once = True
+            if verbose:
+                print(f"📒 {describe_portfolio_link(portfolio)}")
 
         for i, code in enumerate(stock_codes, 1):
             if verbose:
                 print(f"\n[{i}/{len(stock_codes)}] 分析 {code}...")
             try:
-                report = self.analyze(code, data=data, verbose=verbose, depth=depth)
+                report = self.analyze(
+                    code,
+                    data=data,
+                    verbose=verbose,
+                    depth=depth,
+                    portfolio=portfolio,
+                    # 批次内只解析一次账本：账本未初始化时 portfolio 仍是 None，
+                    # 不能让单只入口重复回读一遍（#66）。
+                    link_portfolio=False if resolved_once else None,
+                )
                 results[code] = report
             except Exception as e:
                 if verbose:

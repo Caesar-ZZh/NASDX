@@ -41,6 +41,14 @@ def main():
     parser.add_argument("--format", choices=["html", "json", "both"], default="html", help="输出格式")
     parser.add_argument("--output", type=str, default=None, help="报告输出目录")
     parser.add_argument("--no-verbose", action="store_true", help="静默模式")
+    parser.add_argument(
+        "--no-portfolio-link",
+        action="store_true",
+        help=(
+            "不接入权威组合账本（#66）。默认接入：账本已初始化时，持仓快照参与"
+            "组合闸门与盘中缓存失效；账本未初始化时行为与未接入一致。"
+        ),
+    )
 
     # API 配置（也可以用环境变量）
     parser.add_argument("--api-key", type=str, help="LLM API Key（也可设 NASDX_API_KEY 环境变量）")
@@ -72,6 +80,7 @@ def main():
         max_steps=args.max_steps,
         debate_rounds=args.rounds,
         output_dir=args.output,
+        link_portfolio=not args.no_portfolio_link,
     )
 
     verbose = not args.no_verbose

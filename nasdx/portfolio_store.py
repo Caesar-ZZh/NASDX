@@ -965,12 +965,17 @@ def _broken_snapshot(
     generated_at: str, message: str, single_name_cap_pct: float, industry_cap_pct: float
 ) -> PortfolioSnapshot:
     reason = f"组合账本不可读，已 fail-closed：{message}"
+    # 哈希必须非空且随错误变化：空哈希会与"未接入组合"撞键，让盘中缓存
+    # 复用无组合时算出的结论（#66 验收 #6/#9 的 fail-open 缺口）。
+    broken_hash = hashlib.sha256(
+        f"nasdx_portfolio_broken.v1|{message}".encode("utf-8")
+    ).hexdigest()
     return PortfolioSnapshot(
         schema=SNAPSHOT_SCHEMA,
         generated_at=generated_at,
         portfolio_version=0,
         ledger_hash="",
-        snapshot_hash="",
+        snapshot_hash=broken_hash,
         event_count=0,
         active_event_count=0,
         cash=None,

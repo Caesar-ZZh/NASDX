@@ -47,6 +47,14 @@ parser.add_argument(
     action="store_true",
     help="开启 quant 事实校验：对最终结论做数值一致性检查（真相源经 NASDX_FACT_GROUND JSON 提供）",
 )
+parser.add_argument(
+    "--no-portfolio-link",
+    action="store_true",
+    help=(
+        "不接入权威组合账本（#66）。默认接入：账本已初始化时，持仓快照参与组合闸门"
+        "与盘中缓存失效；账本未初始化时行为与未接入一致。"
+    ),
+)
 args = parser.parse_args()
 stock_code = args.stock_code
 rounds = args.rounds
@@ -55,6 +63,7 @@ analysis_mode = args.mode
 fact_check = args.fact_check
 analysis_depth = args.depth
 use_cache = not args.no_cache
+link_portfolio = not args.no_portfolio_link
 
 from nasdx.analyzer import NasdxAnalyzer
 from nasdx.rule_based_analysis import build_rule_based_report, save_rule_based_report
@@ -87,6 +96,7 @@ def _run_llm():
         risk_profile=risk_profile,
         depth=analysis_depth,
         use_cache=use_cache,
+        link_portfolio=link_portfolio,
     )
     report = analyzer.analyze(stock_code, verbose=True)
     html_path = analyzer.save_report(report, fmt='html')
