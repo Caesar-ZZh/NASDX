@@ -25,3 +25,6 @@
 - 当前：smoke 脚本会在收尾清理包内 `__pycache__/`、`*.pyc`、`*.pyo`；`run_desktop_release_check.py` 会在 zip/installer 输入之后再汇总 release evidence。
 - 关键决定：保留 smoke 对真实包/安装布局的启动验证，但验证结束后把由 Python 运行生成的缓存从 `{app}`/portable 包内移除。
 - 原因：正式包不能因为验证动作本身留下禁入缓存；release evidence 必须检查本轮刚生成并 smoke 过的产物。
+
+## 文档维护（2026-08-04）
+- README.md 已美化精简：信息过载（33 条 emoji 功能 / 70+ 文件架构树 / 400+ 行命令）。重写为干净版本，核心命令保留，开发/打包/缓存/组合细节折叠进 `<details>` 或外链 `docs/` 下对应文档。维护约定：长命令不再堆回主文档。
