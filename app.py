@@ -181,6 +181,13 @@ def load_recommendation_tracker_latest():
     if not path.exists(): return None
     with open(path, encoding="utf-8") as f: return json.load(f)
 
+
+@st.cache_data(ttl=120, show_spinner=False)
+def load_ledger_snapshot():
+    """读取权威账本快照（已接入时）；未初始化/未接入返回 None，零副作用。"""
+    from nasdx.portfolio_link import resolve_portfolio_auto
+    return resolve_portfolio_auto()
+
 @st.cache_data(ttl=60, show_spinner=False)
 def load_recommendation_review_latest():
     path = get_reports_dir() / "recommendation_review_latest.json"
@@ -693,6 +700,8 @@ elif pg == "plan":
             except Exception: pass
             try: load_account_review_latest.clear()
             except Exception: pass
+            try: load_ledger_snapshot.clear()
+            except Exception: pass
             st.toast("投资路线和简报已生成", icon="✅")
     with pc3:
         st.button("今日选股", use_container_width=True,
@@ -862,15 +871,29 @@ elif pg == "plan":
                     key="sizing_current_other",
                 )
 
-            if total_capital > 0:
+            ledger_snap = load_ledger_snapshot()
+            if ledger_snap is not None:
+                try:
+                    from nasdx.portfolio_link import describe_portfolio_link
+                    status_text = describe_portfolio_link(ledger_snap)
+                except Exception:
+                    status_text = "组合账本：已接入"
+                st.markdown(
+                    f'<div class="n-card" style="font-size:12px;color:#9cdcfe;margin-bottom:8px">'
+                    f'{escape_html(status_text)} · 仓位换算已采用账本敞口</div>',
+                    unsafe_allow_html=True,
+                )
+
+            if total_capital > 0 or ledger_snap is not None:
                 try:
                     from nasdx.position_sizing import build_position_sizing
                     sizing = build_position_sizing(
                         b,
-                        total_capital=total_capital,
+                        total_capital=total_capital if total_capital > 0 else None,
                         current_etf_exposure=current_etf,
                         current_stock_exposure=current_stock,
                         current_other_exposure=current_other,
+                        portfolio=ledger_snap,
                     )
                     exposure = sizing.get("exposure", {})
                     si1, si2, si3, si4 = st.columns(4, gap="small")
@@ -962,6 +985,13 @@ elif pg == "plan":
                     ''',
                     unsafe_allow_html=True,
                 )
+
+            if ledger_snap is not None:
+                st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
+                st.markdown('<div class="n-section-title">权威账本持仓</div>', unsafe_allow_html=True)
+                _snap_view = ledger_snap.to_dict() if hasattr(ledger_snap, "to_dict") else ledger_snap
+                _ledger_positions = (_snap_view or {}).get("positions", []) if isinstance(_snap_view, dict) else []
+                st.markdown(_portfolio_snapshot_table(_ledger_positions), unsafe_allow_html=True)
 
             st.markdown('<hr class="n-divider">', unsafe_allow_html=True)
             st.markdown('<div class="n-section-title">候选执行剧本</div>', unsafe_allow_html=True)

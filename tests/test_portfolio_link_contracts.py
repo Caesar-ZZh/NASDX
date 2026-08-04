@@ -505,3 +505,80 @@ class TestAnalyzerEndToEndLink(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+# ── 10. Streamlit UI 接线契约（#66 收尾：app.py 接入账本）────────────
+
+class TestAppUiPortfolioWiring(unittest.TestCase):
+    """回归护栏：app.py 必须把权威账本接到资金仓位换算与展示面板。"""
+
+    def _app_source(self):
+        with open(os.path.join(ROOT, "app.py"), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_app_imports_portfolio_link_and_table(self):
+        src = self._app_source()
+        self.assertIn(
+            "resolve_portfolio_auto",
+            src,
+            "app.py 未引用 portfolio_link.resolve_portfolio_auto，UI 路径闸门仍 unknown",
+        )
+        self.assertIn(
+            "_portfolio_snapshot_table",
+            src,
+            "app.py 未导入 plan_tables.portfolio_snapshot_table，账本持仓面板缺失",
+        )
+
+    def test_app_wires_snapshot_into_position_sizing(self):
+        src = self._app_source()
+        idx = src.find("build_position_sizing(")
+        self.assertNotEqual(idx, -1, "app.py 未调用 build_position_sizing")
+        head = src[idx: idx + 600]
+        self.assertIn("portfolio=", head, "build_position_sizing 调用缺少 portfolio=，账本未参与换算")
+
+    def test_app_defines_ledger_snapshot_loader(self):
+        src = self._app_source()
+        self.assertIn(
+            "def load_ledger_snapshot(",
+            src,
+            "app.py 缺少 load_ledger_snapshot 缓存读取，账本面板无法安全加载",
+        )
+
+
+class TestPortfolioSnapshotTable(unittest.TestCase):
+    """nasdx.ui.plan_tables.portfolio_snapshot_table 渲染契约。"""
+
+    def _render(self, items):
+        from nasdx.ui.plan_tables import portfolio_snapshot_table
+        return portfolio_snapshot_table(items)
+
+    def test_empty_positions(self):
+        out = self._render([])
+        self.assertIn("账本内暂无持仓", out)
+
+    def test_renders_positions_and_pnl_color(self):
+        items = [
+            {
+                "code": "600000", "name": "浦发银行", "asset_class": "股票",
+                "industry": "银行", "quantity": 1000, "avg_cost": 10.0,
+                "last_price": 11.5, "market_value": 11500.0,
+                "unrealized_pnl": 1500.0, "valuation_status": "priced",
+            },
+            {
+                "code": "510300", "name": "沪深300ETF", "asset_class": "ETF",
+                "industry": "未分类", "quantity": 2000, "avg_cost": 4.0,
+                "last_price": None, "market_value": 7600.0,
+                "unrealized_pnl": -400.0, "valuation_status": "missing_price",
+            },
+        ]
+        out = self._render(items)
+        self.assertIn("浦发银行", out)
+        self.assertIn("沪深300ETF", out)
+        self.assertIn("#22c55e", out)  # 盈利绿
+        self.assertIn("#ef4444", out)  # 亏损红
+        self.assertIn("缺价", out)
+        self.assertIn("已估值", out)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

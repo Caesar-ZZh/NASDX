@@ -43,7 +43,9 @@ __all__ = [
     "ledger_is_initialized",
     "market_price_map",
     "market_industry_map",
+    "load_market_snapshot",
     "resolve_portfolio",
+    "resolve_portfolio_auto",
     "describe_portfolio_link",
 ]
 
@@ -194,6 +196,41 @@ def resolve_portfolio(
         )
     except Exception as exc:  # noqa: BLE001 - 绝不因账本异常放行新增仓位
         return _fail_closed_snapshot(str(exc))
+
+
+def load_market_snapshot() -> Dict[str, Any]:
+    """读取最新行情快照用于账本估值，缺文件 / 解析失败时返回 ``{}``。
+
+    调用方（Streamlit / CLI）不应因为行情文件缺失而崩溃：拿不到价格时账本会
+    按"持仓无价"走 fail-closed，这比放行新增仓位安全。
+    """
+    try:
+        from nasdx.data_loader import load_latest_data
+
+        data = load_latest_data()
+    except Exception:  # noqa: BLE001 - 缺行情文件 / JSON 损坏都退化为空快照
+        return {}
+    return data if isinstance(data, Mapping) else {}  # type: ignore[return-value]
+
+
+def resolve_portfolio_auto(
+    data: Mapping[str, Any] | None = None,
+    db_path: str | Path | None = None,
+    enabled: Optional[bool] = None,
+    environ: Mapping[str, str] | None = None,
+) -> Optional[PortfolioSnapshot | Dict[str, Any]]:
+    """给没有行情快照在手的调用方（Streamlit / 独立 CLI）用的解析入口。
+
+    与 :func:`resolve_portfolio` 的差别只有一点：``data is None`` 时会自己去
+    加载最新行情快照做估值，而不是直接按"无价"处理。账本未接入时**不加载行情**
+    也**不创建数据库**，保持零成本、零副作用。
+    """
+    if not link_enabled(enabled, environ=environ):
+        return None
+    if not ledger_is_initialized(db_path):
+        return None
+    market = data if data is not None else load_market_snapshot()
+    return resolve_portfolio(market, db_path=db_path, enabled=True, environ=environ)
 
 
 def _snapshot_field(snapshot: Any, key: str, default: Any = None) -> Any:

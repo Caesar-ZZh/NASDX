@@ -241,6 +241,34 @@ def account_review_table(items: Iterable[Mapping[str, Any]]) -> str:
     return _render_table(rows, empty_message="暂无真实持仓", min_width=1060)
 
 
+def portfolio_snapshot_table(items: Iterable[Mapping[str, Any]]) -> str:
+    """Render the authoritative ledger positions as a read-only table (Issue #66)."""
+    rows = []
+    for item in items:
+        unrealized = item.get("unrealized_pnl")
+        pnl_cell: Any = "NA"
+        if unrealized is not None:
+            pnl_cell = _colored(
+                f'{float(unrealized):,.0f}',
+                "#ef4444" if float(unrealized) < 0 else "#22c55e",
+            )
+        priced = item.get("valuation_status") == "priced" or item.get("last_price") is not None
+        rows.append(
+            {
+                "持仓": f'{item.get("code", "")} {item.get("name", "")}'.strip(),
+                "类别": item.get("asset_class", ""),
+                "行业": item.get("industry", "") or "未分类",
+                "数量": f'{float(item.get("quantity") or 0):,.0f}',
+                "成本": f'{float(item.get("avg_cost") or 0):,.3f}',
+                "最新价": "NA" if item.get("last_price") is None else f'{float(item.get("last_price") or 0):,.3f}',
+                "市值": "NA" if item.get("market_value") is None else f'{float(item.get("market_value")):,.0f}',
+                "浮盈亏": pnl_cell,
+                "估值": _colored("已估值" if priced else "缺价", "#22c55e" if priced else "#f59e0b"),
+            }
+        )
+    return _render_table(rows, empty_message="账本内暂无持仓", min_width=1100)
+
+
 def tracker_change_table(items: Iterable[Mapping[str, Any]]) -> str:
     rows = []
     for item in items:
