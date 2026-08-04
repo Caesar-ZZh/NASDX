@@ -1,3 +1,5 @@
+![NASDX Banner](docs/assets/banner.png)
+
 # NASDX — A 股多智能体量化分析系统
 
 > 基于 [FinGenius](https://github.com/HuaYaoAI/FinGenius) 架构构建，无需付费行情 API，使用 AkShare / 腾讯行情免费数据源，支持任意 OpenAI 兼容接口。
