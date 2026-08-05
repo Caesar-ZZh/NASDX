@@ -124,7 +124,32 @@ python run_account_review.py --ledger trades.csv --capital 100000 --print
 
 # 导出复盘快照包
 python run_review_snapshot.py --risk-profile balanced
+
+# 建议样本外评价：冻结决策记录（只读查看，写入由生成流程完成）
+python -m nasdx.decision_record status
+python -m nasdx.decision_record list --code 600519 --limit 20
 ```
+
+**三类"复盘"不是一回事**
+
+这三条链路回答完全不同的问题，指标不可互相替代，也不能混在一张表里比较：
+
+| 链路 | 回答的问题 | 入口 | 数据来源 | 典型指标 |
+|---|---|---|---|---|
+| 信号延续复盘 | 当初那个**信号今天还成立吗** | `run_recommendation_tracker.py` / `run_recommendation_review.py` | 当前行情重算信号 | 信号是否漂移、是否触发复核 |
+| 真实账户复盘 | 我的**账户实际赚了多少** | `run_account_review.py --ledger trades.csv` | 用户成交 CSV | 已实现 / 未实现盈亏、持仓成本 |
+| 建议样本外评价 | 当时那条**建议本身好不好** | `nasdx.decision_record` + `nasdx.outcome_labels` + `nasdx.decision_evaluation` | 生成时冻结的记录 + 之后的 K 线 | T+1/3/5/10/20 收益、MFE / MAE、胜率、CI95、置信度校准 |
+
+第三条链路的关键约束：
+
+- 决策在生成瞬间冻结（参考价、`data_as_of`、周期、配置版本）；记录表 **insert-only**，同 id 内容变化直接拒绝，结果标签写在独立表。
+- 前瞻标签只读取 `data_as_of` **之后**的 K 线，交易日以真实 K 线为准（跳过周末与停牌），杜绝前视偏差。
+- `rules` / `full` / `intraday` 及消融变体写同一套 schema，可直接做模式对比与边际贡献分析。
+- 首日停牌 / 一字涨停标记为不可成交，默认从统计中剔除并计入剔除原因。
+- 类别语义不同：`buy` / `hold` 涨为好，`reduce` / `avoid` 跌为好，不能合并计算胜率。
+- 所有 `*_pct` 一律是百分比（`5.0` 表示 5%）。样本量不足时先报样本量，不下结论。
+
+环境变量：`NASDX_DECISION_DB`（覆盖库路径）、`NASDX_DECISION_RECORDS=0`（关闭落库）、`NASDX_DECISION_RECORDS_MAX`（保留上限，默认 5000）。
 
 **自检与发布门禁**
 
