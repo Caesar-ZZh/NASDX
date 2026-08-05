@@ -23,6 +23,7 @@ from nasdx import secret_scan  # noqa: E402
 
 SECURITY_WORKFLOW = ROOT / ".github" / "workflows" / "security.yml"
 GITLEAKS_CONFIG = ROOT / ".gitleaks.toml"
+GITLEAKS_IGNORE = ROOT / ".gitleaksignore"
 ALLOWLIST_FILE = ROOT / "security" / "secret_scan_allowlist.toml"
 SECURITY_SCRIPT = ROOT / "run_security_checks.py"
 
@@ -334,6 +335,75 @@ class SecurityGateWiringTest(unittest.TestCase):
         self.assertIn("rule=openai-style-api-key", hits[0])
         self.assertIn("path=safe.py", hits[0])
         self.assertNotIn(token[:8], hits[0])
+
+
+class GitleaksIgnoreTest(unittest.TestCase):
+    """Acceptance criterion 4: gitleaks exemptions stay finding-scoped.
+
+    ``.gitleaksignore`` is the only place where a gitleaks hit can be waived.
+    A bare path or rule id there would silently hide every future leak in the
+    same file, which is exactly the blind spot this issue is closing.
+    """
+
+    @staticmethod
+    def _entries_with_reasons():
+        if not GITLEAKS_IGNORE.is_file():
+            return []
+        pairs = []
+        pending_reason = None
+        for raw in GITLEAKS_IGNORE.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line:
+                pending_reason = None
+                continue
+            if line.startswith("#"):
+                lowered = line.lstrip("#").strip().lower()
+                if lowered.startswith("reason:"):
+                    pending_reason = lowered[len("reason:"):].strip()
+                continue
+            pairs.append((line, pending_reason))
+            pending_reason = None
+        return pairs
+
+    def test_every_entry_is_a_fully_qualified_fingerprint(self):
+        entries = self._entries_with_reasons()
+        self.assertTrue(entries, "expected at least one documented exemption")
+        for entry, _reason in entries:
+            with self.subTest(entry=entry):
+                parts = entry.split(":")
+                self.assertEqual(
+                    4,
+                    len(parts),
+                    "entry must be <commit>:<path>:<rule>:<line>",
+                )
+                commit, path, rule, line = parts
+                self.assertRegex(commit, r"^[0-9a-f]{40}$")
+                self.assertTrue(path)
+                self.assertIn(rule.split("-")[0], rule)
+                self.assertTrue(line.isdigit())
+                for wildcard in ("*", "?", "["):
+                    self.assertNotIn(wildcard, entry)
+
+    def test_every_entry_documents_a_reason(self):
+        for entry, reason in self._entries_with_reasons():
+            with self.subTest(entry=entry):
+                self.assertTrue(
+                    reason,
+                    "each fingerprint needs a '# reason:' comment above it",
+                )
+
+    def test_exemptions_are_scoped_to_known_test_fixtures(self):
+        for entry, _reason in self._entries_with_reasons():
+            path = entry.split(":")[1]
+            with self.subTest(entry=entry):
+                self.assertTrue(
+                    path.startswith("tests/"),
+                    "only deliberately fake test fixtures may be waived",
+                )
+
+    def test_workflow_passes_the_ignore_file_explicitly(self):
+        text = SECURITY_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("--gitleaks-ignore-path .gitleaksignore", text)
 
 
 if __name__ == "__main__":

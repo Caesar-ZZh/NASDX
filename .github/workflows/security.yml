@@ -65,8 +65,13 @@ jobs:
       - name: Run gitleaks over full history
         run: |
           set -euo pipefail
+          # Exemptions live in .gitleaksignore and are finding-scoped
+          # (<commit>:<path>:<rule>:<line>); the path is passed explicitly so a
+          # missing/renamed ignore file fails loudly instead of silently
+          # changing the gate.
           "${RUNNER_TEMP}/gitleaks" git . \
             --config .gitleaks.toml \
+            --gitleaks-ignore-path .gitleaksignore \
             --redact \
             --no-banner \
             --exit-code 1 \

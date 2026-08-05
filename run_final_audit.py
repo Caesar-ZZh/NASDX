@@ -354,6 +354,7 @@ def check_desktop_delivery_assets() -> str:
         (security_ci_text, "fetch-depth: 0"),
         (security_ci_text, "run_security_checks.py --skip-optional --history"),
         (security_ci_text, "gitleaks"),
+        (security_ci_text, "--gitleaks-ignore-path .gitleaksignore"),
         (installer_text, "启动NASDX桌面.bat"),
         (installer_text, "Do not delete local user runtime state on uninstall"),
         (portable_text, "desktop\\control_panel.py"),

@@ -1,0 +1,31 @@
+# gitleaks finding-scoped ignore list.
+#
+# Rules for adding an entry (enforced by
+# tests/test_secret_scan_contracts.py::GitleaksIgnoreTest):
+#   * every entry MUST be a fully qualified fingerprint:
+#     <commit-sha>:<path>:<rule-id>:<line>
+#   * no wildcards, no bare rule ids, no bare paths -- a blanket exemption
+#     would silently hide a future real leak in the same file
+#   * every entry MUST carry a `# reason:` comment directly above it
+#   * NEVER add an entry for a real credential; rotate it and clean history
+#     instead
+#
+# Why this file exists at all: git history is immutable. The entries below are
+# deliberately fake `api_key=` fixtures that privacy tests feed into the
+# redaction helpers to prove the redaction works. They were committed before
+# this gate existed, so they cannot be removed without rewriting published
+# history (the repository has public forks). The in-repo scanner
+# (nasdx/secret_scan.py) already ignores them via its entropy/length gate;
+# only gitleaks' deliberately broader `generic-api-key` rule matches.
+#
+# New code must NOT add literal fake tokens. Build them at runtime by
+# concatenating fragments, the way tests/test_secret_scan_contracts.py does.
+
+# reason: fake api_key fixture asserting trade-event free text is sanitised (#66)
+e7579a6f7ecfbd99e454ef0ce55f8cc916121bfd:tests/test_portfolio_ledger_contracts.py:generic-api-key:441
+# reason: fake api_key fixture asserting decision-memory summaries are sanitised (#63)
+f0f30ab56e2b39c2936e9b7d7964d517e2c98556:tests/test_memory_privacy.py:generic-api-key:168
+# reason: fake api_key fixture asserting the decision log stays off by default (#62)
+54a1c5302c607f5308286022cf5e0f379fc5229e:tests/test_decision_log_privacy.py:generic-api-key:55
+# reason: fake api_key fixture asserting decision-log inputs are redacted (#62)
+54a1c5302c607f5308286022cf5e0f379fc5229e:tests/test_decision_log_privacy.py:generic-api-key:122
