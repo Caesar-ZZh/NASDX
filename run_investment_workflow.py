@@ -16,6 +16,11 @@ from typing import Dict, List, Tuple
 
 from nasdx.investment_brief import build_and_save_investment_brief
 from nasdx.paths import get_market_data_dir, get_reports_dir
+from nasdx.decision_wiring import (
+    market_snapshot_hash_from_data,
+    record_candidate_if_enabled,
+)
+from nasdx.decision_record import CLASS_AVOID, CLASS_BUY
 
 
 ROOT = Path(__file__).parent
@@ -141,6 +146,76 @@ def _run_step(command: List[str], timeout: int | None) -> int:
     return proc.returncode
 
 
+#: 组合候选动作（nasdx.portfolio._candidate_action）-> 评估类别。
+#: 这些动作串不在 decision_record 的内置映射里，必须显式传 evaluation_class，
+#: 否则 classify_action 会抛错。"试错/优先跟踪" 视为看多，其余视为回避。
+_CANDIDATE_ACTION_CLASS = {
+    "优先跟踪，等待入场条件": CLASS_BUY,
+    "观察试错": CLASS_BUY,
+    "只观察": CLASS_AVOID,
+    "观察，先补深度报告": CLASS_AVOID,
+    "回避/减仓": CLASS_AVOID,
+}
+
+
+def _record_workflow_candidates(brief: Dict, *, mode: str = "portfolio") -> int:
+    """把简报里的候选清单冻结成决策记录（#74，fail-open）。
+
+    组合路线本身就是一次可评估的建议：说了"优先跟踪"却一路下跌，和说了
+    "回避"结果暴涨，都必须能被事后打分。整段逻辑包在 try 里，任何异常都不
+    允许影响简报生成；NASDX_DECISION_RECORDS=0 时 record_* 直接返回 None。
+    """
+    try:
+        from nasdx.data_loader import get_stock_data, load_latest_data
+        from nasdx.decision_wiring import normalize_data_as_of
+
+        playbook = brief.get("candidate_playbook") or []
+        if not playbook:
+            return 0
+        market_data = load_latest_data()
+        data_as_of = normalize_data_as_of(
+            (market_data or {}).get("date") or brief.get("generated_at")
+        )
+        market_hash = market_snapshot_hash_from_data(market_data)
+        saved = 0
+        for item in playbook:
+            candidate = str(item.get("candidate") or "").strip()
+            if not candidate:
+                continue
+            code = candidate.split()[0]
+            action = str(item.get("priority") or "").strip()
+            klass = _CANDIDATE_ACTION_CLASS.get(action)
+            if not action or klass is None:
+                continue
+            stock = get_stock_data(market_data, code) or {}
+            plan = {
+                "stock_code": code,
+                "stock_name": " ".join(candidate.split()[1:]),
+                "industry": stock.get("sector_name") or stock.get("industry") or "",
+                "action": action,
+                "entry_conditions": [item.get("entry_condition") or ""],
+                "exit_conditions": [item.get("invalidation") or ""],
+                "review_triggers": [item.get("review") or ""],
+            }
+            record = record_candidate_if_enabled(
+                plan,
+                reference_price=stock.get("close"),
+                data_as_of=data_as_of,
+                mode=mode,
+                industry=plan["industry"],
+                market_snapshot_hash=market_hash,
+                evaluation_class=klass,
+            )
+            if record is not None:
+                saved += 1
+        if saved:
+            print(f"[NASDX-WORKFLOW] 决策记录已落库 {saved} 条（mode={mode}）", flush=True)
+        return saved
+    except Exception as exc:  # pragma: no cover - 防御性兜底
+        print(f"[NASDX-WORKFLOW] 决策记录落库跳过：{exc}", flush=True)
+        return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="NASDX 一键投研工作流")
     parser.add_argument("stock_code", nargs="?")
@@ -165,6 +240,14 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=1800, help="单步骤超时秒数，0 表示不限制")
     parser.add_argument("--dry-run", action="store_true", help="只打印将执行的步骤，不真正运行")
     parser.add_argument("--skip-portfolio-plan", action="store_true", help="跳过组合级投资路线生成")
+    parser.add_argument(
+        "--decision-mode",
+        default=None,
+        help=(
+            "覆盖候选落库决策记录的 mode（#74）。默认 portfolio；"
+            "消融运行可传 full-no_battle 之类变体。"
+        ),
+    )
     args = parser.parse_args()
 
     stock_code = _normalize_stock_code(args.stock_code)
@@ -227,6 +310,7 @@ def main() -> int:
         brief, paths = build_and_save_investment_brief(risk_profile=args.risk_profile)
         print(f"[NASDX-WORKFLOW] 最终简报: {paths['markdown']}", flush=True)
         print(f"[NASDX-WORKFLOW] 方向: {brief.get('primary_bias')}", flush=True)
+        _record_workflow_candidates(brief, mode=args.decision_mode or "portfolio")
 
     print("\n[NASDX-WORKFLOW] 产物路径", flush=True)
     for name, path in _collect_artifacts(stock_code).items():

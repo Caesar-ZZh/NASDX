@@ -55,6 +55,14 @@ parser.add_argument(
         "与盘中缓存失效；账本未初始化时行为与未接入一致。"
     ),
 )
+parser.add_argument(
+    "--decision-mode",
+    default=None,
+    help=(
+        "覆盖落库决策记录的 mode（#74）。默认按 --mode 推导：rules→rules，"
+        "其余→full。消融运行可传 full-no_battle 之类变体。"
+    ),
+)
 args = parser.parse_args()
 stock_code = args.stock_code
 rounds = args.rounds
@@ -71,6 +79,11 @@ from nasdx.debate_review import summarize_counter_argument, format_counter_argum
 from nasdx.decision_log import log_decision
 from nasdx.memory import record_decision
 from nasdx.fact_check import check_consistency
+from nasdx.decision_wiring import (
+    market_snapshot_hash_from_data,
+    record_report_if_enabled,
+)
+from nasdx.data_loader import get_stock_data, load_latest_data
 
 print(f'[NASDX] 开始分析 {stock_code}', flush=True)
 
@@ -155,6 +168,21 @@ try:
             float(getattr(report, "confidence", 0) or 0),
             getattr(report, "summary", "") or "", source="run_analysis",
         )
+        # —— #74 决策记录落库（fail-open，不影响主流程）——
+        try:
+            market_data = load_latest_data()
+            stock = get_stock_data(market_data, stock_code)
+            ref_price = float(stock["close"]) if stock and stock.get("close") is not None else None
+            wiring_mode = args.decision_mode or ("rules" if analysis_mode == "rules" else "full")
+            record_report_if_enabled(
+                report,
+                reference_price=ref_price,
+                mode=wiring_mode,
+                industry=(stock or {}).get("sector_name") or (stock or {}).get("industry") or "",
+                market_snapshot_hash=market_snapshot_hash_from_data(market_data),
+            )
+        except Exception as wire_e:  # noqa: BLE001
+            print(f"[NASDX] 决策记录落库跳过：{wire_e}", flush=True)
         if fact_check:
             ground: dict = {}
             raw = os.environ.get("NASDX_FACT_GROUND", "")

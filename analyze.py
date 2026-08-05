@@ -49,6 +49,14 @@ def main():
             "组合闸门与盘中缓存失效；账本未初始化时行为与未接入一致。"
         ),
     )
+    parser.add_argument(
+        "--decision-mode",
+        default=None,
+        help=(
+            "覆盖落库决策记录的 mode（#74）。默认 full；消融运行可传 "
+            "full-no_battle 之类变体。"
+        ),
+    )
 
     # API 配置（也可以用环境变量）
     parser.add_argument("--api-key", type=str, help="LLM API Key（也可设 NASDX_API_KEY 环境变量）")
@@ -76,12 +84,37 @@ def main():
 
     # 初始化分析器
     from nasdx.analyzer import NasdxAnalyzer
+    from nasdx.data_loader import get_stock_data, load_latest_data
+    from nasdx.decision_wiring import (
+        market_snapshot_hash_from_data,
+        record_report_if_enabled,
+    )
     analyzer = NasdxAnalyzer(
         max_steps=args.max_steps,
         debate_rounds=args.rounds,
         output_dir=args.output,
         link_portfolio=not args.no_portfolio_link,
     )
+
+    def maybe_record_decision(report, code: str, mode: str) -> None:
+        """#74 决策记录落库（fail-open，不阻断分析主流程）。"""
+        try:
+            market_data = load_latest_data()
+            stock = get_stock_data(market_data, code)
+            ref_price = (
+                float(stock["close"]) if stock and stock.get("close") is not None else None
+            )
+            record_report_if_enabled(
+                report,
+                reference_price=ref_price,
+                mode=mode,
+                industry=(stock or {}).get("sector_name")
+                or (stock or {}).get("industry")
+                or "",
+                market_snapshot_hash=market_snapshot_hash_from_data(market_data),
+            )
+        except Exception as wire_e:  # noqa: BLE001
+            print(f"[NASDX] 决策记录落库跳过：{wire_e}", flush=True)
 
     verbose = not args.no_verbose
     fmt = args.format
@@ -104,6 +137,7 @@ def main():
         reports = analyzer.analyze_batch(args.batch, verbose=verbose)
         for code, report in reports.items():
             save_and_print(report, code)
+            maybe_record_decision(report, code, args.decision_mode or "full")
         print(f"\n✅ 批量分析完成，共 {len(reports)} 只")
 
     # ─── 全板块模式 ────────────────────────
@@ -119,12 +153,14 @@ def main():
         reports = analyzer.analyze_batch(all_codes, verbose=verbose)
         for code, report in reports.items():
             save_and_print(report, code)
+            maybe_record_decision(report, code, args.decision_mode or "full")
         print(f"\n✅ 全板块分析完成")
 
     # ─── 单只股票 ──────────────────────────
     elif args.stock_code:
         report = analyzer.analyze(args.stock_code, verbose=verbose)
         save_and_print(report, args.stock_code)
+        maybe_record_decision(report, args.stock_code, args.decision_mode or "full")
 
     else:
         parser.print_help()

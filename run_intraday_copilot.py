@@ -22,6 +22,10 @@ from nasdx.intraday_copilot import (
     run_checkpoint,
     save_intraday_snapshot,
 )
+from nasdx.decision_wiring import (
+    market_snapshot_hash_from_data,
+    record_intraday_if_enabled,
+)
 
 
 def _parse_as_of(text: str):
@@ -94,6 +98,28 @@ def main() -> int:
         return 0
 
     snapshot = result["snapshot"]
+
+    # —— #74 决策记录落库（fail-open，绝不阻断快照生成/展示）——
+    try:
+        decisions = snapshot.get("decisions") or []
+        candidates = snapshot.get("candidates") or []
+        market_hash = ""
+        if decisions or candidates:
+            from nasdx.data_loader import load_latest_data
+
+            market_hash = market_snapshot_hash_from_data(load_latest_data())
+        recorded = 0
+        for decision in list(decisions) + list(candidates):
+            saved = record_intraday_if_enabled(
+                decision, mode="intraday", market_snapshot_hash=market_hash
+            )
+            if saved is not None:
+                recorded += 1
+        if recorded:
+            print(f"   已落库冻结决策: {recorded} 条")
+    except Exception as wire_e:  # noqa: BLE001
+        print(f"⚠️ 决策记录落库跳过：{wire_e}")
+
     print(f"✅ 盘中快照已生成（{snapshot.get('checkpoint')} 检查点，{result.get('reason')}）")
     print(f"   盘面：{snapshot.get('portfolio', {}).get('market_state')}　"
           f"组合：{snapshot.get('portfolio', {}).get('health')}")

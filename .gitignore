@@ -59,4 +59,7 @@ focus_ind.json
 nasdx_history.db
 nasdx_portfolio.db
 nasdx_portfolio_*.db
+# 决策记录库（#74 接线后，生产路径会在源码检出目录直接生成）
+nasdx_decisions.db
+nasdx_decisions_*.db
 models/signal_confidence.json

@@ -445,6 +445,26 @@ def record_from_decision_plan(
     return build_decision_record(**payload)
 
 
+def _position_price(position: Any) -> Optional[float]:
+    """Last traded price of a ``PositionView`` (dataclass *or* ``to_dict()``).
+
+    ``PositionView`` exposes ``current_price``; ``last_price`` is only kept as a
+    fallback for callers that hand in their own position-like object.
+    """
+    if position is None:
+        return None
+    getter = (
+        position.get
+        if isinstance(position, Mapping)
+        else lambda k, d=None: getattr(position, k, d)
+    )
+    for key in ("current_price", "last_price", "price"):
+        value = getter(key, None)
+        if value is not None:
+            return value
+    return None
+
+
 def record_from_intraday_decision(
     decision: Any,
     *,
@@ -456,8 +476,7 @@ def record_from_intraday_decision(
     getter = decision.get if isinstance(decision, Mapping) else lambda k, d=None: getattr(decision, k, d)
     price = reference_price
     if price is None:
-        position = getter("position", None)
-        price = getattr(position, "last_price", None) if position is not None else None
+        price = _position_price(getter("position", None))
     payload: Dict[str, Any] = dict(
         code=getter("code", ""),
         name=getter("name", "") or "",
