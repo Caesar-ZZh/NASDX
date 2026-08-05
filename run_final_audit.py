@@ -11,7 +11,6 @@ import ast
 import importlib
 import json
 import os
-import re
 import requests
 import subprocess
 import sys
@@ -23,7 +22,10 @@ from typing import Callable, Iterable
 
 
 ROOT = Path(__file__).parent
-SECRET_RE = re.compile(r"sk-[A-Za-z0-9_-]{20,}")
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from nasdx.secret_scan import format_findings, scan_text  # noqa: E402
 
 
 def main() -> int:
@@ -90,19 +92,22 @@ def check_python_syntax() -> str:
 
 
 def check_no_hardcoded_api_keys() -> str:
-    suffixes = (".py", ".md", ".toml", ".bat")
-    hits = []
+    """Multi-provider secret scan sharing nasdx/secret_scan.py rules.
+
+    Findings are reported redacted (rule / path / line / fingerprint) so the
+    audit log never echoes a credential.
+    """
+    suffixes = (".py", ".md", ".toml", ".bat", ".json", ".yml", ".yaml", ".ps1")
+    findings = []
+    scanned = 0
     for path in _project_files(suffixes):
         if _is_ignored(path):
             continue
-        text = _read_text(path)
-        for match in SECRET_RE.findall(text):
-            if match.lower().startswith("sk-xxxx"):
-                continue
-            hits.append(f"{_rel(path)}:{match[:8]}...")
-    if hits:
-        raise AssertionError("发现疑似真实密钥: " + ", ".join(hits[:5]))
-    return "未发现疑似真实 sk-* 密钥"
+        scanned += 1
+        findings.extend(scan_text(_read_text(path), _rel(path)))
+    if findings:
+        raise AssertionError("发现疑似真实密钥: " + format_findings(findings))
+    return f"{scanned} 个文件未发现疑似真实密钥（多 Provider 规则）"
 
 
 def check_delivery_assets() -> str:
@@ -237,6 +242,8 @@ def check_desktop_delivery_assets() -> str:
     completion_text = _read_text(ROOT / "run_desktop_completion_audit.py")
     release_evidence_text = _read_text(ROOT / "run_desktop_release_evidence.py")
     security_text = _read_text(ROOT / "run_security_checks.py")
+    secret_scan_text = _read_text(ROOT / "nasdx" / "secret_scan.py")
+    security_ci_text = _read_text(ROOT / ".github" / "workflows" / "security.yml")
     installer_text = _read_text(ROOT / "packaging" / "windows" / "NASDX-Desktop.iss")
     portable_text = _read_text(ROOT / "packaging" / "windows" / "build_portable.ps1")
     launcher_exe_text = _read_text(ROOT / "packaging" / "windows" / "build_launcher_exe.ps1")
@@ -336,6 +343,17 @@ def check_desktop_delivery_assets() -> str:
         (security_text, "detect-secrets"),
         (security_text, "--run-optional"),
         (security_text, "--exclude-standard"),
+        (security_text, "--history"),
+        (security_text, "secret_history_scan"),
+        (secret_scan_text, "github-token"),
+        (secret_scan_text, "aws-access-key-id"),
+        (secret_scan_text, "private-key-block"),
+        (secret_scan_text, "generic-assigned-secret"),
+        (secret_scan_text, "def scan_history"),
+        (secret_scan_text, "secret_scan_allowlist.toml"),
+        (security_ci_text, "fetch-depth: 0"),
+        (security_ci_text, "run_security_checks.py --skip-optional --history"),
+        (security_ci_text, "gitleaks"),
         (installer_text, "启动NASDX桌面.bat"),
         (installer_text, "Do not delete local user runtime state on uninstall"),
         (portable_text, "desktop\\control_panel.py"),

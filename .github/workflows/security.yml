@@ -1,0 +1,106 @@
+name: Security Scan
+
+# Required secret-scanning gate.
+#
+# The lightweight in-repo scanner (nasdx/secret_scan.py) covers multiple
+# credential providers and, with --history, every blob reachable from any ref
+# so "commit a key then delete it" is still blocked. gitleaks runs alongside it
+# as an independent second opinion, installed from a pinned release whose
+# SHA-256 is verified before use, so the tool version cannot drift.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  schedule:
+    # Weekly full-history sweep: catches rules added after a commit landed.
+    - cron: "17 20 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GITLEAKS_VERSION: "8.30.1"
+  GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+
+jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: "3.11.9"
+
+      - name: Run NASDX secret scan (working tree + full history)
+        run: |
+          python -B run_security_checks.py --skip-optional --history
+
+      - name: Install pinned gitleaks
+        run: |
+          set -euo pipefail
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          curl --fail --silent --show-error --location --retry 3 -o "${archive}" "${url}"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --status
+          tar -xzf "${archive}" gitleaks
+          install -m 0755 gitleaks "${RUNNER_TEMP}/gitleaks"
+          "${RUNNER_TEMP}/gitleaks" version
+
+      - name: Run gitleaks over full history
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/gitleaks" git . \
+            --config .gitleaks.toml \
+            --redact \
+            --no-banner \
+            --exit-code 1 \
+            --report-format sarif \
+            --report-path gitleaks-report.sarif
+
+      - name: Summarise gitleaks findings without echoing secrets
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+
+          report = pathlib.Path("gitleaks-report.sarif")
+          if not report.is_file():
+              print("no gitleaks report produced")
+              raise SystemExit(0)
+          data = json.loads(report.read_text(encoding="utf-8"))
+          rows = 0
+          for run in data.get("runs", []):
+              for result in run.get("results", []):
+                  rows += 1
+                  rule = result.get("ruleId", "unknown")
+                  fingerprint = (result.get("partialFingerprints") or {}).get(
+                      "commitSha", ""
+                  )
+                  for location in result.get("locations", []):
+                      physical = location.get("physicalLocation", {})
+                      path = physical.get("artifactLocation", {}).get("uri", "?")
+                      line = physical.get("region", {}).get("startLine", 0)
+                      print(f"rule={rule} path={path} line={line} fingerprint={fingerprint[:12]}")
+          print(f"gitleaks findings: {rows}")
+          PY
+
+      - name: Contract tests for the security gate
+        run: |
+          python -m unittest -v tests.test_secret_scan_contracts tests.test_security_checks_contracts

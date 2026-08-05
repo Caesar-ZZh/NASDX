@@ -1,0 +1,23 @@
+# gitleaks configuration for NASDX.
+#
+# Used by .github/workflows/security.yml as the independent second opinion next
+# to nasdx/secret_scan.py. Keep the allowlist minimal and scoped to concrete
+# paths — never disable a rule repository-wide.
+
+title = "NASDX secret scanning"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Narrow, auditable exemptions for scanner fixtures and docs placeholders"
+paths = [
+  # Contract tests build fake credentials at runtime by concatenating
+  # fragments, so no literal token is committed. The rule strings themselves
+  # (prefixes such as the GitHub/AWS/Slack shapes) still look credential-like
+  # to entropy heuristics.
+  '''^tests/test_secret_scan_contracts\.py$''',
+  '''^nasdx/secret_scan\.py$''',
+  # Documented placeholders only.
+  '''^config\.example\.toml$''',
+]
