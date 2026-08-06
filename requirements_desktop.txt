@@ -4,4 +4,4 @@
 
 -r requirements_nasdx.txt
 
-pywebview>=5.0
+pywebview>=6.2.1
