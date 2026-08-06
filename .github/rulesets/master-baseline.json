@@ -1,0 +1,53 @@
+{
+  "_comment": [
+    "master 分支保护基线（Issue #72）。GitHub Settings -> Rules -> Rulesets -> New ruleset -> Import a ruleset 可直接导入本文件，",
+    "或用: gh api -X POST repos/Caesar-ZZh/NASDX/rulesets --input .github/rulesets/master-baseline.json",
+    "",
+    "当前仓库已生效的是「不阻断直推」的最小子集（deletion + non_fast_forward），由本 JSON 的前两条规则表达。",
+    "下面 required_status_checks 与 pull_request 两条规则默认 **未启用**，因为它们会让直推 master 被拒绝、",
+    "所有变更必须走 PR —— 是否切换到 PR-only 工作流属于仓库 owner 的决定（见 Issue #72 建议 3）。",
+    "要启用：把这两条规则移入 rules 数组后重新导入/PATCH 现有 ruleset。",
+    "状态检查名称必须与 workflow 的 job 名一致：",
+    "  desktop-release-check  (.github/workflows/windows-desktop.yml)",
+    "  secret-scan            (.github/workflows/security.yml)",
+    "  Analyze (python)       (.github/workflows/codeql.yml)"
+  ],
+  "name": "master baseline",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/heads/master"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" }
+  ],
+  "_optional_rules_requiring_owner_decision": [
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "allowed_merge_methods": ["squash", "merge"]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [
+          { "context": "desktop-release-check" },
+          { "context": "secret-scan" },
+          { "context": "Analyze (python)" }
+        ]
+      }
+    }
+  ]
+}

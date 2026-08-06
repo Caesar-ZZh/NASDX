@@ -15,8 +15,9 @@ class DesktopCiContractsTest(unittest.TestCase):
             "windows-latest",
             "PYTHONIOENCODING: utf-8",
             'PYTHONUTF8: "1"',
-            "actions/checkout@v5",
-            "actions/setup-python@v6",
+            # Action 固定到 commit SHA（#72），版本号只保留在尾注中。
+            "actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0",
+            "actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0",
             'python-version: "3.11.9"',
             'python -m pip install "pip==25.3" "uv==0.10.2"',
             "python -B run_dependency_lock_check.py --enforce-toolchain",
@@ -28,8 +29,8 @@ class DesktopCiContractsTest(unittest.TestCase):
             self.assertIn(marker, text)
 
         self.assertNotIn("--compile-installer", text)
-        self.assertNotIn("actions/checkout@v4", text)
-        self.assertNotIn("actions/setup-python@v5", text)
+        self.assertNotIn("actions/checkout@v", text)
+        self.assertNotIn("actions/setup-python@v", text)
         self.assertNotIn("NASDX-Desktop-Setup.exe", text)
         self.assertNotIn("Start-Process", text)
         self.assertNotIn("sk-", text)

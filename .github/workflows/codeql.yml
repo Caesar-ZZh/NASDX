@@ -1,0 +1,77 @@
+name: CodeQL
+
+# 静态应用安全测试（SAST）。
+#
+# 与 security.yml 的分工：
+#   - security.yml 找的是「凭证泄露」（当前树 + 全历史）；
+#   - 本 workflow 找的是「代码缺陷」（注入、路径穿越、反序列化、不安全随机等）。
+# 两者都是必需门禁，互不替代。
+#
+# 权限按最小化声明：CodeQL 只需要读代码 + 写 code-scanning 结果，
+# 且 fork PR 在 GitHub 侧本来就拿不到 secrets 与写权限。
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+  push:
+    branches:
+      - main
+      - master
+  schedule:
+    # 每周一次全量扫描：新增的 CodeQL 查询规则也能覆盖到旧代码。
+    - cron: "41 19 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+      security-events: write
+      # actions: read 仅用于让 CodeQL 读取本次 workflow run 的元数据。
+      actions: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - python
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: "3.11.9"
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3.37.6
+        with:
+          languages: ${{ matrix.language }}
+          # security-and-quality 比默认 security-extended 更严，但 Python 侧
+          # 噪音可控；如需收敛改为 security-extended。
+          queries: security-and-quality
+
+      # Python 是解释型语言，CodeQL 直接抽取源码，不需要 autobuild。
+      # 依赖不安装：本仓库依赖树重（streamlit/akshare/pandas），装依赖只会拖慢
+      # 扫描且不影响 Python 抽取结果。
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3.37.6
+        with:
+          category: "/language:${{ matrix.language }}"

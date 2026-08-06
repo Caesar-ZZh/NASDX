@@ -1,0 +1,45 @@
+# Dependabot 配置：依赖与 Actions 的自动安全/版本更新。
+#
+# 两个生态：
+#   - github-actions：所有 workflow 都用 commit SHA 固定（见 .github/workflows/*.yml），
+#     人工升级容易漏，交给 Dependabot 提 PR 并自动改写 SHA + 版本注释。
+#   - pip：requirements_nasdx.txt / requirements_desktop.txt / requirements-dev.txt
+#     由根目录声明，Dependabot 直接扫描仓库根。
+#
+# 只开 PR、不自动合并；安全更新由 Dependabot alerts（仓库 Settings）触发，
+# 版本更新按下面的周计划触发。
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(actions)"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+      - "python"
+    # 工具链版本由 run_dependency_lock_check.py --enforce-toolchain 强约束，
+    # 让 Dependabot 单独动 pip/uv 会直接打破该门禁，改为人工同步升级。
+    ignore:
+      - dependency-name: "pip"
+      - dependency-name: "uv"
