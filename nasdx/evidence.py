@@ -58,6 +58,10 @@ __all__ = [
     "authority_score",
     "event_ttl_minutes",
     "to_cst",
+    "to_cst_precise",
+    "PRECISION_DATETIME",
+    "PRECISION_DATE",
+    "PRECISION_UNKNOWN",
     "market_session",
     "content_fingerprint",
     "make_evidence_id",
@@ -246,6 +250,24 @@ def min_buy_authority() -> float:
 
 _ISO_TZ_RE = re.compile(r"(Z|[+-]\d{2}:?\d{2})$")
 
+#: :func:`to_cst_precise` 的精度枚举。
+PRECISION_DATETIME = "datetime"
+"""输入本身带时刻信息（``datetime`` 对象、epoch、``YYYY-MM-DD HH:MM`` 等）。"""
+
+PRECISION_DATE = "date"
+"""输入只精确到自然日（``date`` 对象、``YYYY-MM-DD``、``YYYYMMDD``、``YYYY/MM/DD``）。
+
+日期精度一律归一化为当天 ``00:00 CST``，**不会**被猜测成收盘 15:00 或任何盘中时刻。
+盘中新鲜度判定必须把这种输入视为"不具备实时新鲜度"，
+详见 :func:`nasdx.intraday_decision.evaluate_data_freshness`。
+"""
+
+PRECISION_UNKNOWN = ""
+"""无法解析。"""
+
+#: 日期精度的字符串形态（`/` 已在解析前归一化为 `-`）。
+_DATE_ONLY_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}|\d{8})$")
+
 
 def to_cst(value: Any) -> datetime | None:
     """把任意时间输入归一化为 Asia/Shanghai 带时区 datetime。
@@ -253,34 +275,54 @@ def to_cst(value: Any) -> datetime | None:
     支持 ``datetime``（naive 视为北京时间）、``date``、epoch 秒 / 毫秒、
     ISO8601 字符串（含 ``Z`` 与偏移量）以及 ``YYYY-MM-DD HH:MM:SS`` 形态。
     无法解析时返回 ``None``，绝不猜测。
+
+    纯日期（``YYYY-MM-DD`` / ``YYYYMMDD`` / ``date`` 对象）统一映射为当天
+    ``00:00 CST``；需要区分"日期精度"与"时刻精度"时用 :func:`to_cst_precise`。
+    """
+    return to_cst_precise(value)[0]
+
+
+def to_cst_precise(value: Any) -> tuple[datetime | None, str]:
+    """同 :func:`to_cst`，但额外返回输入的时间精度。
+
+    :returns: ``(归一化时间, 精度)``；精度取 :data:`PRECISION_DATETIME` /
+        :data:`PRECISION_DATE` / :data:`PRECISION_UNKNOWN`。
+
+    精度语义是稳定契约：所有纯日期形态（``2026-08-06`` / ``20260806`` /
+    ``2026/08/06`` / :class:`datetime.date`）都返回同一时刻 ``00:00 CST``
+    与 :data:`PRECISION_DATE`，调用方不得依据字符串格式推断不同的时刻。
     """
     if value is None or isinstance(value, bool):
-        return None
+        return None, PRECISION_UNKNOWN
     if isinstance(value, datetime):
-        return value.astimezone(CST) if value.tzinfo else value.replace(tzinfo=CST)
+        moment = value.astimezone(CST) if value.tzinfo else value.replace(tzinfo=CST)
+        return moment, PRECISION_DATETIME
     if isinstance(value, date):
-        return datetime.combine(value, dt_time(0, 0), tzinfo=CST)
+        return datetime.combine(value, dt_time(0, 0), tzinfo=CST), PRECISION_DATE
     if isinstance(value, (int, float)):
         seconds = float(value)
         if seconds > 1e11:  # 毫秒时间戳
             seconds /= 1000.0
         try:
-            return datetime.fromtimestamp(seconds, tz=timezone.utc).astimezone(CST)
+            moment = datetime.fromtimestamp(seconds, tz=timezone.utc).astimezone(CST)
         except (OverflowError, OSError, ValueError):
-            return None
+            return None, PRECISION_UNKNOWN
+        return moment, PRECISION_DATETIME
     text = str(value).strip()
     if not text:
-        return None
+        return None, PRECISION_UNKNOWN
     if text.isdigit() and len(text) >= 10:
-        return to_cst(int(text))
+        return to_cst_precise(int(text))
     candidate = text.replace("/", "-")
     if candidate.endswith("Z"):
         candidate = candidate[:-1] + "+00:00"
+    precision = PRECISION_DATE if _DATE_ONLY_RE.match(candidate) else PRECISION_DATETIME
     for parser in (_parse_iso, _parse_common):
         parsed = parser(candidate)
         if parsed is not None:
-            return parsed.astimezone(CST) if parsed.tzinfo else parsed.replace(tzinfo=CST)
-    return None
+            moment = parsed.astimezone(CST) if parsed.tzinfo else parsed.replace(tzinfo=CST)
+            return moment, precision
+    return None, PRECISION_UNKNOWN
 
 
 def _parse_iso(text: str) -> datetime | None:

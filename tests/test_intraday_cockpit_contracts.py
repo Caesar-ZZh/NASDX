@@ -16,7 +16,7 @@ import os
 import re
 import sys
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -30,19 +30,34 @@ from nasdx.intraday_decision import (  # noqa: E402
     ACTION_WAIT,
     ACTIONS,
     DECISION_SCHEMA,
+    DEGRADED_ACTIONS,
+    FRESHNESS_INVALID,
+    FRESHNESS_STALE,
+    FRESHNESS_UNKNOWN,
+    FRESHNESS_VERIFIED,
     IntradayDecision,
     IntradayPolicy,
     PositionView,
+    RISK_INCREASING_ACTIONS,
     _lots_for_budget,
     decide,
     diff_decisions,
+    evaluate_data_freshness,
     should_run,
 )
 from nasdx.intraday_copilot import (  # noqa: E402
     SNAPSHOT_SCHEMA,
     build_intraday_snapshot,
+    format_intraday_snapshot,
 )
-from nasdx.evidence import CST  # noqa: E402
+from nasdx.evidence import (  # noqa: E402
+    CST,
+    PRECISION_DATE,
+    PRECISION_DATETIME,
+    PRECISION_UNKNOWN,
+    to_cst,
+    to_cst_precise,
+)
 from nasdx.portfolio_gate import evaluate_portfolio_gate  # noqa: E402
 from nasdx.trade_events import resolve_lot_rule  # noqa: E402
 
@@ -104,6 +119,67 @@ def _bullish_gate(code="601101", industry="煤炭", weight_pct=5.0, cash=200000.
         "blocking_reasons": [],
     }
     return evaluate_portfolio_gate(code, snap, industry=industry)
+
+
+_STRONG_INDICATORS = {
+    "close": 11.62,
+    "ma5": 11.2,
+    "ma20": 10.9,
+    "ma60": 10.5,
+    "boll_upper": 12.1,
+    "boll_lower": 10.3,
+    "dif": 0.3,
+    "dea": 0.2,
+    "macd_bar": 0.2,
+    "rsi": 62,
+    "vol_ratio": 1.4,
+    "up_days_20": 12,
+}
+
+
+def _market_payload(code="601101", **stamp):
+    """构造行情快照；``stamp`` 用 ``generated_at=`` 或 ``date=`` 指定时间字段。"""
+    payload = {
+        "market_overview": {"上证指数": {"change_pct": 1.5}},
+        "sectors": [
+            {
+                "name": "煤炭",
+                "stocks": [
+                    {"code": code, "name": "中国神华", "indicators": dict(_STRONG_INDICATORS)}
+                ],
+            }
+        ],
+    }
+    payload.update(stamp)
+    return payload
+
+
+def _portfolio_payload(cash=200000.0, weight_pct=5.0):
+    return {
+        "positions": [
+            {
+                "code": "601101",
+                "name": "中国神华",
+                "asset_class": "stock",
+                "industry": "煤炭",
+                "quantity": 100,
+                "avg_cost": 10.0,
+                "last_price": 11.62,
+                "market_value": 1162.0,
+                "unrealized_pnl": 162.0,
+                "unrealized_pct": 16.2,
+                "weight_pct": weight_pct,
+                "valuation_status": "ok",
+            }
+        ],
+        "cash": cash,
+        "total_assets": 200000.0,
+        "exposure_pct": 0.6,
+        "portfolio_version": 3,
+        "snapshot_hash": "abc123",
+        "fail_closed": False,
+        "blocking_reasons": [],
+    }
 
 
 class SchemaActionTest(unittest.TestCase):
@@ -274,6 +350,294 @@ class StaleDataTest(unittest.TestCase):
         )
         self.assertEqual(dec.action, ACTION_WAIT)
         self.assertTrue(dec.degraded)
+
+
+class DatePrecisionContractTest(unittest.TestCase):
+    """Issue #84：``YYYY-MM-DD`` 与 ``YYYYMMDD`` 必须语义一致且有明确精度。"""
+
+    def test_all_date_only_formats_normalize_to_midnight(self):
+        expected = datetime(2026, 8, 5, 0, 0, 0, tzinfo=CST)
+        for raw in ("2026-08-05", "20260805", "2026/08/05"):
+            stamp, precision = to_cst_precise(raw)
+            self.assertEqual(stamp, expected, raw)
+            self.assertEqual(precision, PRECISION_DATE, raw)
+
+    def test_datetime_inputs_keep_datetime_precision(self):
+        stamp, precision = to_cst_precise("2026-08-05 10:20:00")
+        self.assertEqual(stamp, _dt(10, 20))
+        self.assertEqual(precision, PRECISION_DATETIME)
+
+    def test_date_only_never_guesses_market_close(self):
+        # 旧实现会把 8 位日期猜成收盘 15:00：上午运行时凭空造出未来时间戳。
+        stamp, _ = to_cst_precise("20260805")
+        self.assertEqual(stamp.hour, 0)
+        self.assertEqual(stamp.minute, 0)
+
+    def test_unparseable_input_is_unknown(self):
+        stamp, precision = to_cst_precise("not-a-time")
+        self.assertIsNone(stamp)
+        self.assertEqual(precision, PRECISION_UNKNOWN)
+
+    def test_to_cst_backward_compatible(self):
+        self.assertEqual(to_cst("2026-08-05 10:20:00"), _dt(10, 20))
+        self.assertIsNone(to_cst(None))
+
+
+class DataFreshnessContractTest(unittest.TestCase):
+    """Issue #84：未来时间戳不得被判定为"已核验"，负年龄不得冒充"更新鲜"。"""
+
+    def test_fresh_datetime_is_verified(self):
+        fresh = evaluate_data_freshness(_dt(10, 25), _dt(10, 29))
+        self.assertEqual(fresh.status, FRESHNESS_VERIFIED)
+        self.assertTrue(fresh.usable)
+        self.assertFalse(fresh.future)
+        self.assertEqual(fresh.clock_skew_seconds, 0.0)
+
+    def test_minor_clock_skew_within_tolerance_is_verified(self):
+        # 领先 30 秒属正常抖动（默认允许 60 秒），不应误杀。
+        fresh = evaluate_data_freshness(_dt(10, 29) + timedelta(seconds=30), _dt(10, 29))
+        self.assertEqual(fresh.status, FRESHNESS_VERIFIED)
+        self.assertTrue(fresh.usable)
+        self.assertFalse(fresh.future)
+        self.assertAlmostEqual(fresh.clock_skew_seconds, 30.0)
+
+    def test_future_timestamp_is_invalid_not_fresh(self):
+        fresh = evaluate_data_freshness(_dt(10, 59), _dt(10, 29))
+        self.assertEqual(fresh.status, FRESHNESS_INVALID)
+        self.assertTrue(fresh.future)
+        self.assertFalse(fresh.usable)
+        self.assertTrue(fresh.stale)
+        self.assertLess(fresh.age_seconds, 0)
+        self.assertAlmostEqual(fresh.clock_skew_seconds, 1800.0)
+
+    def test_negative_age_never_counts_as_fresher(self):
+        # 越"未来"越不可信，绝不会因为 age 更小而更容易通过闸门。
+        for minutes in (2, 30, 240, 1440):
+            fresh = evaluate_data_freshness(
+                _dt(10, 29) + timedelta(minutes=minutes), _dt(10, 29)
+            )
+            self.assertFalse(fresh.usable, minutes)
+            self.assertTrue(fresh.future, minutes)
+
+    def test_wrong_timezone_input_is_rejected(self):
+        # 把 CST 时刻误标成 UTC → 实际等于未来 8 小时。
+        mislabelled = datetime(2026, 8, 5, 10, 20, 0, tzinfo=timezone.utc)
+        fresh = evaluate_data_freshness(mislabelled, _dt(10, 29))
+        self.assertEqual(fresh.status, FRESHNESS_INVALID)
+        self.assertTrue(fresh.future)
+
+    def test_date_only_is_stale_in_morning_session(self):
+        fresh = evaluate_data_freshness("20260805", _dt(9, 35))
+        self.assertEqual(fresh.status, FRESHNESS_STALE)
+        self.assertTrue(fresh.date_only)
+        self.assertFalse(fresh.future)
+        self.assertFalse(fresh.usable)
+        self.assertEqual(fresh.precision, PRECISION_DATE)
+
+    def test_date_only_is_stale_after_close(self):
+        fresh = evaluate_data_freshness("2026-08-05", _dt(15, 30))
+        self.assertEqual(fresh.status, FRESHNESS_STALE)
+        self.assertTrue(fresh.date_only)
+        self.assertFalse(fresh.usable)
+
+    def test_missing_stamp_is_unknown(self):
+        fresh = evaluate_data_freshness(None, _dt(10, 29))
+        self.assertEqual(fresh.status, FRESHNESS_UNKNOWN)
+        self.assertFalse(fresh.usable)
+        self.assertIsNone(fresh.age_seconds)
+
+    def test_custom_skew_tolerance_is_honoured(self):
+        policy = IntradayPolicy(max_future_skew_seconds=0.0)
+        fresh = evaluate_data_freshness(
+            _dt(10, 29) + timedelta(seconds=30), _dt(10, 29), policy
+        )
+        self.assertEqual(fresh.status, FRESHNESS_INVALID)
+
+    def test_to_dict_exposes_diagnostics(self):
+        payload = evaluate_data_freshness(_dt(10, 59), _dt(10, 29)).to_dict()
+        for key in (
+            "data_age_seconds",
+            "clock_skew_seconds",
+            "future_timestamp",
+            "status",
+            "data_precision",
+            "reason",
+        ):
+            self.assertIn(key, payload)
+        self.assertTrue(payload["future_timestamp"])
+
+
+class FutureTimestampDecisionTest(unittest.TestCase):
+    """Issue #84：未来 / 纯日期时间戳下不得输出可执行的风险增加类动作。"""
+
+    def _decide(self, data_as_of, now=None, **kwargs):
+        return decide(
+            position=_position_view(),
+            signal="bullish",
+            confidence=0.86,
+            gate=_bullish_gate(),
+            data_as_of=data_as_of,
+            evidence=_verified_evidence(),
+            now=now or _dt(10, 29),
+            **kwargs,
+        )
+
+    def test_baseline_fresh_data_still_actionable(self):
+        # 回归护栏：正常路径不能被这次修复误伤。
+        dec = self._decide(_dt(10, 20))
+        self.assertIn(dec.action, RISK_INCREASING_ACTIONS)
+        self.assertTrue(dec.executable)
+
+    def test_minor_skew_still_actionable(self):
+        dec = self._decide(_dt(10, 29) + timedelta(seconds=30))
+        self.assertIn(dec.action, RISK_INCREASING_ACTIONS)
+        self.assertTrue(dec.executable)
+
+    def test_future_timestamp_degrades_to_review_required(self):
+        dec = self._decide(_dt(11, 59))
+        self.assertEqual(dec.action, ACTION_REVIEW_REQUIRED)
+        self.assertIn(dec.action, DEGRADED_ACTIONS)
+        self.assertFalse(dec.executable)
+        self.assertEqual(dec.quantity_delta, 0.0)
+        self.assertTrue(any("未来" in reason for reason in dec.blockers))
+
+    def test_far_future_timestamp_degrades(self):
+        dec = self._decide(_dt(10, 29, day=6))
+        self.assertEqual(dec.action, ACTION_REVIEW_REQUIRED)
+        self.assertFalse(dec.executable)
+
+    def test_date_only_precision_blocks_risk_increasing(self):
+        dec = self._decide("20260805", now=_dt(9, 35))
+        self.assertIn(dec.action, DEGRADED_ACTIONS)
+        self.assertFalse(dec.executable)
+
+    def test_decision_evidence_records_freshness_fields(self):
+        dec = self._decide(_dt(11, 59))
+        as_of = dec.to_dict()["evidence_as_of"]
+        self.assertTrue(as_of["future_timestamp"])
+        self.assertEqual(as_of["freshness_status"], FRESHNESS_INVALID)
+        self.assertGreater(as_of["clock_skew_seconds"], 0)
+        self.assertLess(as_of["data_age_seconds"], 0)
+
+
+class SnapshotFreshnessContractTest(unittest.TestCase):
+    """Issue #84：``build_intraday_snapshot`` 与 :func:`decide` 的新鲜度判定必须一致。"""
+
+    def _snapshot(self, market, now=_dt(10, 29)):
+        return build_intraday_snapshot(
+            now=now,
+            portfolio=_portfolio_payload(),
+            data=market,
+            use_ledger=False,
+            news_status="verified",
+        )
+
+    def test_fresh_snapshot_is_verified(self):
+        snap = self._snapshot(_market_payload(generated_at="2026-08-05T10:20:00"))
+        evidence = snap["evidence"]
+        self.assertFalse(evidence["market_stale"])
+        self.assertEqual(evidence["freshness_status"], FRESHNESS_VERIFIED)
+        self.assertFalse(evidence["future_timestamp"])
+        self.assertEqual(evidence["market"]["status"], "verified")
+        self.assertEqual(snap["decisions"][0]["action"], ACTION_ADD)
+
+    def test_future_timestamp_not_marked_verified(self):
+        snap = self._snapshot(_market_payload(generated_at="2026-08-05T10:59:00"))
+        evidence = snap["evidence"]
+        self.assertTrue(evidence["market_stale"])
+        self.assertTrue(evidence["future_timestamp"])
+        self.assertEqual(evidence["freshness_status"], FRESHNESS_INVALID)
+        self.assertNotEqual(evidence["market"]["status"], "verified")
+        self.assertNotEqual(evidence["sector"]["status"], "verified")
+        self.assertLess(evidence["data_age_seconds"], 0)
+        self.assertGreater(evidence["clock_skew_seconds"], 0)
+
+    def test_future_timestamp_blocks_risk_increasing_actions(self):
+        snap = self._snapshot(_market_payload(generated_at="2026-08-05T10:59:00"))
+        for row in snap["decisions"] + snap["candidates"]:
+            self.assertNotIn(row["action"], RISK_INCREASING_ACTIONS, row)
+            self.assertFalse(row["executable"], row)
+
+    def test_date_only_stamp_in_morning_is_stale(self):
+        # 旧实现把 20260805 猜成 15:00，上午运行时反而"更新鲜" → 绕过闸门。
+        snap = self._snapshot(_market_payload(date="20260805"), now=_dt(9, 35))
+        evidence = snap["evidence"]
+        self.assertTrue(evidence["market_stale"])
+        self.assertEqual(evidence["data_precision"], PRECISION_DATE)
+        self.assertEqual(evidence["freshness_status"], FRESHNESS_STALE)
+        self.assertFalse(evidence["future_timestamp"])
+        self.assertGreater(evidence["data_age_seconds"], 0)
+
+    def test_date_only_stamp_after_close_is_stale(self):
+        snap = self._snapshot(_market_payload(date="2026-08-05"), now=_dt(15, 30))
+        self.assertTrue(snap["evidence"]["market_stale"])
+        self.assertEqual(snap["evidence"]["freshness_status"], FRESHNESS_STALE)
+
+    def test_hyphen_and_compact_dates_behave_identically(self):
+        hyphen = self._snapshot(_market_payload(date="2026-08-05"), now=_dt(9, 35))
+        compact = self._snapshot(_market_payload(date="20260805"), now=_dt(9, 35))
+        self.assertEqual(hyphen["data_as_of"], compact["data_as_of"])
+        self.assertEqual(
+            hyphen["evidence"]["freshness_status"], compact["evidence"]["freshness_status"]
+        )
+        self.assertEqual(
+            hyphen["evidence"]["data_age_seconds"], compact["evidence"]["data_age_seconds"]
+        )
+
+    def test_missing_stamp_is_unknown_and_stale(self):
+        snap = self._snapshot(_market_payload())
+        self.assertTrue(snap["evidence"]["market_stale"])
+        self.assertEqual(snap["evidence"]["freshness_status"], FRESHNESS_UNKNOWN)
+        self.assertEqual(snap["data_as_of"], "")
+
+    def test_market_state_unknown_when_timestamp_untrusted(self):
+        snap = self._snapshot(_market_payload(generated_at="2026-08-05T10:59:00"))
+        self.assertEqual(snap["portfolio"]["market_state"], "数据不足")
+
+    def test_future_timestamp_emits_auditable_blocker(self):
+        snap = self._snapshot(_market_payload(generated_at="2026-08-05T10:59:00"))
+        self.assertTrue(snap["evidence"]["blockers"])
+        self.assertIn("未来", snap["evidence"]["freshness_reason"])
+        self.assertTrue(any("未来" in note for note in snap["notes"]))
+
+    def test_blocker_present_even_without_positions(self):
+        # 空持仓时没有任何 decision，快照层仍必须留下可审计的告警。
+        empty = {
+            "positions": [],
+            "cash": 100000.0,
+            "total_assets": 100000.0,
+            "exposure_pct": 0.0,
+            "portfolio_version": 1,
+            "snapshot_hash": "demo",
+            "fail_closed": False,
+            "blocking_reasons": [],
+        }
+        snap = build_intraday_snapshot(
+            now=_dt(10, 29),
+            portfolio=empty,
+            data=_market_payload(generated_at="2026-08-05T10:59:00"),
+            use_ledger=False,
+            news_status="verified",
+        )
+        self.assertEqual(snap["decisions"], [])
+        self.assertTrue(snap["evidence"]["blockers"])
+        self.assertTrue(snap["evidence"]["future_timestamp"])
+        self.assertTrue(any("未来" in note for note in snap["notes"]))
+
+    def test_fresh_snapshot_has_no_freshness_blocker(self):
+        snap = self._snapshot(_market_payload(generated_at="2026-08-05T10:20:00"))
+        self.assertEqual(snap["evidence"]["blockers"], [])
+        self.assertEqual(len(snap["notes"]), 1)
+
+    def test_rendered_report_surfaces_freshness_warning(self):
+        stale = format_intraday_snapshot(
+            self._snapshot(_market_payload(generated_at="2026-08-05T10:59:00"))
+        )
+        self.assertIn("数据时间告警", stale)
+        fresh = format_intraday_snapshot(
+            self._snapshot(_market_payload(generated_at="2026-08-05T10:20:00"))
+        )
+        self.assertNotIn("数据时间告警", fresh)
 
 
 class PortfolioGateOverrideTest(unittest.TestCase):

@@ -25,18 +25,21 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from nasdx.data_loader import get_stock_data, load_latest_data
-from nasdx.evidence import CST, to_cst
+from nasdx.evidence import CST, PRECISION_UNKNOWN, to_cst, to_cst_precise
 from nasdx.intraday_decision import (
     ACTION_HOLD,
     ACTION_LABELS,
     ACTION_WAIT,
     DEFAULT_POLICY,
+    FRESHNESS_STALE,
+    FRESHNESS_VERIFIED,
     IntradayDecision,
     IntradayPolicy,
     PositionView,
     URGENCY_RANK,
     decide,
     diff_decisions,
+    evaluate_data_freshness,
     should_run,
     trading_phase,
 )
@@ -203,18 +206,16 @@ def _market_state(data: Mapping[str, Any] | None) -> Tuple[str, Optional[float]]
     return state, round(average, 3)
 
 
-def _data_as_of(data: Mapping[str, Any] | None) -> Optional[datetime]:
+def _data_as_of(data: Mapping[str, Any] | None) -> Tuple[Optional[datetime], str]:
+    """读取行情快照时间并同时返回时间精度（Issue #84）。
+
+    ``generated_at`` 优先于 ``date``。纯日期输入（``YYYY-MM-DD`` / ``YYYYMMDD``）
+    统一解析为当天 ``00:00 CST`` 并标记为 :data:`~nasdx.evidence.PRECISION_DATE`；
+    **不再**把 8 位日期猜测成收盘 15:00 —— 上午运行时那会凭空造出未来时间戳。
+    日终文件的正确做法是写入真实的 ``generated_at`` 时刻。
+    """
     raw = (data or {}).get("generated_at") or (data or {}).get("date")
-    stamp = to_cst(raw)
-    if stamp is not None:
-        return stamp
-    text = str(raw or "").strip()
-    if len(text) == 8 and text.isdigit():
-        try:
-            return datetime(int(text[:4]), int(text[4:6]), int(text[6:8]), 15, 0, tzinfo=CST)
-        except ValueError:
-            return None
-    return None
+    return to_cst_precise(raw)
 
 
 def _news_status(explicit: Optional[str], environ: Mapping[str, str] | None) -> str:
@@ -254,24 +255,23 @@ def build_intraday_snapshot(
     phase = trading_phase(moment, holidays, environ)
 
     market = dict(data) if data is not None else _safe_market_data()
-    stamp = _data_as_of(market)
-    age = None if stamp is None else (moment - stamp).total_seconds()
-    market_stale = age is None or age > policy.stale_seconds
+    stamp, precision = _data_as_of(market)
+    # Issue #84：新鲜度统一由 evaluate_data_freshness 判定，未来时间戳 / 纯日期
+    # 精度都不得被当作"已核验"，负年龄绝不能冒充"更新鲜"。
+    freshness = evaluate_data_freshness(stamp, moment, policy, precision=precision)
+    age = freshness.age_seconds
+    market_stale = not freshness.usable
 
     if portfolio is None and use_ledger:
         portfolio = resolve_portfolio_auto(data=market, environ=environ)
     snapshot = _as_dict(portfolio)
 
     news = _news_status(news_status, environ)
+    stamp_text = stamp.isoformat(timespec="seconds") if stamp else ""
+    market_evidence_status = FRESHNESS_VERIFIED if freshness.usable else FRESHNESS_STALE
     evidence_base = {
-        "market": {
-            "as_of": stamp.isoformat(timespec="seconds") if stamp else "",
-            "status": "stale" if market_stale else "verified",
-        },
-        "sector": {
-            "as_of": stamp.isoformat(timespec="seconds") if stamp else "",
-            "status": "stale" if market_stale else "verified",
-        },
+        "market": {"as_of": stamp_text, "status": market_evidence_status},
+        "sector": {"as_of": stamp_text, "status": market_evidence_status},
         "news": {"as_of": "", "status": news or "unknown"},
     }
 
@@ -287,6 +287,7 @@ def build_intraday_snapshot(
                 market=market,
                 moment=moment,
                 stamp=stamp,
+                precision=precision,
                 policy=policy,
                 evidence=evidence_base,
                 holidays=holidays,
@@ -306,12 +307,22 @@ def build_intraday_snapshot(
                 market=market,
                 moment=moment,
                 stamp=stamp,
+                precision=precision,
                 policy=policy,
                 evidence=evidence_base,
                 holidays=holidays,
                 environ=environ,
             )
         )
+
+    # Issue #84：时间戳不可信时留下可审计的文字 blocker，即使当前没有任何持仓
+    # 或候选（此时 decisions/candidates 为空，光靠决策级 blockers 看不出问题）。
+    freshness_blockers: List[str] = [freshness.reason] if freshness.reason else []
+    notes = ["本快照为研究辅助输出，所有委托需人工确认，系统不会自动下单。"]
+    if freshness.future:
+        notes.append(f"⚠️ 行情时间戳不可信（未来时间）：{freshness.reason}本轮不得据此建仓或加仓。")
+    elif market_stale and freshness.reason:
+        notes.append(f"⚠️ 行情数据未通过新鲜度校验：{freshness.reason}")
 
     state, average_change = _market_state(market)
     previous_decisions = (previous or {}).get("decisions") or []
@@ -324,7 +335,7 @@ def build_intraday_snapshot(
     payload: Dict[str, Any] = {
         "schema": SNAPSHOT_SCHEMA,
         "generated_at": moment.isoformat(timespec="seconds"),
-        "data_as_of": stamp.isoformat(timespec="seconds") if stamp else "",
+        "data_as_of": stamp_text,
         "trading_day": moment.date().isoformat(),
         "session": phase,
         "checkpoint": _checkpoint_label(moment),
@@ -340,6 +351,18 @@ def build_intraday_snapshot(
             "data_age_seconds": None if age is None else round(age, 1),
             "stale_threshold_seconds": policy.stale_seconds,
             "market_stale": bool(market_stale),
+            # Issue #84：把不可信时间戳的具体原因暴露出来，便于排障与回放。
+            "clock_skew_seconds": (
+                None
+                if freshness.clock_skew_seconds is None
+                else round(freshness.clock_skew_seconds, 1)
+            ),
+            "future_timestamp": bool(freshness.future),
+            "data_precision": freshness.precision,
+            "freshness_status": freshness.status,
+            "max_future_skew_seconds": policy.max_future_skew_seconds,
+            "freshness_reason": freshness.reason,
+            "blockers": freshness_blockers,
         },
         "performance": {
             "depth": "intraday",
@@ -348,9 +371,7 @@ def build_intraday_snapshot(
             "decision_count": len(decisions) + len(candidates),
         },
         "auto_trading": False,
-        "notes": [
-            "本快照为研究辅助输出，所有委托需人工确认，系统不会自动下单。",
-        ],
+        "notes": notes,
     }
     payload["performance"]["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
     return payload
@@ -374,6 +395,7 @@ def _decide_row(
     evidence: Mapping[str, Any],
     holidays: Iterable[str] | None,
     environ: Mapping[str, str] | None,
+    precision: str = PRECISION_UNKNOWN,
 ) -> IntradayDecision:
     code = str(row.get("code") or "").strip()
     stock = None
@@ -432,6 +454,7 @@ def _decide_row(
         confidence=confidence,
         gate=gate,
         data_as_of=stamp,
+        data_precision=precision,
         evidence=evidence,
         now=moment,
         policy=policy,
@@ -648,6 +671,10 @@ def format_intraday_snapshot(snapshot: Mapping[str, Any]) -> str:
     lines.append(
         f"- 数据时间：{snapshot.get('data_as_of') or '未知'}　有效期至：{snapshot.get('valid_until', '')}"
     )
+    # Issue #84：时间戳不可信时必须在人眼可见的位置给出告警，不能只留在 JSON 里。
+    evidence = snapshot.get("evidence") or {}
+    for blocker in evidence.get("blockers") or []:
+        lines.append(f"- ⚠️ 数据时间告警：{blocker}")
     exposure = portfolio.get("exposure_pct")
     cash = portfolio.get("cash")
     lines.append(

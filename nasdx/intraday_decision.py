@@ -22,7 +22,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, time as dt_time, timedelta
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-from nasdx.evidence import CST, market_session, to_cst
+from nasdx.evidence import (
+    CST,
+    PRECISION_DATE,
+    PRECISION_UNKNOWN,
+    market_session,
+    to_cst,
+    to_cst_precise,
+)
 from nasdx.trade_events import LotRule, check_lot_size, classify_asset_class, resolve_lot_rule
 
 DECISION_SCHEMA = "nasdx_intraday_decision.v1"
@@ -173,6 +180,12 @@ __all__ = [
     "DEFAULT_POLICY",
     "PositionView",
     "IntradayDecision",
+    "DataFreshness",
+    "FRESHNESS_VERIFIED",
+    "FRESHNESS_STALE",
+    "FRESHNESS_INVALID",
+    "FRESHNESS_UNKNOWN",
+    "evaluate_data_freshness",
     "decide",
     "diff_decisions",
     "trading_phase",
@@ -196,6 +209,15 @@ class IntradayPolicy:
 
     hard_stale_seconds: float = 3600.0
     """行情快照超过该秒数：整条决策降级为 ``review_required``。"""
+
+    max_future_skew_seconds: float = 60.0
+    """允许的时钟超前量（秒）。
+
+    ``data_as_of`` 早于 ``now + max_future_skew_seconds`` 属正常抖动；
+    超出则判定为未来时间戳（时钟漂移 / 时区错误 / 供应商脏数据），
+    整条决策 fail-closed 降级为 ``review_required``（Issue #84）。
+    负年龄绝不能当成"更新鲜"。
+    """
 
     stop_loss_pct: float = -8.0
     """浮亏达到该百分比且信号转空：清仓。"""
@@ -567,6 +589,162 @@ def _condition_text(
 
 
 # --------------------------------------------------------------------------
+# 数据新鲜度（Issue #84）
+# --------------------------------------------------------------------------
+FRESHNESS_VERIFIED = "verified"
+"""数据时间可信且在陈旧阈值内。"""
+
+FRESHNESS_STALE = "stale"
+"""数据时间可信但过旧，或只精确到自然日（不具备盘中实时新鲜度）。"""
+
+FRESHNESS_INVALID = "invalid"
+"""数据时间不可信：超出允许时钟偏差的未来时间戳。"""
+
+FRESHNESS_UNKNOWN = "unknown"
+"""缺少 ``data_as_of`` 或无法解析。"""
+
+
+@dataclass(frozen=True)
+class DataFreshness:
+    """行情时间戳的新鲜度判定结果（``build_intraday_snapshot`` 与 :func:`decide` 共用）。
+
+    ``age_seconds`` 允许为负（数据时间超前当前时间），但负年龄**永远不会**被当作
+    "更新鲜"：超出 ``policy.max_future_skew_seconds`` 即 :data:`FRESHNESS_INVALID`。
+    """
+
+    age_seconds: Optional[float] = None
+    clock_skew_seconds: Optional[float] = None
+    """数据时间超前当前时间的秒数（非负）；不超前时为 ``0.0``，时间未知时为 ``None``。"""
+
+    future: bool = False
+    stale: bool = True
+    hard_stale: bool = False
+    date_only: bool = False
+    status: str = FRESHNESS_UNKNOWN
+    precision: str = PRECISION_UNKNOWN
+    reason: str = ""
+
+    @property
+    def usable(self) -> bool:
+        """是否可用于生成确定性风险增加类动作。"""
+        return self.status == FRESHNESS_VERIFIED
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "data_age_seconds": _round(self.age_seconds, 1),
+            "clock_skew_seconds": _round(self.clock_skew_seconds, 1),
+            "future_timestamp": bool(self.future),
+            "stale": bool(self.stale),
+            "hard_stale": bool(self.hard_stale),
+            "date_only": bool(self.date_only),
+            "status": self.status,
+            "data_precision": self.precision,
+            "reason": self.reason,
+        }
+
+
+def evaluate_data_freshness(
+    data_as_of: Any,
+    now: Any = None,
+    policy: IntradayPolicy = DEFAULT_POLICY,
+    *,
+    precision: Optional[str] = None,
+) -> DataFreshness:
+    """判定行情时间戳的新鲜度，覆盖过旧、未来时间戳与日期精度三类不可信输入。
+
+    判定顺序（先命中先返回，全部 fail-closed）：
+
+    1. 无法解析 → :data:`FRESHNESS_UNKNOWN`；
+    2. ``data_as_of > now + policy.max_future_skew_seconds`` → :data:`FRESHNESS_INVALID`；
+    3. 只精确到自然日（:data:`~nasdx.evidence.PRECISION_DATE`）→ :data:`FRESHNESS_STALE`，
+       因为日期精度不能冒充盘中任何时刻（``YYYY-MM-DD`` 与 ``YYYYMMDD`` 语义一致，
+       都归一化为当天 ``00:00``，不会被猜成收盘 15:00）；
+    4. 超过 ``hard_stale_seconds`` / ``stale_seconds`` → :data:`FRESHNESS_STALE`；
+    5. 其余 → :data:`FRESHNESS_VERIFIED`。
+
+    ``precision`` 显式传入时优先于自动探测，便于调用方（如盘中快照）在解析一次后
+    把精度沿链路传下去。
+    """
+    stamp, detected = to_cst_precise(data_as_of)
+    resolved_precision = precision if precision is not None else detected
+    if stamp is None:
+        return DataFreshness(
+            status=FRESHNESS_UNKNOWN,
+            precision=PRECISION_UNKNOWN,
+            reason="行情快照缺少可解析的 data_as_of。",
+        )
+
+    moment = to_cst(now) or datetime.now(CST)
+    age = (moment - stamp).total_seconds()
+    skew = max(-age, 0.0)
+    date_only = resolved_precision == PRECISION_DATE
+    max_skew = max(_finite(policy.max_future_skew_seconds, 0.0), 0.0)
+
+    if age < -max_skew:
+        return DataFreshness(
+            age_seconds=age,
+            clock_skew_seconds=skew,
+            future=True,
+            stale=True,
+            date_only=date_only,
+            status=FRESHNESS_INVALID,
+            precision=resolved_precision,
+            reason=(
+                f"行情时间戳位于未来 {skew / 60:.1f} 分钟，"
+                f"超过允许时钟偏差 {max_skew:.0f} 秒，数据时间不可信。"
+            ),
+        )
+
+    if date_only:
+        return DataFreshness(
+            age_seconds=age,
+            clock_skew_seconds=skew,
+            stale=True,
+            hard_stale=age > policy.hard_stale_seconds,
+            date_only=True,
+            status=FRESHNESS_STALE,
+            precision=resolved_precision,
+            reason="行情时间戳只精确到自然日（00:00），不具备盘中实时新鲜度。",
+        )
+
+    if age > policy.hard_stale_seconds:
+        return DataFreshness(
+            age_seconds=age,
+            clock_skew_seconds=skew,
+            stale=True,
+            hard_stale=True,
+            status=FRESHNESS_STALE,
+            precision=resolved_precision,
+            reason=(
+                f"行情已过期 {age / 60:.0f} 分钟，"
+                f"超过硬阈值 {policy.hard_stale_seconds / 60:.0f} 分钟。"
+            ),
+        )
+
+    if age > policy.stale_seconds:
+        return DataFreshness(
+            age_seconds=age,
+            clock_skew_seconds=skew,
+            stale=True,
+            status=FRESHNESS_STALE,
+            precision=resolved_precision,
+            reason=(
+                f"行情已过期 {age / 60:.0f} 分钟，"
+                f"超过 {policy.stale_seconds / 60:.0f} 分钟阈值。"
+            ),
+        )
+
+    return DataFreshness(
+        age_seconds=age,
+        clock_skew_seconds=skew,
+        stale=False,
+        status=FRESHNESS_VERIFIED,
+        precision=resolved_precision,
+        reason="",
+    )
+
+
+# --------------------------------------------------------------------------
 # 核心决策
 # --------------------------------------------------------------------------
 def _evidence_unknown(evidence: Mapping[str, Any] | None) -> List[str]:
@@ -646,12 +824,21 @@ def decide(
     holidays: Iterable[str] | None = None,
     environ: Mapping[str, str] | None = None,
     extra_reasons: Sequence[str] = (),
+    data_precision: Optional[str] = None,
 ) -> IntradayDecision:
-    """把行情信号 + 组合闸门 + 手数规则压成一条确定性 :class:`IntradayDecision`。"""
+    """把行情信号 + 组合闸门 + 手数规则压成一条确定性 :class:`IntradayDecision`。
+
+    ``data_precision`` 显式给出 ``data_as_of`` 的时间精度（见
+    :func:`nasdx.evidence.to_cst_precise`）；调用方已解析过时间戳时传入即可，
+    ``None`` 表示由本函数自动探测。日期精度不会被当作实时盘中数据。
+    """
     moment = to_cst(now) or datetime.now(CST)
     phase = trading_phase(moment, holidays, environ)
     stamp = to_cst(data_as_of)
-    age = None if stamp is None else (moment - stamp).total_seconds()
+    freshness = evaluate_data_freshness(
+        data_as_of, moment, policy, precision=data_precision
+    )
+    age = freshness.age_seconds
 
     code = str(position.code or "").strip()
     asset_class = position.asset_class or classify_asset_class(code)
@@ -697,29 +884,37 @@ def decide(
         degraded = True
         blockers.append(f"持仓估值状态异常：{position.valuation_status}")
         reasons.append("持仓无法正常估值，先修复账本或行情后再决策。")
-    elif age is None:
+    elif freshness.status == FRESHNESS_UNKNOWN:
         action = ACTION_REVIEW_REQUIRED
         degraded = True
         blockers.append("行情快照缺少 data_as_of，无法判断新鲜度。")
         reasons.append("数据时间未知，禁止输出确定性动作。")
-    elif age > policy.hard_stale_seconds:
+    elif freshness.future:
+        # Issue #84：未来时间戳（时钟漂移 / 时区错误 / 供应商脏数据）绝不能
+        # 因为负年龄而被判为"更新鲜"，整条决策 fail-closed。
         action = ACTION_REVIEW_REQUIRED
         degraded = True
-        blockers.append(f"行情已过期 {age / 60:.0f} 分钟，超过硬阈值 {policy.hard_stale_seconds / 60:.0f} 分钟。")
+        blockers.append(freshness.reason)
+        reasons.append("行情时间戳超前于当前时间，先校准时钟或数据源再决策。")
+    elif freshness.hard_stale:
+        action = ACTION_REVIEW_REQUIRED
+        degraded = True
+        blockers.append(freshness.reason)
         reasons.append("行情严重陈旧，先刷新数据再决策。")
     else:
         action, base_reasons = _base_action(signal, held, pnl_pct, _finite(confidence, 0.0), policy)
         reasons.extend(base_reasons)
 
         if action in RISK_INCREASING_ACTIONS:
-            stale = age > policy.stale_seconds
-            if stale:
+            if freshness.stale:
                 action = ACTION_WAIT
                 degraded = True
-                blockers.append(
-                    f"行情已过期 {age / 60:.0f} 分钟，超过 {policy.stale_seconds / 60:.0f} 分钟阈值。"
+                blockers.append(freshness.reason)
+                reasons.append(
+                    "行情时间戳只精确到日期，买入类动作降级为等待。"
+                    if freshness.date_only
+                    else "数据陈旧，买入类动作降级为等待。"
                 )
-                reasons.append("数据陈旧，买入类动作降级为等待。")
             elif missing_evidence:
                 action = ACTION_WAIT
                 degraded = True
@@ -833,7 +1028,11 @@ def decide(
             }
         else:
             evidence_as_of[dimension] = {"as_of": "", "status": str(item or "unknown")}
-    evidence_as_of["data_age_seconds"] = None if age is None else round(age, 1)
+    evidence_as_of["data_age_seconds"] = _round(age, 1)
+    evidence_as_of["clock_skew_seconds"] = _round(freshness.clock_skew_seconds, 1)
+    evidence_as_of["future_timestamp"] = bool(freshness.future)
+    evidence_as_of["data_precision"] = freshness.precision
+    evidence_as_of["freshness_status"] = freshness.status
 
     risk_level = _risk_level(action, degraded, pnl_pct)
     generated_at = _iso(moment)
