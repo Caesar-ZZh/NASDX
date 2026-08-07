@@ -1,6 +1,15 @@
 """60只个股完整扫描 — 多数据源回退，记录覆盖率。"""
 
-import sys, json, time
+import sys
+
+# ── CLI 守卫：--help / -h 必须在任何重导入前即时退出，
+#    否则会触发完整扫描（60只股票联网抓取 + 报告生成），导致 CLI 不可用。
+if __name__ == "__main__" and ("--help" in sys.argv or "-h" in sys.argv):
+    print(__doc__ or "scan_stocks_full.py：60只个股完整扫描（多数据源回退）。")
+    print("用法：python scan_stocks_full.py   （无参数，直接运行完整扫描）")
+    sys.exit(0)
+
+import json, time
 from pathlib import Path
 from datetime import datetime, timedelta
 

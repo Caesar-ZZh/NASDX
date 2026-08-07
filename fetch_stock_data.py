@@ -15,17 +15,13 @@ import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import akshare as ak
 import pandas as pd
-
-from nasdx.market_sources import fetch_stock_hist, last_trade_date
-from nasdx.paths import get_market_data_dir
+import argparse
 
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_FILE = SCRIPT_DIR / "stocks.json"
 TODAY      = datetime.now().strftime("%Y%m%d")
 START_DATE = (datetime.now() - timedelta(days=90)).strftime("%Y%m%d")
-OUTPUT_FILE = get_market_data_dir(create=True) / f"stock_data_{TODAY}.json"
 
 
 def safe(fn, *args, **kwargs):
@@ -98,6 +94,7 @@ def compute_indicators(df: pd.DataFrame) -> dict:
 
 def fetch_fund_flow(code: str) -> dict:
     """抓取个股资金流向（科创板688/ETF/LOF 不支持，返回空）"""
+    import akshare as ak
     market = "sh" if code.startswith("6") else "sz"
     df = safe(ak.stock_individual_fund_flow, stock=code, market=market)
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
@@ -110,6 +107,7 @@ def fetch_fund_flow(code: str) -> dict:
 
 def fetch_stock(item: dict) -> dict:
     """抓取 A 股个股 K 线 + 资金流"""
+    from nasdx.market_sources import fetch_stock_hist, last_trade_date
     code = item["code"]
     name = item.get("name", code)
     print(f"    {code} {name}", flush=True)
@@ -140,6 +138,8 @@ def fetch_stock(item: dict) -> dict:
 
 def fetch_etf(item: dict) -> dict:
     """抓取 ETF / LOF K 线（无资金流数据）"""
+    import akshare as ak
+    from nasdx.market_sources import fetch_stock_hist, last_trade_date
     code = item["code"]
     name = item.get("name", code)
     kind = item.get("type", "etf").upper()
@@ -194,6 +194,8 @@ def fetch_market_overview() -> dict:
 
 
 def main():
+    from nasdx.paths import get_market_data_dir
+    OUTPUT_FILE = get_market_data_dir(create=True) / f"stock_data_{TODAY}.json"
     print(f"\n=== NASDX 数据抓取 {TODAY} ===\n", flush=True)
     with open(CONFIG_FILE, encoding="utf-8") as f:
         config = json.load(f)
@@ -242,4 +244,9 @@ def main():
 
 
 if __name__ == "__main__":
+    # argparse 仅用于即时 --help；无参数则直接运行完整抓取。
+    ap = argparse.ArgumentParser(
+        description="股票/ETF/LOF 数据抓取（运行即完整抓取，写入 stock_data_YYYYMMDD.json）。"
+    )
+    ap.parse_args()
     main()
