@@ -4,10 +4,12 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 import json
+import math
 import os
 from pathlib import Path
+import threading
 import time
-from typing import Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 import pandas as pd
 import requests
@@ -23,6 +25,98 @@ BSE_LIST_URL = "https://www.bse.cn/nqxxController/nqxxCnzq.do"
 LISTING_CACHE_SCHEMA = "nasdx.a_share_listings.v2"
 BSE_JSONP_CALLBACK = "nasdxBseCallback"
 _LAST_LISTING_COVERAGE: dict = {}
+
+
+class RateLimiter:
+    """Thread-safe provider-level pacing gate (issue #34).
+
+    Guarantees at most one acquisition every ``min_interval`` seconds across
+    all worker threads. This replaces per-symbol ``time.sleep`` in scan
+    scripts: throughput is still bounded for the upstream provider, but the
+    whole workflow is no longer serialized behind a fixed wait per symbol.
+
+    ``clock``/``sleep`` are injectable so tests can drive a virtual clock.
+    """
+
+    def __init__(
+        self,
+        min_interval: float,
+        *,
+        clock: Callable[[], float] | None = None,
+        sleep: Callable[[float], None] | None = None,
+    ) -> None:
+        if isinstance(min_interval, bool) or not isinstance(min_interval, (int, float)):
+            raise ValueError(f"min_interval must be a number, got {min_interval!r}")
+        interval = float(min_interval)
+        if not math.isfinite(interval) or interval < 0:
+            raise ValueError(
+                f"min_interval must be finite and non-negative, got {min_interval!r}"
+            )
+        self.min_interval = interval
+        self._clock = clock or time.monotonic
+        self._sleep = sleep or time.sleep
+        self._lock = threading.Lock()
+        self._next_slot: float | None = None
+
+    def acquire(self) -> float:
+        """Block until this caller owns the next slot; return the slept seconds."""
+        if self.min_interval <= 0:
+            return 0.0
+        with self._lock:
+            now = self._clock()
+            slot = now if self._next_slot is None else max(now, self._next_slot)
+            self._next_slot = slot + self.min_interval
+        delay = slot - self._clock()
+        if delay > 0:
+            self._sleep(delay)
+            return delay
+        return 0.0
+
+
+def bounded_map(
+    items: Iterable[Any],
+    worker: Callable[[Any], Any],
+    *,
+    max_workers: int = 4,
+    rate_limiter: RateLimiter | None = None,
+) -> list[tuple[Any, BaseException | None]]:
+    """Run ``worker`` over ``items`` with bounded concurrency, order preserved.
+
+    Returns ``[(result, error), ...]`` aligned with the input order, so callers
+    keep deterministic output regardless of completion order. A failing worker
+    yields ``(None, exc)`` and never aborts the rest of the batch.
+    """
+    if isinstance(max_workers, bool) or not isinstance(max_workers, int) or max_workers < 1:
+        raise ValueError(f"max_workers must be a positive int, got {max_workers!r}")
+
+    materialized = list(items)
+    if not materialized:
+        return []
+
+    def run(item: Any) -> Any:
+        if rate_limiter is not None:
+            rate_limiter.acquire()
+        return worker(item)
+
+    results: list[tuple[Any, BaseException | None]] = [(None, None)] * len(materialized)
+    workers = min(max_workers, len(materialized))
+    if workers == 1:
+        for index, item in enumerate(materialized):
+            try:
+                results[index] = (run(item), None)
+            except Exception as exc:  # noqa: BLE001 - isolate one failing symbol
+                results[index] = (None, exc)
+        return results
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(run, item): index for index, item in enumerate(materialized)}
+        for future in as_completed(futures):
+            index = futures[future]
+            try:
+                results[index] = (future.result(), None)
+            except Exception as exc:  # noqa: BLE001 - isolate one failing symbol
+                results[index] = (None, exc)
+    return results
 
 
 def parse_tencent_quotes(payload: str) -> dict[str, dict]:

@@ -1,11 +1,12 @@
 """60只个股完整扫描 — 多数据源回退，记录覆盖率。"""
 
-import sys, json, time
+import sys, json
 from pathlib import Path
 from datetime import datetime, timedelta
 
 import pandas as pd
 
+from nasdx.fast_market import fetch_histories
 from nasdx.history_store import record_daily_scan
 from nasdx.market_sources import fetch_stock_hist, last_trade_date
 from nasdx.paths import get_reports_dir
@@ -15,6 +16,16 @@ NOW   = datetime.now()
 TODAY = NOW.strftime('%Y%m%d')
 HHMM  = NOW.strftime('%H%M')
 START = (NOW - timedelta(days=90)).strftime('%Y%m%d')
+
+# ── 批量行情参数（issue #34）──────────────────────────────
+# 历史 K 线统一走 nasdx.fast_market.fetch_histories：线程池有界并发 + 磁盘缓存。
+# 参数与 fetch_stock_data.py 对齐（相同起止日期 → 相同缓存键），
+# 同一工作流内重复代码只会真正联网抓一次。
+HISTORY_SOURCES = ("tdxrs", "tencent_hist_tx", "eastmoney_hist")
+HISTORY_MIN_ROWS = 10
+HISTORY_TIMEOUT = 6.0
+HISTORY_WORKERS = 12
+HISTORY_CACHE_TTL = 600.0
 
 STOCK_POOL = [
     ("通信·光模块",   "300308", "中际旭创"),
@@ -88,10 +99,37 @@ STOCK_POOL = [
     ("金融·券商",   "600837", "海通证券"),
 ]
 
+# ── 批量抓取（issue #34）───────────────────────────────
+def fetch_pool_histories(codes, **kwargs):
+    """整池一次性并发抓历史 K 线，替代逐只 sleep 串行请求。"""
+    params = dict(
+        request_timeout=HISTORY_TIMEOUT,
+        max_workers=HISTORY_WORKERS,
+        min_rows=HISTORY_MIN_ROWS,
+        sources=HISTORY_SOURCES,
+        cache_ttl_seconds=HISTORY_CACHE_TTL,
+    )
+    params.update(kwargs)
+    return fetch_histories(list(codes), START, TODAY, **params)
+
+
+def _resolve_history(code, history):
+    """批量结果命中即用；只有批量层缺失时才做单只回退（保留既有兜底行为）。"""
+    if history is not None:
+        df, source = history
+        if df is not None and len(df) >= HISTORY_MIN_ROWS:
+            return df, source
+        if df is not None:
+            return None, None
+    try:
+        return fetch_stock_hist(code, START, TODAY, min_rows=HISTORY_MIN_ROWS)
+    except Exception:
+        return None, None
+
+
 # ── 抓取+计算 ─────────────────────────────────────────
-def fetch_and_calc(code, name, sector):
-    time.sleep(0.2)
-    df, source = fetch_stock_hist(code, START, TODAY, min_rows=10)
+def fetch_and_calc(code, name, sector, history=None):
+    df, source = _resolve_history(code, history)
     if df is None or len(df) < 10:
         return None
     try:
@@ -179,10 +217,18 @@ print(f'\n{"="*68}')
 print(f'  NASDX 60只个股完整扫描  {NOW.strftime("%Y-%m-%d %H:%M")}')
 print(f'{"="*68}\n')
 
+print(f'  ⏬ 批量抓取 {len(STOCK_POOL)} 只个股历史行情（并发+缓存）...',flush=True)
+try:
+    history_map = fetch_pool_histories(code for _,code,_ in STOCK_POOL)
+except Exception as exc:
+    print(f'  ⚠️ 批量行情层异常，逐只回退：{type(exc).__name__}: {exc}',flush=True)
+    history_map = {}
+print(f'  ✅ 批量命中 {sum(1 for v in history_map.values() if v and v[0] is not None)}/{len(STOCK_POOL)}\n',flush=True)
+
 results = []
 for i,(sector,code,name) in enumerate(STOCK_POOL,1):
     print(f'  [{i:02d}/{len(STOCK_POOL)}] {code} {name:<10}({sector})...',end=' ',flush=True)
-    data = fetch_and_calc(code,name,sector)
+    data = fetch_and_calc(code,name,sector,history=history_map.get(code))
     if data is None:
         print('❌ 无数据'); continue
     sc,sig,rsns = score(data)
