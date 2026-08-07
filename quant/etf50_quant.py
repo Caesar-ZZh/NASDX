@@ -16,7 +16,7 @@ NASDX V2 — ETF50 量化全量分析
   总共节省 ~670ms 的 import 时间（只在实际调用时加载）
 """
 from __future__ import annotations
-import json, time
+import json
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -24,6 +24,12 @@ from typing import Optional
 from nasdx.paths import get_reports_dir
 
 ROOT = Path(__file__).parent.parent
+
+# 批量行情抓取参数（#73）：整池一次 batch，不再逐只串行 + 固定 sleep。
+BATCH_MAX_WORKERS = 8
+BATCH_CACHE_TTL_SECONDS = 600.0
+BATCH_REQUEST_TIMEOUT = 8.0
+MIN_ROWS_FOR_FACTORS = 30
 
 
 # ══════════════════════════════════════════
@@ -73,10 +79,21 @@ def run_etf50_quant(
     """
     对 ETF50 池中所有 ETF 执行量化分析
 
+    行情抓取契约（#73）：
+      - 整池历史行情只触发 **一次** ``quant.data.get_batch_ohlcv``（并发 + 磁盘缓存）；
+      - 循环内不再逐只请求，也没有固定 sleep 限速；
+      - 单只回退由 ``get_batch_ohlcv`` 内部对缺失/不合格标的有界执行，
+        只有批量层整体抛异常时本函数才降级为逐只 ``get_ohlcv``；
+      - 每个标的持有 DataFrame 的独立深拷贝，杜绝跨标的污染；
+      - 数据源部分失败时保留已成功的结果，并在 ``missing_codes`` 中列出缺失标的。
+
     Returns:
         {
           "datetime": ...,
           "total": N, "success": M,
+          "coverage": M / N,
+          "missing_codes": [无有效行情的代码, ...],
+          "batch_layer_failed": bool,
           "results": [ETFQuantResult.to_dict(), ...],
           "top3": [...],
           "portfolio_weights": {code: weight},
@@ -88,7 +105,7 @@ def run_etf50_quant(
     import numpy as np
     import pandas as pd
     from quant.patch_requests import configure_requests
-    from quant.data import get_ohlcv
+    from quant.data import get_batch_ohlcv, get_ohlcv
     from quant.factors import compute_alpha158
     configure_requests()
 
@@ -99,6 +116,7 @@ def run_etf50_quant(
     total = len(pool)
     results: list[ETFQuantResult] = []
     price_cache: dict[str, pd.DataFrame] = {}
+    missing_codes: list[str] = []
 
     if verbose:
         print(f"\n{'='*60}")
@@ -106,7 +124,33 @@ def run_etf50_quant(
         print(f"  共 {total} 只 ETF · {days} 天数据 · {rebalance_freq} 调仓")
         print(f"{'='*60}\n")
 
-    # ── Phase 1: 数据获取 + 因子计算 ──────────────────────
+    # ── Phase 0: 整池一次批量抓取（#73）────────────────────
+    # get_batch_ohlcv 内部已完成去重 / 并发 / 磁盘缓存 / 缺失项有界单只回退，
+    # 因此这里绝不能在下面的循环里再逐只请求，否则会二次打网络。
+    pool_codes = [str(etf["code"]).strip() for etf in pool if str(etf.get("code", "")).strip()]
+    batch_frames: dict[str, "pd.DataFrame"] = {}
+    batch_layer_failed = False
+    if pool_codes:
+        try:
+            batch_frames = get_batch_ohlcv(
+                pool_codes,
+                days=days,
+                verbose=False,
+                max_workers=BATCH_MAX_WORKERS,
+                use_cache=True,
+                cache_ttl_seconds=BATCH_CACHE_TTL_SECONDS,
+                request_timeout=BATCH_REQUEST_TIMEOUT,
+            )
+        except Exception as exc:  # 批量层整体不可用才降级到逐只回退
+            batch_layer_failed = True
+            batch_frames = {}
+            if verbose:
+                print(f"  ⚠️ 批量行情失败，降级为逐只回退: {str(exc)[:60]}")
+
+    if verbose and not batch_layer_failed:
+        print(f"  ⚡ 批量行情：{len(batch_frames)}/{len(pool_codes)} 只命中\n")
+
+    # ── Phase 1: 因子计算（数据已在 Phase 0 就绪）──────────
     for i, etf in enumerate(pool, 1):
         code = etf["code"]
         name = etf["name"]
@@ -120,14 +164,26 @@ def run_etf50_quant(
 
         res = ETFQuantResult(code, name, cat)
 
-        # 获取数据
-        df = get_ohlcv(code, days=days)
-        if df.empty or len(df) < 30:
+        # 取批量结果；键与 Phase 0 保持同一归一化口径，避免空白字符导致查表落空
+        lookup = str(code).strip()
+        df = batch_frames.get(lookup)
+        if df is None and lookup and lookup != code:
+            df = batch_frames.get(code)
+        if df is None and batch_layer_failed and lookup:
+            try:
+                df = get_ohlcv(lookup, days=days)
+            except Exception:
+                df = None
+
+        if df is None or df.empty or len(df) < MIN_ROWS_FOR_FACTORS:
             if verbose: print("❌ 数据不足")
+            missing_codes.append(code)
             results.append(res)
             continue
 
-        price_cache[code] = df
+        # 每个标的持有独立副本，杜绝跨标的（或重复代码）互相污染
+        price_cache[code] = df.copy(deep=True)
+        df = price_cache[code]
         res.has_data = True
 
         # 计算 Alpha158 因子
@@ -165,7 +221,6 @@ def run_etf50_quant(
             continue
 
         results.append(res)
-        time.sleep(0.2)   # 限速
 
     # ── Phase 2: 横截面排名 ───────────────────────────────
     valid = [r for r in results if r.has_data]
@@ -214,9 +269,15 @@ def run_etf50_quant(
     bull    = sum(1 for r in results if r.signal == "bullish")
     bear    = sum(1 for r in results if r.signal == "bearish")
 
+    coverage = round(success / total, 4) if total else 0.0
+
     if verbose:
         print(f"\n{'─'*60}")
         print(f"  完成！{success}/{total} 只有效 | 看多:{bull} 看空:{bear}")
+        if missing_codes:
+            preview = "、".join(missing_codes[:10])
+            more = f" 等 {len(missing_codes)} 只" if len(missing_codes) > 10 else ""
+            print(f"  ⚠️ 缺失行情：{preview}{more}")
         print(f"\n  {'排名':<4}{'代码':<8}{'名称':<20}{'类别':<16}{'量化分':>6}  信号")
         print(f"  {'─'*60}")
         for i, r in enumerate(results[:15], 1):
@@ -230,6 +291,9 @@ def run_etf50_quant(
         "days":               days,
         "total":              total,
         "success":            success,
+        "coverage":           coverage,
+        "missing_codes":      list(missing_codes),
+        "batch_layer_failed": batch_layer_failed,
         "bullish":            bull,
         "bearish":            bear,
         "neutral":            success - bull - bear,
