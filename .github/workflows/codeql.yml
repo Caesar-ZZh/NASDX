@@ -61,7 +61,7 @@ jobs:
           python-version: "3.11.9"
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3.37.6
+        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           languages: ${{ matrix.language }}
           # security-and-quality 比默认 security-extended 更严，但 Python 侧
