@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 
-from nasdx.fast_market import fetch_histories
+from nasdx.fast_market import fetch_histories, resolve_batch_history
 from nasdx.history_store import record_daily_scan
 from nasdx.market_sources import fetch_stock_hist, last_trade_date
 from nasdx.paths import get_reports_dir
@@ -114,17 +114,27 @@ def fetch_pool_histories(codes, **kwargs):
 
 
 def _resolve_history(code, history):
-    """批量结果命中即用；只有批量层缺失时才做单只回退（保留既有兜底行为）。"""
-    if history is not None:
-        df, source = history
-        if df is not None and len(df) >= HISTORY_MIN_ROWS:
-            return df, source
-        if df is not None:
-            return None, None
-    try:
-        return fetch_stock_hist(code, START, TODAY, min_rows=HISTORY_MIN_ROWS)
-    except Exception:
-        return None, None
+    """三态解析批量层结果（issue #87，与 fetch_stock_data.py 共用同一实现）。
+
+    - ``history is None``：批量层整体异常/未提供该标的 → 允许一次有界单只兜底；
+    - ``(frame, source)``：批量命中，直接用，不再联网；
+    - ``(None, None)``：批量层已跑完「多源回退 + 超时翻倍重试」仍未解出 →
+      直接判定无数据。**绝不能在串行组装循环里重新联网**，否则上游故障时
+      整池会退化成 O(N) 串行等待（issue #34 的延迟保证失效）。
+    """
+    return resolve_batch_history(
+        code,
+        history,
+        single_fetcher=lambda symbol: fetch_stock_hist(
+            symbol,
+            START,
+            TODAY,
+            min_rows=HISTORY_MIN_ROWS,
+            request_timeout=HISTORY_TIMEOUT,
+        ),
+        min_rows=HISTORY_MIN_ROWS,
+        suppress_errors=True,
+    )
 
 
 # ── 抓取+计算 ─────────────────────────────────────────

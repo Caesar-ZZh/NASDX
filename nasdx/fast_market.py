@@ -313,6 +313,77 @@ def fetch_histories(
     return results
 
 
+def _unpack_history_entry(entry: object) -> tuple[pd.DataFrame | None, str | None]:
+    """Normalize one batch entry into ``(frame_or_None, source_or_None)``.
+
+    Anything that is not a ``(frame, source)`` pair is reported as unresolved
+    rather than raising, so a corrupted batch map degrades into "no data" for
+    that symbol instead of aborting the whole assembly loop.
+    """
+    if isinstance(entry, (tuple, list)) and len(entry) == 2:
+        frame, source = entry
+        return (
+            frame if isinstance(frame, pd.DataFrame) else None,
+            source if isinstance(source, str) and source else None,
+        )
+    return None, None
+
+
+def _history_is_usable(frame: object, min_rows: int) -> bool:
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return False
+    return len(frame) >= max(0, int(min_rows))
+
+
+def resolve_batch_history(
+    code: str,
+    history: object,
+    *,
+    single_fetcher: Callable[[str], object] | None = None,
+    min_rows: int = 0,
+    suppress_errors: bool = False,
+) -> tuple[pd.DataFrame | None, str | None]:
+    """Resolve one symbol's history from a batch result (issue #87).
+
+    ``fetch_histories`` already exhausts its own bounded recovery path
+    (shared TDX batch -> concurrent multi-source fallback -> concurrent retry
+    with a doubled timeout) before filling unresolved symbols with
+    ``(None, None)``. Callers must therefore treat three states differently:
+
+    * ``history is None`` -- the batch layer produced no entry at all (it
+      raised, or the caller never ran it). One bounded single-symbol fallback
+      is allowed through ``single_fetcher``.
+    * ``history == (frame, source)`` with a usable frame -- use it as is; no
+      network request is issued.
+    * anything else, notably ``(None, None)`` -- the batch layer completed and
+      already exhausted recovery. Return ``(None, None)`` immediately. Retrying
+      here would re-serialize the whole pool during an upstream outage, which
+      is exactly the regression tracked by issue #87.
+
+    ``single_fetcher`` must carry its own bounded timeout. ``suppress_errors``
+    keeps the caller's existing failure policy: scan scripts swallow the error
+    and report "no data", while collectors that record per-symbol errors let it
+    propagate.
+    """
+    if history is not None:
+        frame, source = _unpack_history_entry(history)
+        if _history_is_usable(frame, min_rows):
+            return frame, source
+        return None, None
+    if single_fetcher is None:
+        return None, None
+    try:
+        resolved = single_fetcher(code)
+    except Exception:
+        if suppress_errors:
+            return None, None
+        raise
+    frame, source = _unpack_history_entry(resolved)
+    if _history_is_usable(frame, min_rows):
+        return frame, source
+    return None, None
+
+
 def _read_history_cache(
     path: Path,
     ttl_seconds: float,

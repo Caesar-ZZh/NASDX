@@ -17,7 +17,12 @@ from pathlib import Path
 import akshare as ak
 import pandas as pd
 
-from nasdx.fast_market import RateLimiter, bounded_map, fetch_histories
+from nasdx.fast_market import (
+    RateLimiter,
+    bounded_map,
+    fetch_histories,
+    resolve_batch_history,
+)
 from nasdx.market_sources import fetch_stock_hist, last_trade_date
 from nasdx.paths import get_market_data_dir
 
@@ -179,17 +184,26 @@ def fetch_fund_flows(codes) -> dict:
 
 
 def _resolve_history(code: str, history):
-    """批量层命中就直接用；未提供批量结果时才单只回退抓取。
+    """三态解析批量层结果（issue #87，与 scan_stocks_full.py 共用同一实现）。
 
-    批量层内部已含「多源回退 + 超时翻倍重试」，所以批量层返回空的标的
-    不再重复联网，避免退化成串行抓取。
+    - ``history is None``：批量层整体异常/未提供该标的 → 允许一次有界单只兜底
+      （异常向上抛，由 main() 的逐标的 try 记入 ``output["errors"]``）；
+    - ``(frame, source)``：批量命中，直接用，不再联网；
+    - ``(None, None)``：批量层内部已含「多源回退 + 超时翻倍重试」，仍未解出则
+      直接判定无数据，不重复联网，避免退化成串行抓取。
     """
-    if history is not None:
-        frame, source = history
-        if isinstance(frame, pd.DataFrame) and not frame.empty:
-            return frame, source
-        return None, None
-    return fetch_stock_hist(code, START_DATE, TODAY, min_rows=HISTORY_MIN_ROWS)
+    return resolve_batch_history(
+        code,
+        history,
+        single_fetcher=lambda symbol: fetch_stock_hist(
+            symbol,
+            START_DATE,
+            TODAY,
+            min_rows=HISTORY_MIN_ROWS,
+            request_timeout=HISTORY_TIMEOUT,
+        ),
+        min_rows=HISTORY_MIN_ROWS,
+    )
 
 
 def _apply_history(result: dict, hist, source) -> None:
