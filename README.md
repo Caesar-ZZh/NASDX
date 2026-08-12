@@ -158,6 +158,8 @@ python run_final_audit.py          # 最终版交付自检
 python run_product_readiness.py    # 产品化巡检聚合（单测 + 最终审计）
 ```
 
+`run_final_audit.py` 必须**退出码为 0** 才算交付自检通过；任何非 0 退出（含 README / 决策文档缺失）都视为发布门禁未过，不可标注为「验证通过」。CI 的 Final Audit Gate 会在 `master` / PR 上运行该脚本，非 0 退出即判失败（详见 `.github/workflows/final-audit.yml`）。
+
 | 工作流 | 做什么 | 适合场景 |
 |---|---|---|
 | `analysis-only` | 用最新本地行情做 5 Agent 深度分析 | 已有新数据，只看行动计划 |
@@ -298,7 +300,13 @@ python -B desktop\launcher.py --webview --page plan
 <details>
 <summary><b>组合路线与决策框架</b></summary>
 
-组合路线包含：仓位框架（总仓位上限 / ETF 预算 / 个股预算 / 现金缓冲）、候选分层（ETF 主线 / 个股卫星 / 观察名单 / 回避池）、未来情景、执行规则、深度报告与规则深度报告、扫描覆盖率闸门、最终简报、候选证据核查、资金仓位换算、建议漂移追踪、建议结果复盘、真实账户复盘、执行队列、外部复核包、复盘快照包、SQLite 历史库。
+组合路线包含：仓位框架（总仓位上限 / ETF 预算 / 个股预算 / 现金缓冲）、候选分层（ETF 主线 / 个股卫星 / 观察名单 / 回避池）、未来情景推演、执行规则、深度报告与规则深度报告、扫描覆盖率闸门、最终简报、候选证据核查、资金仓位换算、建议漂移追踪、建议结果复盘、真实账户复盘、执行队列、外部复核包、复盘快照包、SQLite 历史库（nasdx_history.db）。
+
+每条组合级投资路线在选定的 **风险画像**（保守 / 均衡 / 进取）下生成；单票决策与资金仓位换算同样以此三档纪律为基准，组合路线与单票分析共用同一套 风险画像 约束。
+
+**真实账户复盘** 读取成交 CSV 形式的 **账户流水**，计算已实现 / 未实现盈亏与持仓成本，与「建议结果复盘」两条链路数据来源互不替代（详见下方「三类复盘不是一回事」）。
+
+每次分析或扫描运行都带一个 **task_id**（出现在日志文件名 `nasdx_log_{code}_{task_id}.txt` 与 ETF50 扫描标识 `etf50_scan_task_id` 中），用于跨运行追溯同一标的的多次决策。简报、单股报告、扫描与 ETF 池结果统一写入 SQLite 历史库 **nasdx_history.db**，支撑历史回看与复盘快照包。
 
 完整决策框架与契约见 [`docs/INVESTMENT_DECISION_FRAMEWORK.md`](docs/INVESTMENT_DECISION_FRAMEWORK.md)。
 
