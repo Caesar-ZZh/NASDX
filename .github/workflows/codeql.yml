@@ -72,6 +72,6 @@ jobs:
       # 依赖不安装：本仓库依赖树重（streamlit/akshare/pandas），装依赖只会拖慢
       # 扫描且不影响 Python 抽取结果。
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3.37.6
+        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           category: "/language:${{ matrix.language }}"
