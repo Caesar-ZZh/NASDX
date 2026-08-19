@@ -19,6 +19,12 @@ import pytest
 import nasdx.overseas_sources as ov
 
 
+@pytest.fixture(autouse=True)
+def _isolate_module_state(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(ov, "_CACHE", {})
+    monkeypatch.setattr(ov, "_YAHOO_SESSION", None)
+
+
 class TestComplianceMap:
     def test_keys_cover_all_sources(self):
         expected = {
@@ -98,7 +104,8 @@ class TestOfficialGet:
                 resp.status_code = 403
                 resp.headers = {"Content-Type": "text/html"}
                 resp.text = "<html>Undeclared Automated Tool</html>"
-                exc = RuntimeError("boom")
+                import requests
+                exc = requests.HTTPError("forbidden", response=resp)
                 resp.raise_for_status.side_effect = exc
                 mock_get.return_value = resp
                 with pytest.raises(RuntimeError, match="User-Agent 未被识别"):
@@ -112,8 +119,8 @@ class TestGetSecContact:
 
     def test_default_when_unset(self):
         with patch.dict(os.environ, {}, clear=True):
-            # 环境变量 SEC_CONTACT 未设置时回退默认值
-            assert "NASDX" in ov._get_sec_contact()
+            with pytest.raises(RuntimeError, match="SEC_CONTACT 未配置"):
+                ov._get_sec_contact()
 
 
 class TestUsTickerCheck:
@@ -136,17 +143,19 @@ class TestTreasuryYieldCurve:
             {"effective_date": "2026-01-15", "term_to_maturity": "10 Year", "rate": 4.5},
         ]
         with patch("nasdx.overseas_sources._official_get") as mock_get:
-            resp = MagicMock()
-            resp.get.return_value = {"data": fake}
-            mock_get.return_value = resp
+            mock_get.return_value = {"data": fake}
             result = ov.treasury_yield_curve("2026-01-15")
         assert isinstance(result, list)
         assert result[0]["term_to_maturity"] == "1 Month"
         assert result[1]["rate"] == 4.5
 
+    def test_rejects_invalid_date(self):
+        with pytest.raises(ValueError, match="YYYY-MM-DD"):
+            ov.treasury_yield_curve("2026/01/15")
+
 
 class TestFinraSHO:
-    def test_daily_returns_records(self):
+    def test_daily_returns_aggregate_without_stock_list(self):
         csv_text = """trading_symbol,short_volume,total_volume
 AAPL,12000000,50000000
 TSLA,8000000,40000000
@@ -156,9 +165,11 @@ TSLA,8000000,40000000
             resp.text = csv_text
             mock_get.return_value = resp
             rows = ov.finra_sho_daily("2026-01-15")
-        assert len(rows) == 2
-        assert rows[0]["trading_symbol"] == "AAPL"
-        assert rows[0]["date"] == "2026-01-15"
+        assert rows["record_count"] == 2
+        assert rows["short_volume"] == 20000000.0
+        assert rows["total_volume"] == 90000000.0
+        assert rows["date"] == "2026-01-15"
+        assert "trading_symbol" not in rows
 
     def test_short_ratio_computes(self):
         csv_text = "trading_symbol,short_volume,total_volume\nAAPL,2000,8000"
@@ -212,13 +223,34 @@ class TestEdgarSubmissions:
         with pytest.raises(ValueError, match="无效"):
             ov.edgar_submissions("!!BAD!!")
 
+    def test_xbrl_companyfacts_are_normalized(self):
+        facts = {
+            "facts": {
+                "us-gaap": {
+                    "NetIncomeLoss": {
+                        "units": {
+                            "USD": [{
+                                "end": "2025-12-31", "fy": 2025, "fp": "FY",
+                                "form": "10-K", "filed": "2026-02-01", "val": 123,
+                            }]
+                        }
+                    }
+                }
+            }
+        }
+        with patch("nasdx.overseas_sources.edgar_cik_lookup", return_value="0000320192"), patch(
+            "nasdx.overseas_sources._official_get", return_value=facts
+        ):
+            result = ov.edgar_xbrl_indicators("AAPL", tags=["NetIncomeLoss"], period="FY", years=3)
+        row = result["indicators"]["NetIncomeLoss"][0]
+        assert row["value"] == 123
+        assert row["unit"] == "USD"
+
 
 class TestCboeOptionChain:
     def test_calls_api_with_ticker(self):
         with patch("nasdx.overseas_sources._official_get") as mock_get:
-            resp = MagicMock()
-            resp.json.return_value = {"ticker": "AAPL", "calls": [], "puts": []}
-            mock_get.return_value = resp
+            mock_get.return_value = {"ticker": "AAPL", "calls": [], "puts": []}
             result = ov.cboe_option_chain("AAPL", expiration="2026-02-21")
         assert result["ticker"] == "AAPL"
         call_url = mock_get.call_args[0][0]

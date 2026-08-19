@@ -15,6 +15,7 @@ import re
 import time
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Iterable
 
 import requests
@@ -23,12 +24,35 @@ import requests
 ComplianceLevel = str  # "S" | "B" | "C"
 
 # ── SEC User-Agent（环境变量，未配置时在调用时抛 RuntimeError）────────────
-_DEFAULT_SEC_UA = "NASDX Auto-Research Bot <nasdx@local>"
+_CACHE_TTL_SECONDS = 300
+_CACHE: dict[str, tuple[float, Any]] = {}
+_CACHE_LOCK = threading.Lock()
 
 
 def _get_sec_contact() -> str:
     val = os.environ.get("SEC_CONTACT", "").strip()
-    return val if val else _DEFAULT_SEC_UA
+    if not val or "@" not in val:
+        raise RuntimeError("SEC_CONTACT 未配置；请设置真实的组织名和联系邮箱后重试")
+    return val
+
+
+def _cache_get(key: str) -> Any | None:
+    with _CACHE_LOCK:
+        item = _CACHE.get(key)
+        if item is None:
+            return None
+        expires_at, value = item
+        if time.monotonic() >= expires_at:
+            _CACHE.pop(key, None)
+            return None
+        return value
+
+
+def _cache_set(key: str, value: Any) -> None:
+    if value in (None, [], {}):
+        return
+    with _CACHE_LOCK:
+        _CACHE[key] = (time.monotonic() + _CACHE_TTL_SECONDS, value)
 
 
 # ── 线程安全限流器 ─────────────────────────────────────────────────────────
@@ -85,7 +109,7 @@ def _official_get(
     headers: dict[str, str] | None = None,
     timeout: int = 30,
     as_json: bool = False,
-) -> requests.Response:
+) -> Any:
     """
     官方源统一出口：自动节流 + UA 处理 + 友好错误。
 
@@ -133,7 +157,7 @@ def _official_get(
         raise RuntimeError(f"HTTP {code} {url[:80]} — {hint}") from exc
     except requests.RequestException as exc:
         raise RuntimeError(f"请求失败 {url[:80]} — {type(exc).__name__}: {exc}") from exc
-    return r
+    return r.json() if as_json else r
 
 
 # ── 合规标注装饰器 ──────────────────────────────────────────────────────────
@@ -172,30 +196,18 @@ def edgar_cik_lookup(ticker: str) -> str:
     返回格式：补零至 10 位的 CIK 字符串，例如 "0000320192"（AAPL）。
     查不到返回空串。
     """
-    t = str(ticker).upper().strip()
-    url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={t}&type=&date=&owner=include&count=40&search_text=&action=submit"
-    # 更直接的方式：CIK lookup API
-    url = f"https://efts.sec.gov/LATEST/search-index?q={t}&limit=1&apikey=default"
-    # 标准做法：访问 company index 页面解析
-    # 这里使用 EDGAR 官方 CIK lookup endpoint
-    url = f"https://www.sec.gov/Archives/edgar/cik Lookup?company={t}"
-    # 用更可靠的：company search
-    resp = _official_get(
-        f"https://efts.sec.gov/LATEST/search-index?q={t}&limit=1",
-        as_json=False,
-    )
-    # 简化处理：用 company name search 获取 CIK
-    # 实际生产建议用 sec-edgar-downloader 库，此处手写兼容
-    resp_text = resp.text
-    # 解析 JSON
-    try:
-        data = resp.json()
-        items = data.get("results", [])
-        if items:
-            # 取第一个匹配
-            return items[0].get("cik_str", "")
-    except Exception:
-        pass
+    t = _check_us_ticker(ticker)
+    cache_key = f"sec_cik::{t}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return str(cached)
+    data = _official_get("https://www.sec.gov/files/company_tickers.json", as_json=True)
+    for item in data.values() if isinstance(data, dict) else []:
+        if str(item.get("ticker", "")).upper() == t:
+            cik = str(item.get("cik_str", "")).zfill(10)
+            if cik:
+                _cache_set(cache_key, cik)
+            return cik
     return ""
 
 
@@ -274,8 +286,54 @@ def edgar_xbrl_indicators(
     """
     t = str(ticker).upper().strip()
     _check_us_ticker(t)
-    # TODO: 接入 sec-edgar-downloader 或 xml 解析链
-    return {"ticker": t, "note": "XBRL 解析链路待对接下游工具链"}
+    cik = edgar_cik_lookup(t)
+    if not cik:
+        return {"ticker": t, "cik": "", "period": period, "indicators": {}}
+    selected_tags = list(tags or (
+        "Revenues",
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "NetIncomeLoss",
+        "EarningsPerShareDiluted",
+        "Assets",
+        "StockholdersEquity",
+    ))
+    cache_key = f"sec_xbrl::{cik}::{period}::{years}::{','.join(selected_tags)}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    facts = _official_get(
+        f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
+        as_json=True,
+    )
+    us_gaap = (facts.get("facts") or {}).get("us-gaap") or {}
+    current_year = datetime.utcnow().year
+    indicators: dict[str, list[dict[str, Any]]] = {}
+    for tag in selected_tags:
+        fact = us_gaap.get(tag) or {}
+        rows: list[dict[str, Any]] = []
+        for unit, entries in (fact.get("units") or {}).items():
+            for entry in entries or []:
+                fiscal_year = entry.get("fy")
+                if period and entry.get("fp") != period:
+                    continue
+                if isinstance(fiscal_year, int) and fiscal_year < current_year - max(int(years), 1) - 1:
+                    continue
+                rows.append({
+                    "end": entry.get("end"),
+                    "fy": fiscal_year,
+                    "fp": entry.get("fp"),
+                    "form": entry.get("form"),
+                    "filed": entry.get("filed"),
+                    "value": entry.get("val"),
+                    "unit": unit,
+                })
+        if rows:
+            rows.sort(key=lambda row: (str(row.get("end") or ""), str(row.get("filed") or "")), reverse=True)
+            indicators[tag] = rows
+    result = {"ticker": t, "cik": cik, "period": period, "indicators": indicators}
+    if indicators:
+        _cache_set(cache_key, result)
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -295,15 +353,23 @@ def treasury_yield_curve(date: str | None = None) -> list[dict[str, Any]]:
     """
     params: dict[str, Any] = {}
     if date:
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("date 必须是 YYYY-MM-DD") from None
         params["filters"] = f"effective_date eq {date}"
     else:
         params["sort"] = "-effective_date"
         params["page"] = "1"
         params["page_size"] = "1"
 
-    resp = _official_get(_TREASURY_URL, params=params, as_json=True)
-    records = resp.get("data", [])
-    return [
+    cache_key = f"treasury::{date or 'latest'}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    data = _official_get(_TREASURY_URL, params=params, as_json=True)
+    records = data.get("data", [])
+    result = [
         {
             "effective_date": r.get("effective_date"),
             "term_to_maturity": r.get("term_to_maturity"),
@@ -311,6 +377,9 @@ def treasury_yield_curve(date: str | None = None) -> list[dict[str, Any]]:
         }
         for r in records
     ]
+    if result:
+        _cache_set(cache_key, result)
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -336,6 +405,10 @@ def cot_report(ticker_or_futures: str | None = None, week_ending: str | None = N
     params: dict[str, Any] = {}
     if week_ending:
         params["weekEnding"] = week_ending
+    cache_key = f"cftc::{ticker_or_futures or 'all'}::{week_ending or 'latest'}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     resp = _official_get(csv_url, params=params, as_json=False)
     import csv
     from io import StringIO
@@ -344,6 +417,8 @@ def cot_report(ticker_or_futures: str | None = None, week_ending: str | None = N
     if ticker_or_futures:
         ft = str(ticker_or_futures).upper()
         rows = [r for r in rows if ft in str(r.get("Futures+Options", ""))]
+    if rows:
+        _cache_set(cache_key, rows)
     return rows
 
 
@@ -354,7 +429,33 @@ _FINRA_BASE = "https://www.finra.org"
 _FINRA_SHO = f"{_FINRA_BASE}/about-finra/industry-structure/transparency/short-sale-data"
 
 
-def finra_sho_daily(date: str) -> list[dict[str, Any]]:
+def _finra_sho_rows(date: str) -> list[dict[str, Any]]:
+    """Fetch raw Reg SHO rows for internal single-ticker lookup/aggregation."""
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError("date 必须是 YYYY-MM-DD") from None
+    cache_key = f"finra_sho::{date}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    compact_date = date.replace("-", "")
+    url = f"https://app.finra.org/AppInfo/Query/Downloads/{compact_date}_SHO.csv"
+    try:
+        resp = _official_get(url, as_json=False)
+    except requests.HTTPError as exc:
+        if _is_object_missing(exc.response):
+            return []
+        raise
+    import csv
+    from io import StringIO
+    rows = list(csv.DictReader(StringIO(resp.text)))
+    if rows:
+        _cache_set(cache_key, rows)
+    return rows
+
+
+def finra_sho_daily(date: str) -> dict[str, Any]:
     """
     全市场日度卖空成交量（FINRA Reg SHO 数据文件）。
 
@@ -363,29 +464,18 @@ def finra_sho_daily(date: str) -> list[dict[str, Any]]:
     参数：
       date: YYYY-MM-DD（FINRA 通常在 T+1 发布前一天数据）
 
-    返回：完整 12k+ 标的列表（合规红线：零个股名输出到外部 UI）
+    返回全市场聚合计数与成交量；不返回股票代码、名称、名单或排名。
     """
-    # FINRA 数据文件托管在 S3
-    url = f"https://app.finra.org/AppInfo/Query/Downloads/{date.replace("-", "")}_SHO.csv"
-    try:
-        resp = _official_get(url, as_json=False)
-    except RuntimeError as exc:
-        # 该日可能尚未发布或非交易日 → 返回空列表（不抛）
-        if "资源不存在" in str(exc):
-            return []
-        raise
-    import csv
-    from io import StringIO
-    reader = csv.DictReader(StringIO(resp.text))
-    return [
-        {
-            "trading_symbol": r.get("trading_symbol", ""),
-            "short_volume": r.get("short_volume", ""),
-            "total_volume": r.get("total_volume", ""),
-            "date": date,
-        }
-        for r in reader
-    ]
+    rows = _finra_sho_rows(date)
+    short_volume = sum(_safe_float(row.get("short_volume")) for row in rows)
+    total_volume = sum(_safe_float(row.get("total_volume")) for row in rows)
+    return {
+        "date": date,
+        "record_count": len(rows),
+        "short_volume": short_volume,
+        "total_volume": total_volume,
+        "short_ratio": (short_volume / total_volume) if total_volume else None,
+    }
 
 
 def finra_sho_short_ratio(ticker: str, date: str | None = None) -> float | None:
@@ -395,7 +485,7 @@ def finra_sho_short_ratio(ticker: str, date: str | None = None) -> float | None:
     返回 0~1 之间的 float；查不到返回 None。
     """
     d = date or _today_str()
-    rows = finra_sho_daily(d)
+    rows = _finra_sho_rows(d)
     for r in rows:
         if r.get("trading_symbol", "").upper() == str(ticker).upper():
             try:
@@ -426,17 +516,23 @@ def cboe_option_chain(ticker: str, expiration: str | None = None) -> dict[str, A
     _check_us_ticker(t)
     exp = expiration or ""
     url = f"{_CBOE_CDN}/{t}/optionchain/{exp}"
-    resp = _official_get(url, as_json=True)
-    return resp
+    cache_key = f"cboe::{t}::{exp or 'nearest'}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    data = _official_get(url, as_json=True)
+    if data:
+        _cache_set(cache_key, data)
+    return data
 
 
-def cboe_0dte_flow(ticker: str) -> list[dict[str, Any]]:
+def cboe_0dte_flow(ticker: str) -> dict[str, Any]:
     """
-    0DTE 期权异动 flow（近 30 分钟大单流）。
+    当日到期期权链客观快照。
 
     ⚠️ 合规 C 级：仅限个人研究。
     """
-    return cboe_option_chain(ticker)
+    return cboe_option_chain(ticker, expiration=_today_str())
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -476,6 +572,10 @@ def yahoo_quote_summary(ticker: str, modules: list[str] | None = None) -> dict[s
         "financialData", "summaryDetail", "quoteType",
         "defaultKeyStatistics", "assetProfile",
     ]
+    cache_key = f"yahoo_summary::{t}::{','.join(mods)}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     s = _get_yahoo_session()
     r = s.get(
         f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{t}",
@@ -484,7 +584,10 @@ def yahoo_quote_summary(ticker: str, modules: list[str] | None = None) -> dict[s
     )
     r.raise_for_status()
     results = r.json().get("quoteSummary", {}).get("result", [{}])
-    return results[0] if results else {}
+    result = results[0] if results else {}
+    if result:
+        _cache_set(cache_key, result)
+    return result
 
 
 def yahoo_kline(ticker: str, period1: str, period2: str, interval: str = "1d") -> list[dict[str, Any]]:
@@ -499,6 +602,10 @@ def yahoo_kline(ticker: str, period1: str, period2: str, interval: str = "1d") -
     """
     t = str(ticker).upper().strip()
     _check_us_ticker(t)
+    cache_key = f"yahoo_kline::{t}::{period1}::{period2}::{interval}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     s = _get_yahoo_session()
     r = s.get(
         f"https://query1.finance.yahoo.com/v8/finance/chart/{t}",
@@ -515,7 +622,7 @@ def yahoo_kline(ticker: str, period1: str, period2: str, interval: str = "1d") -
     highs = ind.get("quote", [{}])[0].get("high", []) or []
     lows = ind.get("quote", [{}])[0].get("low", []) or []
     vols = ind.get("quote", [{}])[0].get("volume", []) or []
-    return [
+    rows = [
         {
             "time": int(ts),
             "open": opens[i] if i < len(opens) else None,
@@ -527,6 +634,9 @@ def yahoo_kline(ticker: str, period1: str, period2: str, interval: str = "1d") -
         for i, ts in enumerate(timestamps)
         if i < len(closes)
     ]
+    if rows:
+        _cache_set(cache_key, rows)
+    return rows
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -545,6 +655,13 @@ def _check_us_ticker(ticker: str) -> str:
 def _today_str() -> str:
     from datetime import date
     return date.today().isoformat()
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(str(value or "0").replace(",", ""))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
