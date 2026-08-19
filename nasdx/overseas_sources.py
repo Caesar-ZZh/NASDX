@@ -11,12 +11,12 @@
 from __future__ import annotations
 
 import os
-import re
 import time
 import threading
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Iterable
+from urllib.parse import urlparse
 
 import requests
 
@@ -84,8 +84,11 @@ _LIMITS: dict[str, _RateLimiter] = {
 
 
 def _limiter_for(url: str) -> _RateLimiter:
+    hostname = (urlparse(url).hostname or "").lower()
     for host, lim in _LIMITS.items():
-        if host != "_default" and host in url:
+        if host != "_default" and (
+            hostname == host or hostname.endswith(f".{host}")
+        ):
             return lim
     return _LIMITS["_default"]
 
@@ -119,7 +122,8 @@ def _official_get(
     """
     _limiter_for(url).wait()
 
-    is_sec = "sec.gov" in url
+    hostname = (urlparse(url).hostname or "").lower()
+    is_sec = hostname == "sec.gov" or hostname.endswith(".sec.gov")
     ua = _get_sec_contact() if is_sec else (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -172,12 +176,6 @@ def _compliance(level: ComplianceLevel, source: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 # SEC EDGAR
 # ═══════════════════════════════════════════════════════════════════════════
-_SEC_BASE = "https://www.sec.gov"
-_EDGAR_FTS = f"{_SEC_BASE}//cgi-bin/browse-edgar/"
-_EDGAR_XML = f"{_SEC_BASE}/Archives/edgar/full-index/"
-_XBRL_API = f"{_SEC_BASE}/cgi-bin/browse-edgar/"
-
-
 @dataclass(frozen=True)
 class EdgartechSubmission:
     """SEC 申报条目（10-K / 10-Q / 8-K / 4 / 13F-HR / 144 等）"""
@@ -385,11 +383,6 @@ def treasury_yield_curve(date: str | None = None) -> list[dict[str, Any]]:
 # ═══════════════════════════════════════════════════════════════════════════
 # CFTC COT 持仓报告（S 级 · 美国政府数据）
 # ═══════════════════════════════════════════════════════════════════════════
-_CFTC_URL = "https://www.cftc.gov/dea/newcot/NewCots.xlsx"
-# CFTC 同时提供 CSV：
-_CFTC_CSV = "https://www.cftc.gov/PressRoom/PressReleases/prcots-0.htm"
-
-
 def cot_report(ticker_or_futures: str | None = None, week_ending: str | None = None) -> list[dict[str, Any]]:
     """
     CFTC  Commitments of Traders (COT) 持仓报告。
@@ -425,10 +418,6 @@ def cot_report(ticker_or_futures: str | None = None, week_ending: str | None = N
 # ═══════════════════════════════════════════════════════════════════════════
 # FINRA Reg SHO 卖空成交量（B 级 · 自律组织，商用前须确认）
 # ═══════════════════════════════════════════════════════════════════════════
-_FINRA_BASE = "https://www.finra.org"
-_FINRA_SHO = f"{_FINRA_BASE}/about-finra/industry-structure/transparency/short-sale-data"
-
-
 def _finra_sho_rows(date: str) -> list[dict[str, Any]]:
     """Fetch raw Reg SHO rows for internal single-ticker lookup/aggregation."""
     try:
@@ -538,13 +527,13 @@ def cboe_0dte_flow(ticker: str) -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════════
 # Yahoo Finance（C 级 · 个人研究）
 # ═══════════════════════════════════════════════════════════════════════════
-_YAHOO_SESSION: requests.Session | None = None
+_YAHOO_STATE: dict[str, requests.Session | None] = {"session": None}
 
 
 def _get_yahoo_session() -> requests.Session:
-    global _YAHOO_SESSION
-    if _YAHOO_SESSION and hasattr(_YAHOO_SESSION, "_crumb"):
-        return _YAHOO_SESSION
+    session = _YAHOO_STATE["session"]
+    if session and hasattr(session, "_crumb"):
+        return session
     s = requests.Session()
     s.headers["User-Agent"] = (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -554,7 +543,7 @@ def _get_yahoo_session() -> requests.Session:
     r = s.get("https://query2.finance.yahoo.com/v1/test/getcrumb", timeout=10)
     r.raise_for_status()
     s._crumb = r.text
-    _YAHOO_SESSION = s
+    _YAHOO_STATE["session"] = s
     return s
 
 

@@ -22,7 +22,7 @@ import nasdx.overseas_sources as ov
 @pytest.fixture(autouse=True)
 def _isolate_module_state(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(ov, "_CACHE", {})
-    monkeypatch.setattr(ov, "_YAHOO_SESSION", None)
+    monkeypatch.setattr(ov, "_YAHOO_STATE", {"session": None})
 
 
 class TestComplianceMap:
