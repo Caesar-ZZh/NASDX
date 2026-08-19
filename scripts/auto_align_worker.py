@@ -88,7 +88,7 @@ def resolve_llm_creds():
     base = os.environ.get("LLM_BASE_URL") or os.environ.get("NASDX_BASE_URL")
     key = os.environ.get("LLM_API_KEY") or os.environ.get("NASDX_API_KEY")
     model = (os.environ.get("LLM_MODEL") or os.environ.get("NASDX_MODEL")
-             or "deepseek-chat")
+             or "agnes-2.5-flash")
     # 复用项目自带配置解析器（最权威，覆盖 APPDATA / 显式路径 / 仓库根）
     try:
         import importlib.util
@@ -124,7 +124,9 @@ def call_llm(system, user, model, base_url, api_key, timeout=600):
             {"role": "user", "content": user},
         ],
         "temperature": 0.2,
-        "max_tokens": 8000,
+        # 推理模型会把大量 token 消耗在 reasoning_content 上，
+        # 留给最终 content（代码 JSON）的预算必须足够大，否则 JSON 会被截断。
+        "max_tokens": 24000,
     }
     # 尽量要求 JSON 输出（部分 OpenAI 兼容端点支持）
     try:
@@ -247,17 +249,19 @@ def compile_gate(paths, base_dir):
     return True
 
 
-def run_contract_tests(key, base_dir):
-    """尽力运行与该 issue 对应的契约测试；缺失或失败仅告警，不阻断 PR。"""
+def run_contract_tests(written, base_dir):
+    """尽力运行本轮新增的契约测试；缺失或失败仅告警，不阻断 PR。
+
+    注意：以「本轮实际写入的测试文件」为准，而非用对齐键去硬匹配文件名
+    （模型生成的测试名形如 test_<模块>_contracts.py，不含 R1/N1 等键）。
+    """
     if not os.path.isdir(os.path.join(base_dir, "tests")):
         log("未找到 tests 目录（可选），跳过契约测试。")
         return
-    matches = []
-    for name in os.listdir(os.path.join(base_dir, "tests")):
-        if key.lower() in name and name.endswith("_contracts.py"):
-            matches.append(os.path.join("tests", name))
+    matches = [p for p in written
+               if p.startswith("tests/") and p.endswith("_contracts.py")]
     if not matches:
-        log("未找到对应契约测试（可选），跳过。")
+        log("本轮未生成契约测试（可选），跳过。")
         return
     for m in matches:
         r = run([sys.executable, "-m", "pytest", m, "-q"], check=False, cwd=base_dir)
@@ -418,7 +422,7 @@ def main():
                 validate_paths(all_items)
                 written = apply_files(all_items, wt)
                 compile_gate(written, wt)
-                run_contract_tests(key, wt)
+                run_contract_tests(written, wt)
                 if args.dry_run:
                     log(f"[dry-run] 已在隔离 worktree 生成 {len(written)} 个文件，"
                         f"未提交/未关 issue，正在清理 worktree。")
@@ -432,7 +436,10 @@ def main():
             except Exception as e:
                 # 异常时丢弃 worktree（连同其中生成的文件），主工作树不受影响
                 log(f"处理 #{num} 失败: {e}")
-                post_failure(num, e)
+                if not args.dry_run:
+                    post_failure(num, e)
+                else:
+                    log("[dry-run] 不向 GitHub 写任何评论/状态变更")
                 cleanup_worktree(num)
         except Exception as e:
             log(f"准备 worktree 失败 #{num}: {e}")
