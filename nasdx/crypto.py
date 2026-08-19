@@ -12,7 +12,7 @@ API 限频说明：
 from __future__ import annotations
 
 import logging
-import os
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -20,12 +20,45 @@ from typing import Any
 
 import requests
 
-from quant.data import _cache_get, _cache_set, _http_get
-
 logger = logging.getLogger(__name__)
 
 # 合规标注：统一附加到所有返回数据
 COMPLIANCE_NOTE = "境外交易所，仅供研究"
+_CACHE_TTL_SECONDS = 300
+_CACHE: dict[str, tuple[float, Any]] = {}
+_CACHE_LOCK = threading.Lock()
+
+
+def _cache_get(key: str) -> Any | None:
+    with _CACHE_LOCK:
+        item = _CACHE.get(key)
+        if item is None:
+            return None
+        expires_at, value = item
+        if time.monotonic() >= expires_at:
+            _CACHE.pop(key, None)
+            return None
+        return value
+
+
+def _cache_set(key: str, value: Any, ttl: int = _CACHE_TTL_SECONDS) -> None:
+    if value in (None, [], {}):
+        return
+    effective_ttl = min(max(int(ttl), 1), _CACHE_TTL_SECONDS)
+    with _CACHE_LOCK:
+        _CACHE[key] = (time.monotonic() + effective_ttl, value)
+
+
+def _http_get(
+    url: str,
+    *,
+    params: dict[str, Any] | None,
+    session: requests.Session,
+    timeout: int = 15,
+) -> Any:
+    response = session.get(url, params=params or {}, timeout=timeout)
+    response.raise_for_status()
+    return response.json()
 
 
 class Exchange(str, Enum):
@@ -42,10 +75,11 @@ class RateLimiter:
 
     def acquire(self, interval: float | None = None) -> None:
         """等待直到满足最小间隔"""
-        wait = (interval or self.min_interval) - (time.time() - self.last_request_time)
+        effective_interval = self.min_interval if interval is None else interval
+        wait = effective_interval - (time.monotonic() - self.last_request_time)
         if wait > 0:
             time.sleep(wait)
-        self.last_request_time = time.time()
+        self.last_request_time = time.monotonic()
 
 
 class CryptoDataClient:
@@ -72,7 +106,7 @@ class CryptoDataClient:
 
     def get_ticker_24hr(
         self,
-        exchange: Exchange,
+        exchange: Exchange | str,
         symbol: str | None = None,
         cache_ttl: int = 300,
     ) -> dict[str, Any]:
@@ -86,6 +120,7 @@ class CryptoDataClient:
         Returns:
             行情数据 dict，包含合规标注
         """
+        exchange = _coerce_exchange(exchange)
         cache_key = f"crypto_ticker_{exchange.value}_{symbol or 'all'}"
         cached = _cache_get(cache_key)
         if cached is not None:
@@ -97,12 +132,10 @@ class CryptoDataClient:
             data = self._get(base_url, params=params, limiter=self._binance_limiter)
             result = data if isinstance(data, list) else [data]
         elif exchange == Exchange.OKX:
-            base_url = "https://www.okx.com/api/v5/market/tickers"
-            params = {"instType": "SPOT"}
+            base_url = "https://www.okx.com/api/v5/market/ticker" if symbol else "https://www.okx.com/api/v5/market/tickers"
+            params = {"instType": "SPOT"} if not symbol else {}
             if symbol:
-                # OKX symbol 格式：BTC-USDT
-                inst_id = symbol.replace("USDT", "-USDT").replace("BTC", "BTC").replace("ETH", "ETH")
-                params["instId"] = inst_id
+                params["instId"] = _okx_symbol(symbol)
             data = self._get(base_url, params=params, limiter=self._okx_limiter)
             result = data.get("data", []) if isinstance(data, dict) else []
         else:
@@ -114,12 +147,13 @@ class CryptoDataClient:
             "data": result,
             "fetched_at": time.time(),
         }
-        _cache_set(cache_key, payload, ttl=cache_ttl)
+        if result:
+            _cache_set(cache_key, payload, ttl=cache_ttl)
         return payload
 
     def get_klines(
         self,
-        exchange: Exchange,
+        exchange: Exchange | str,
         symbol: str,
         interval: str = "1h",
         limit: int = 100,
@@ -137,6 +171,7 @@ class CryptoDataClient:
         Returns:
             K 线数据 dict，包含合规标注
         """
+        exchange = _coerce_exchange(exchange)
         cache_key = f"crypto_kline_{exchange.value}_{symbol}_{interval}_{limit}"
         cached = _cache_get(cache_key)
         if cached is not None:
@@ -162,7 +197,7 @@ class CryptoDataClient:
             result = klines
         elif exchange == Exchange.OKX:
             base_url = "https://www.okx.com/api/v5/market/candles"
-            okx_symbol = symbol.replace("USDT", "-USDT")
+            okx_symbol = _okx_symbol(symbol)
             okx_interval = interval.replace("m", "m").replace("h", "H").replace("d", "D")
             params = {"instId": okx_symbol, "bar": okx_interval, "limit": str(limit)}
             data = self._get(base_url, params=params, limiter=self._okx_limiter)
@@ -189,35 +224,51 @@ class CryptoDataClient:
             "klines": result,
             "fetched_at": time.time(),
         }
-        _cache_set(cache_key, payload, ttl=cache_ttl)
+        if result:
+            _cache_set(cache_key, payload, ttl=cache_ttl)
         return payload
 
-    def get_top_symbols(
+    def get_market_overview(
         self,
-        exchange: Exchange = Exchange.BINANCE,
+        exchange: Exchange | str = Exchange.BINANCE,
         cache_ttl: int = 300,
     ) -> dict[str, Any]:
-        """获取交易量 Top 交易对（客观数据展示，不排名推荐）
-
-        Returns:
-            按 24h 成交量排序的交易对列表，包含合规标注
-        """
+        """聚合 24h 市场概览，不返回交易对名单或排名。"""
+        exchange = _coerce_exchange(exchange)
         ticker_data = self.get_ticker_24hr(exchange, cache_ttl=cache_ttl)
         symbols = ticker_data.get("data", [])
-
-        # 过滤 USDT 交易对，按成交量降序（仅展示，非推荐）
-        filtered = [
-            s for s in symbols
-            if isinstance(s, dict) and s.get("symbol", "").endswith("USDT")
-        ]
-        sorted_symbols = sorted(filtered, key=lambda x: float(x.get("quoteVolume", 0) or 0), reverse=True)[:20]
-
+        filtered = [item for item in symbols if isinstance(item, dict)]
+        quote_volume = sum(
+            _safe_float(item.get("quoteVolume") or item.get("volCcy24h")) for item in filtered
+        )
         return {
             "exchange": exchange.value,
             "compliance_note": COMPLIANCE_NOTE,
-            "symbols": sorted_symbols,
-            "note": "按 24h 成交量排序展示，不构成任何投资建议",
+            "instrument_count": len(filtered),
+            "total_quote_volume_24h": round(quote_volume, 4),
+            "note": "仅为公开行情聚合，不含交易对名单或排名",
         }
+
+
+def _okx_symbol(symbol: str) -> str:
+    normalized = str(symbol).strip().upper()
+    if "-" in normalized:
+        return normalized
+    return f"{normalized[:-4]}-USDT" if normalized.endswith("USDT") else normalized
+
+
+def _coerce_exchange(exchange: Exchange | str) -> Exchange:
+    try:
+        return exchange if isinstance(exchange, Exchange) else Exchange(str(exchange).lower())
+    except ValueError:
+        raise ValueError(f"Unsupported exchange: {exchange}") from None
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def get_crypto_ticker(exchange: str, symbol: str | None = None) -> dict[str, Any]:
@@ -231,7 +282,7 @@ def get_crypto_ticker(exchange: str, symbol: str | None = None) -> dict[str, Any
         行情数据 dict
     """
     client = CryptoDataClient()
-    ex = Exchange.BINANCE if exchange.lower() == "binance" else Exchange.OKX
+    ex = Exchange(exchange.lower())
     return client.get_ticker_24hr(ex, symbol=symbol)
 
 
@@ -248,5 +299,5 @@ def get_crypto_klines(exchange: str, symbol: str, interval: str = "1h", limit: i
         K 线数据 dict
     """
     client = CryptoDataClient()
-    ex = Exchange.BINANCE if exchange.lower() == "binance" else Exchange.OKX
+    ex = Exchange(exchange.lower())
     return client.get_klines(ex, symbol=symbol, interval=interval, limit=limit)

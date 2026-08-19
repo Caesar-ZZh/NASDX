@@ -193,7 +193,7 @@ def test_rate_limiter_acquisition(client):
     limiter.acquire()
     second = time.time()
 
-    assert first - start >= 0.09  # 第一次应立即通过
+    assert first - start < 0.05  # 第一次应立即通过
     assert second - first >= 0.09  # 第二次应等待
 
 
@@ -258,25 +258,23 @@ def test_klines_cache(client):
             assert call_count == 0
 
 
-# ─── Top Symbols 测试 ────────────────────────────────────────────────────────
+# ─── 市场聚合测试 ───────────────────────────────────────────────────────────
 
-def test_top_symbols_structure(client, patched_cache):
-    """Top 交易对返回结构正确"""
+def test_market_overview_has_no_symbol_list(client, patched_cache):
+    """市场概览只聚合计数/成交额，不返回交易对名单或排名。"""
     multi_ticker = [BINANCE_TICKER_MOCK, {**BINANCE_TICKER_MOCK, "symbol": "ETHUSDT", "quoteVolume": "500000000.00"}]
 
     with patch.object(crypto_module.requests.Session, "get") as mock_get:
         mock_get.return_value.json.return_value = multi_ticker
         mock_get.return_value.status_code = 200
 
-        result = client.get_top_symbols(crypto_module.Exchange.BINANCE)
+        result = client.get_market_overview(crypto_module.Exchange.BINANCE)
 
         assert result["exchange"] == "binance"
         assert result["compliance_note"] == crypto_module.COMPLIANCE_NOTE
-        assert "note" in result
-        assert len(result["symbols"]) <= 20
-        # 按 quoteVolume 降序
-        if len(result["symbols"]) >= 2:
-            assert float(result["symbols"][0]["quoteVolume"]) >= float(result["symbols"][1]["quoteVolume"])
+        assert result["instrument_count"] == 2
+        assert result["total_quote_volume_24h"] == 1300000000.0
+        assert "symbols" not in result
 
 
 # ─── 便捷函数测试 ────────────────────────────────────────────────────────────
