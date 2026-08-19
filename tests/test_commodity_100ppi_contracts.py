@@ -59,6 +59,8 @@ def _zero_cache_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import nasdx.commodity_100ppi as m
     monkeypatch.setattr(m, "_cache_root", None)
     monkeypatch.setattr(m, "_last_req_at", 0.0)
+    monkeypatch.setattr(m, "MIN_INTERVAL_SEC", 0.0)
+    monkeypatch.setattr(m, "CATEGORY_WHITELIST", [])
     monkeypatch.setattr(m, "_cache_root_path", lambda: tmp_path)
     monkeypatch.setenv("NASDX_COMMODITY_CACHE_DIR", str(tmp_path))
     monkeypatch.setenv("NASDX_COMMODITY_CATEGORY_WHITELIST", "")
@@ -140,11 +142,11 @@ def test_prefix_hint_fills_name() -> None:
 def test_throttle_respects_interval() -> None:
     import nasdx.commodity_100ppi as m
     m.MIN_INTERVAL_SEC = 0.05
-    m._last_req_at = time.monotonic()
+    m._last_req_at = 0.0
     t0 = time.monotonic()
     m._throttle()
     t1 = time.monotonic()
-    # 第一次调用应几乎不等待 (因为 last 刚设)
+    # 第一次调用没有上一次请求，应立即通过。
     assert t1 - t0 < 0.04
     m._last_req_at = time.monotonic()
     t0 = time.monotonic()
@@ -184,6 +186,13 @@ def test_cache_no_save_on_none() -> None:
     # 不应报错, 且不生成文件 (由调用方保证)
 
 
+def test_cache_no_save_on_empty_list(tmp_path: Path) -> None:
+    import nasdx.commodity_100ppi as m
+    with patch.object(m, "_cache_root_path", return_value=tmp_path):
+        m._save_cache("empty", [])
+        assert not (tmp_path / "empty.json").exists()
+
+
 def test_filter_by_whitelist() -> None:
     import nasdx.commodity_100ppi as m
     m.CATEGORY_WHITELIST = ["AU", "CU"]
@@ -219,7 +228,7 @@ def test_to_summary_zero_recommendation() -> None:
 
 def test_fetch_list_network_mocked() -> None:
     import nasdx.commodity_100ppi as m
-    fake_resp = type("Resp", (), {"encoding": "utf-8", "apparent_encoding": "utf-8", "text": _FIXTURE_TABLE_HTML})()
+    fake_resp = type("Resp", (), {"encoding": "utf-8", "apparent_encoding": "utf-8", "text": _FIXTURE_TABLE_HTML, "raise_for_status": lambda self: None})()
     fake_session = type("Sess", (), {"get": lambda *a, **k: fake_resp})()
     with patch.object(m, "_session", return_value=fake_session):
         items = m.fetch_list(use_cache=False)
@@ -229,7 +238,7 @@ def test_fetch_list_network_mocked() -> None:
 
 def test_fetch_by_code_network_mocked() -> None:
     import nasdx.commodity_100ppi as m
-    fake_resp = type("Resp", (), {"encoding": "utf-8", "apparent_encoding": "utf-8", "text": _FIXTURE_TABLE_HTML})()
+    fake_resp = type("Resp", (), {"encoding": "utf-8", "apparent_encoding": "utf-8", "text": _FIXTURE_TABLE_HTML, "raise_for_status": lambda self: None})()
     fake_session = type("Sess", (), {"get": lambda *a, **k: fake_resp})()
     with patch.object(m, "_session", return_value=fake_session):
         item = m.fetch_by_code("cu")
@@ -239,7 +248,7 @@ def test_fetch_by_code_network_mocked() -> None:
 
 def test_fetch_by_code_empty() -> None:
     import nasdx.commodity_100ppi as m
-    fake_resp = type("Resp", (), {"encoding": "utf-8", "apparent_encoding": "utf-8", "text": "<html></html>"})()
+    fake_resp = type("Resp", (), {"encoding": "utf-8", "apparent_encoding": "utf-8", "text": "<html></html>", "raise_for_status": lambda self: None})()
     fake_session = type("Sess", (), {"get": lambda *a, **k: fake_resp})()
     with patch.object(m, "_session", return_value=fake_session):
         item = m.fetch_by_code("ZZZZ")
@@ -249,7 +258,8 @@ def test_fetch_by_code_empty() -> None:
 def test_fetch_fallback_api_structure() -> None:
     import nasdx.commodity_100ppi as m
     fake_resp = type("Resp", (), {
-        "json": lambda: {"Result": [{"code": "X", "name": "x", "latest": "1", "change_pct": "0"}], "State": 1}
+        "raise_for_status": lambda self: None,
+        "json": lambda self: {"Result": [{"code": "X", "name": "x", "latest": "1", "change_pct": "0"}], "State": 1}
     })()
     fake_session = type("Sess", (), {"get": lambda *a, **k: fake_resp})()
     with patch.object(m, "_session", return_value=fake_session):
@@ -266,7 +276,7 @@ def test_illegal_code_rejected() -> None:
 
 def test_main_cli_list_mocked(capsys: pytest.Capsys) -> None:
     import nasdx.commodity_100ppi as m
-    fake_resp = type("Resp", (), {"encoding": "utf-8", "apparent_encoding": "utf-8", "text": _FIXTURE_TABLE_HTML})()
+    fake_resp = type("Resp", (), {"encoding": "utf-8", "apparent_encoding": "utf-8", "text": _FIXTURE_TABLE_HTML, "raise_for_status": lambda self: None})()
     fake_session = type("Sess", (), {"get": lambda *a, **k: fake_resp})()
     with patch.object(m, "_session", return_value=fake_session):
         with patch("sys.argv", ["commodity_100ppi", "--list", "--json"]):
@@ -281,4 +291,4 @@ def test_summary_keys_are_safe() -> None:
     import nasdx.commodity_100ppi as m
     items: list[dict[str, object]] = []
     s = m.to_summary(items)
-    assert set(s.keys()) <= {"count", "update_time", "changes", "avg_change_pct", "top_gainers", "losers"}
+    assert set(s.keys()) == {"count", "update_time", "changes", "avg_change_pct"}

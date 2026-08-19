@@ -9,7 +9,7 @@
 - 报价接口 (非官方, 仅作兜底): https://quote.100ppi.com/service/getQuote.html
 
 限流: 串行 ≥1s / 请求, 避免触发反爬。
-缓存: 行情级 5min; 日度快照 30min; 空结果不缓存。
+缓存: 全部 5min; 空结果不缓存。
 
 凭据: 无。如需调整 User-Agent 可走环境变量 NASDX_COMMODITY_UA。
 
@@ -58,7 +58,7 @@ MIN_INTERVAL_SEC = float(os.getenv("NASDX_COMMODITY_MIN_INTERVAL", "1.0"))
 
 # 缓存 TTL (秒)
 _TTL_QUOTE = float(os.getenv("NASDX_COMMODITY_TTL_QUOTE", "300"))   # 5min
-_TTL_DAYLY = float(os.getenv("NASDX_COMMODITY_TTL_DAYLY", "1800"))  # 30min
+_TTL_DAYLY = min(float(os.getenv("NASDX_COMMODITY_TTL_DAYLY", "300")), 300.0)
 
 # 本地缓存目录 (相对项目根), 可通过环境变量覆盖
 _CACHE_DIR_ENV = os.getenv("NASDX_COMMODITY_CACHE_DIR")
@@ -84,9 +84,10 @@ def _cache_root_path() -> Path:
         raw = _CACHE_DIR_ENV or ""
         if raw:
             _cache_root = Path(raw)
+        elif os.getenv("LOCALAPPDATA"):
+            _cache_root = Path(os.environ["LOCALAPPDATA"]) / "NASDX" / "cache" / "commodity_100ppi"
         else:
-            # 默认放在项目根 / .cache/commodity_100ppi/
-            _cache_root = Path(__file__).resolve().parents[2] / ".cache" / "commodity_100ppi"
+            _cache_root = Path.home() / ".cache" / "nasdx" / "commodity_100ppi"
         _cache_root.mkdir(parents=True, exist_ok=True)
     return _cache_root
 
@@ -128,7 +129,7 @@ def _load_cache(suffix: str) -> Optional[Any]:
 
 
 def _save_cache(suffix: str, data: Any) -> None:
-    if data is None:
+    if data in (None, [], {}):
         return  # 空结果不缓存, 避免雪崩
     p = _cache_root_path() / f"{suffix}.json"
     try:
@@ -158,9 +159,14 @@ def _session() -> requests.Session:
     return _session
 
 
-def _get(url: str, *, timeout: tuple[int, int] = (8, 15)) -> requests.Response:
+def _get(
+    url: str,
+    *,
+    params: dict[str, object] | None = None,
+    timeout: tuple[int, int] = (8, 15),
+) -> requests.Response:
     _throttle()
-    resp = _session().get(url, timeout=timeout)
+    resp = _session().get(url, params=params or {}, timeout=timeout)
     resp.raise_for_status()
     return resp
 
@@ -272,13 +278,12 @@ def _extract_from_html(html: str) -> list[dict[str, Any]]:
     json_blocks = re.findall(r"var\s+data\s*=\s*(\[[^]]*\])", html)
     if not json_blocks:
         json_blocks = re.findall(r"\{[^{}]*\"code\"[^{}]*\}(?:,\s*\{[^{}]*\"code\"[^{}]*\})*", html)
-    if json_blocks:
-        raw = "[" + ",".join(json_blocks) + "]"
+    for block in json_blocks:
         try:
-            arr = json.loads(raw)
-            if isinstance(arr, list):
-                items = [_clean_row(r) for r in arr if isinstance(r, dict)]
-        except Exception as exc:
+            parsed = json.loads(block if block.lstrip().startswith("[") else f"[{block}]")
+            if isinstance(parsed, list):
+                items.extend(_clean_row(row) for row in parsed if isinstance(row, dict))
+        except (TypeError, json.JSONDecodeError) as exc:
             logger.debug("inline json parse error %r", exc, exc_info=True)
 
     # 策略2: 解析 <table> ... <tr> 行
@@ -341,6 +346,7 @@ def _clean_row(row: dict[str, Any]) -> dict[str, Any]:
             out[k] = v
     if not out.get("code"):
         return {}
+    out["code"] = _normalize_code(out["code"])
     # 补充品类提示
     if not out.get("name") or out["name"] == out["code"]:
         hint = _PREFIX_NAME_HINT.get(out["code"], "")
@@ -440,8 +446,6 @@ def fetch_by_code(code: str, *, cache_suffix: str = "quote") -> Optional[dict[st
             if _normalize_code(str(it.get("code", ""))) == c:
                 item = it
                 break
-        if item is None and items:
-            item = items[0]
         if item:
             _save_cache(key, item)
         return item
@@ -491,9 +495,9 @@ def to_summary(items: Iterable[dict[str, Any]]) -> dict[str, Any]:
     """对列表做聚合统计 (仅客观摘要, 不排名/不推荐)。
 
     返回:
-        {"count": int, "update_time": str, "changes": {"up": int, "down": int, "flat": int},
-         "avg_change_pct": float|None, "top_gainers": [...], "losers": [...]}.
-        其中 top_gainers/losers 各保留最多 10 条 (仅用于数据展示, 非推荐)。
+        {"count": int, "update_time": str,
+         "changes": {"up": int, "down": int, "flat": int},
+         "avg_change_pct": float|None}。
     """
     rows = list(items)
     up = down = flat = 0
@@ -510,14 +514,11 @@ def to_summary(items: Iterable[dict[str, Any]]) -> dict[str, Any]:
             flat += 1
         sums.append(p)
     avg = (sum(sums) / len(sums)) if sums else None
-    by_pct = sorted(rows, key=lambda r: (r.get("change_pct") or 0.0), reverse=True)
     return {
         "count": len(rows),
         "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "changes": {"up": up, "down": down, "flat": flat},
         "avg_change_pct": round(avg, 4) if avg is not None else None,
-        "top_gainers": by_pct[:10],
-        "losers": by_pct[-10:][::-1],
     }
 
 
