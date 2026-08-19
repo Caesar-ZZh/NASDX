@@ -64,6 +64,9 @@ def _read_cache(key: str) -> Any | None:
 
 
 def _write_cache(key: str, value: Any, ttl_sec: int = 1800) -> None:
+    if value in (None, [], {}):
+        return
+    ttl_sec = min(int(ttl_sec), 300)
     now = time.time()
     payload = {
         "ts": now,
@@ -85,7 +88,7 @@ def _load_cache(key: str, ttl_sec: int = 1800) -> Any | None:
     if val is None:
         return None
     if isinstance(val, dict) and "ts" in val:
-        if time.time() - val["ts"] > ttl_sec:
+        if time.time() - val["ts"] > min(int(ttl_sec), 300):
             return None
         return val.get("value")
     return val
@@ -183,7 +186,7 @@ def margin_trading(code: str, days: int = 120) -> list[dict[str, Any]]:
         out = em_get(params, timeout=20)
         rows = _ensure_list(out.get("result") or out.get("data"))
         result = []
-        for r in rows[-days:]:
+        for r in rows[:days]:
             result.append({
                 "date": str(r.get("TRADE_DATE", ""))[:10],
                 "code": str(r.get("SECURITY_CODE", code)),
@@ -341,7 +344,7 @@ def stock_fund_flow_120d(code: str) -> list[dict[str, Any]]:
         result = []
         for line in klines[-120:]:
             cols = str(line).split(",")
-            if len(cols) < 17:
+            if len(cols) < 11:
                 continue
             result.append({
                 "date": cols[0][:10],
@@ -438,11 +441,8 @@ def lockup_expiry(code: str, limit: int = 30) -> list[dict[str, Any]]:
         return []
 
 
-def sector_stock_list(sector: str, limit: int = 200) -> list[dict[str, Any]]:
-    """板块成分股列表（板块关键词模糊匹配）。
-
-    返回 [code, name, price, change_pct, mcap] 客观快照，不做选股排序。
-    """
+def sector_overview(sector: str, limit: int = 200) -> dict[str, Any]:
+    """板块聚合快照；不返回个股代码、名称、名单或排名。"""
     key = _cache_key("sector_list", sector, limit)
     cached = _load_cache(key, ttl_sec=300)
     if cached is not None:
@@ -462,19 +462,33 @@ def sector_stock_list(sector: str, limit: int = 200) -> list[dict[str, Any]]:
         }
         out = em_get(params, timeout=20)
         rows = _ensure_list(out.get("result") or out.get("data"))
-        result = []
-        for r in rows[:limit]:
-            result.append({
-                "code": str(r.get("SECURITY_CODE", "")),
-                "name": str(r.get("SECURITY_NAME_ABB", "")),
-                "price": _safe_float(r.get("PRICE")),
-                "change_pct": _safe_float(r.get("CHANGE_RATE")),
-                "mcap_yi": _safe_float(r.get("LATEST_MCAP")) / 1e8,
-            })
-        _write_cache(key, result, ttl_sec=300)
+        selected = rows[:limit]
+        changes = [_safe_float(r.get("CHANGE_RATE")) for r in selected]
+        result = {
+            "sector": sector,
+            "constituent_count": len(selected),
+            "up_count": sum(value > 0 for value in changes),
+            "down_count": sum(value < 0 for value in changes),
+            "flat_count": sum(value == 0 for value in changes),
+            "avg_change_pct": round(sum(changes) / len(changes), 4) if changes else None,
+            "total_mcap_yi": round(
+                sum(_safe_float(r.get("LATEST_MCAP")) for r in selected) / 1e8,
+                4,
+            ),
+        }
+        if selected:
+            _write_cache(key, result, ttl_sec=300)
         return result
     except Exception:
-        return []
+        return {
+            "sector": sector,
+            "constituent_count": 0,
+            "up_count": 0,
+            "down_count": 0,
+            "flat_count": 0,
+            "avg_change_pct": None,
+            "total_mcap_yi": 0.0,
+        }
 
 
 def hot_concepts(days: int = 5, limit: int = 50) -> list[dict[str, Any]]:
@@ -510,7 +524,6 @@ def hot_concepts(days: int = 5, limit: int = 50) -> list[dict[str, Any]]:
             result.append({
                 "name": str(r.get("name") or r.get("conceptName") or ""),
                 "change_pct": _safe_float(r.get("changePercent") or r.get("zdf")),
-                "lead_stock": str(r.get("leaderName") or r.get("topStock") or ""),
                 "count": _safe_int(r.get("count") or r.get("stockCount")),
             })
         _write_cache(key, result, ttl_sec=300)
@@ -614,7 +627,7 @@ def get_margin_trading_summary(code: str, days: int = 120) -> dict[str, Any]:
 def get_fund_flow_summary(code: str, days: int = 60) -> dict[str, Any]:
     """资金流简要汇总。"""
     rows = stock_fund_flow_120d(code)
-    rows = rows[-days:]
+    rows = rows[:days]
     if not rows:
         return {"code": code, "days": days, "rows": 0, "note": "no data"}
     main = [r["main_net_inflow"] for r in rows]

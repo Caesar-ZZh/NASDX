@@ -22,25 +22,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
-FAKE_CACHE_ROOT = Path(__file__).resolve().parent / ".tmp_cache_fund_flow_em"
-
-
 def _setup_mocked_module() -> tuple:
-    # 强制注入缓存目录与限流，避免真实网络与串行等待影响单测速度
-    env_patch = {
-        "NASDX_DATA_CACHE": str(FAKE_CACHE_ROOT),
-        "EM_GET_RATE_SEC": "0.0",
-    }
     mod = __import__("nasdx.fund_flow_eastmoney", fromlist=[
         "margin_trading", "block_trade", "holder_num_change",
         "dividend_history", "stock_fund_flow_120d",
         "dragon_tiger_board", "lockup_expiry",
-        "sector_stock_list", "hot_concepts", "investor_qa",
+        "sector_overview", "hot_concepts", "investor_qa",
         "get_margin_trading_summary", "get_fund_flow_summary",
         "get_dividend_yield_summary", "get_all_fundamentals",
         "em_get",
     ])
-    return mod, env_patch
+    return mod, {}
 
 
 def _fake_em_get_response(rows: list[dict]) -> dict:
@@ -169,11 +161,13 @@ def _fixture_interactive_qa() -> list[dict]:
 
 
 @pytest.fixture(autouse=True)
-def _clean_fake_cache():
-    FAKE_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+def _isolated_cache(tmp_path, monkeypatch):
+    import nasdx.fund_flow_eastmoney as mod
+
+    monkeypatch.setattr(mod, "_CACHE_DIR", tmp_path / "cache")
+    monkeypatch.setattr(mod, "_EM_RATE_SEC", 0.0)
+    monkeypatch.setattr(mod, "_last_em_ts", 0.0)
     yield
-    import shutil
-    shutil.rmtree(FAKE_CACHE_ROOT, ignore_errors=True)
 
 
 class TestEmGet:
@@ -315,16 +309,22 @@ class TestLockupExpiry:
         assert abs(out[0]["ratio"] - 5.2) < 0.01
 
 
-class TestSectorStockList:
-    def test_filters_by_sector_keyword(self):
+class TestSectorOverview:
+    def test_filters_by_sector_keyword_without_stock_list(self):
         mod, _ = _setup_mocked_module()
-        fake = _fake_em_get_response([])
+        fake = _fake_em_get_response([
+            {"SECURITY_CODE": "000001", "SECURITY_NAME_ABB": "示例", "CHANGE_RATE": "2", "LATEST_MCAP": "100000000"},
+            {"SECURITY_CODE": "000002", "SECURITY_NAME_ABB": "示例2", "CHANGE_RATE": "-1", "LATEST_MCAP": "200000000"},
+        ])
         with patch("nasdx.fund_flow_eastmoney.em_get") as m:
             m.return_value = fake
-            out = mod.sector_stock_list("白酒")
-        call_params = m.call_args[1]["params"]
+            out = mod.sector_overview("白酒")
+        call_params = m.call_args.args[0]
         assert "白酒" in call_params["filter"]
-        assert out == []
+        assert out["constituent_count"] == 2
+        assert out["up_count"] == 1
+        assert out["down_count"] == 1
+        assert "code" not in out and "name" not in out
 
 
 class TestHotConcepts:
@@ -340,7 +340,7 @@ class TestHotConcepts:
         assert len(out) == 1
         assert out[0]["name"] == "人工智能"
         assert abs(out[0]["change_pct"] - 3.2) < 0.01
-        assert out[0]["lead_stock"] == "中科曙光"
+        assert "lead_stock" not in out[0]
 
 
 class TestInvestorQa:
@@ -375,7 +375,10 @@ class TestInvestorQa:
 class TestSummaries:
     def test_margin_trading_summary_structure(self):
         mod, _ = _setup_mocked_module()
-        fake = _fixture_margin_trading()
+        fake = [
+            {"date": "2025-06-01", "fin_balance": 1200000000.0, "rto_balance": 30000000.0, "fin_net_buy": 50000000.0},
+            {"date": "2025-05-31", "fin_balance": 1150000000.0, "rto_balance": 32000000.0, "fin_net_buy": 30000000.0},
+        ]
         with patch.object(mod, "margin_trading", return_value=fake):
             out = mod.get_margin_trading_summary("600519", days=10)
         assert out["code"] == "600519"
@@ -404,7 +407,12 @@ class TestSummaries:
 
     def test_dividend_summary_structure(self):
         mod, _ = _setup_mocked_module()
-        fake = _fixture_dividend()
+        fake = [{
+            "public_date": "2025-04-10",
+            "per_share_bonus": 0.0,
+            "per_share_transfer": 0.0,
+            "per_share_dividend": 1.8888,
+        }]
         with patch.object(mod, "dividend_history", return_value=fake):
             out = mod.get_dividend_yield_summary("600519", years=5)
         assert out["rows"] == 1
@@ -428,6 +436,11 @@ class TestSummaries:
 
 
 class TestCacheBehavior:
+    def test_empty_results_are_not_cached(self, tmp_path):
+        mod, _ = _setup_mocked_module()
+        mod._write_cache("empty", [], ttl_sec=1800)
+        assert mod._load_cache("empty", ttl_sec=1800) is None
+
     def test_em_get_cached(self):
         mod, _ = _setup_mocked_module()
         fake = _fixture_margin_trading()
