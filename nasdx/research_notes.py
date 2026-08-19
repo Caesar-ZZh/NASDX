@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
@@ -21,6 +22,7 @@ def _get_conn() -> sqlite3.Connection:
     _DB_FILE.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(_DB_FILE)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
@@ -63,7 +65,7 @@ def add(
     if kind not in _NOTE_TYPES:
         raise ValueError(f"kind 必须在 {_NOTE_TYPES} 中，收到: {kind!r}")
     now = time.time()
-    note_id = f"N{int(now * 1000)}"
+    note_id = f"N{uuid.uuid4().hex}"
     conn = _get_conn()
     _init_schema(conn)
     conn.execute(
@@ -92,13 +94,13 @@ def update(note_id: str, *, title: str | None = None, content: str | None = None
         sets.append("content = ?"); vals.append(content)
     if tags is not None:
         sets.append("tags = ?"); vals.append(json.dumps(tags, ensure_ascii=False))
-    sets.append("updated_at = ?"); vals.append(time.time())
+    updated_at = time.time()
+    sets.append("updated_at = ?"); vals.append(updated_at)
     vals.append(note_id)
     conn.execute(f"UPDATE notes SET {', '.join(sets)} WHERE id = ?", vals)
     conn.commit()
-    cur = conn.execute("SELECT created_at, kind FROM notes WHERE id = ?", (note_id,)).fetchone()
     conn.close()
-    return {"id": note_id, "updated_at": time.time(), "created_at": cur[0], "kind": cur[1]}
+    return get(note_id)
 
 
 def remove(note_id: str) -> bool:
@@ -157,7 +159,7 @@ def add_reflection(
 ) -> dict[str, Any]:
     """保存一次反思审计结果，返回记录。"""
     now = time.time()
-    rid = f"R{int(now * 1000)}"
+    rid = f"R{uuid.uuid4().hex}"
     conn = _get_conn()
     _init_schema(conn)
     conn.execute(
@@ -239,7 +241,13 @@ def stream_from_file(path: str) -> Iterator[str]:
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    return dict(row)
+    data = dict(row)
+    if "tags" in data and isinstance(data["tags"], str):
+        try:
+            data["tags"] = json.loads(data["tags"])
+        except json.JSONDecodeError:
+            data["tags"] = []
+    return data
 
 
 def _row_to_summary(row: sqlite3.Row) -> dict[str, Any]:

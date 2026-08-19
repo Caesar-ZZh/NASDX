@@ -8,10 +8,9 @@
 """
 from __future__ import annotations
 
-import json
 from typing import Any, Iterator
 
-from nasdx import llm
+from nasdx.llm import llm as llm_client
 
 MAX_SOURCE_CHARS = 12000
 
@@ -58,10 +57,10 @@ def run_reflection_stream(cfg: dict[str, Any], source: str, title: str = "") -> 
 
     buf: list[str] = []
     try:
-        for ev in llm.stream(cfg, messages):
-            if ev["type"] == "delta" and ev.get("text"):
-                buf.append(ev["text"])
-            yield ev
+        content = llm_client.ask(messages)
+        if content:
+            buf.append(content)
+            yield {"type": "delta", "text": content}
     except Exception as exc:  # noqa: BLE001
         yield {"type": "error", "message": f"反思失败：{exc}"}
         return

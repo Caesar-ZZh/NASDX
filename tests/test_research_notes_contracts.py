@@ -17,11 +17,10 @@ from nasdx import reflection as refl
 
 
 @pytest.fixture(autouse=True)
-def _clean_db():
-    """每个用例前后清空本地 DB。"""
-    rn.clear_all()
+def _isolated_db(tmp_path, monkeypatch):
+    """每个用例使用临时 SQLite，绝不触碰用户本地笔记。"""
+    monkeypatch.setattr(rn, "_DB_FILE", tmp_path / "research_notes.db")
     yield
-    rn.clear_all()
 
 
 # ---------- research_notes CRUD ----------
@@ -112,7 +111,8 @@ class TestReflections:
         rn.add_reflection(nid, "r2", 20)
         rows = rn.list_reflections(note_id=nid)
         assert len(rows) == 2
-        assert rows[0]["full_text"] == "r2"  # latest first
+        assert rows[0]["source_len"] == 20  # latest first
+        assert "full_text" not in rows[0]  # 列表接口只返回摘要
 
     def test_remove_cascades_reflections(self):
         nid = rn.add("t", "c", "复盘")["id"]
@@ -129,39 +129,37 @@ class TestReflectionStream:
         yield {"type": "delta", "text": "最脆弱一环：X\n"}
         yield {"type": "done", "content": "complete"}
 
-    @patch("nasdx.reflection.llm.stream")
-    def test_normal_flow(self, m_stream):
-        m_stream.side_effect = self._fake_stream_events
+    @patch("nasdx.reflection.llm_client.ask", return_value="有数据支撑：最脆弱一环：X")
+    def test_normal_flow(self, m_ask):
         events = list(refl.run_reflection_stream({"model": "d"}, "一段分析"))
         types = [e["type"] for e in events]
         assert "delta" in types
         assert "done" in types
-        assert m_stream.call_count == 1
+        assert m_ask.call_count == 1
 
-    @patch("nasdx.reflection.llm.stream")
-    def test_empty_source(self, m_stream):
+    @patch("nasdx.reflection.llm_client.ask")
+    def test_empty_source(self, m_ask):
         events = list(refl.run_reflection_stream({}, ""))
         assert any(e["type"] == "error" for e in events)
-        m_stream.assert_not_called()
+        m_ask.assert_not_called()
 
-    @patch("nasdx.reflection.llm.stream")
-    def test_long_source_truncated(self, m_stream):
+    @patch("nasdx.reflection.llm_client.ask", return_value="审计完成")
+    def test_long_source_truncated(self, m_ask):
         long = "x" * (refl.MAX_SOURCE_CHARS + 100)
         events = list(refl.run_reflection_stream({}, long))
         assert any(e["type"] == "status" for e in events)
         # 调用时传入的 text 应被截断
-        call_args = m_stream.call_args[1][1][0]["content"]
+        call_args = m_ask.call_args.args[0][1]["content"]
         assert len(call_args) <= refl.MAX_SOURCE_CHARS + len("【待审分析】\n\n请开始审计。\n")
 
-    @patch("nasdx.reflection.llm.stream")
-    def test_stream_raises_error_event(self, m_stream):
-        m_stream.side_effect = RuntimeError("boom")
+    @patch("nasdx.reflection.llm_client.ask", side_effect=RuntimeError("boom"))
+    def test_stream_raises_error_event(self, _m_ask):
         events = list(refl.run_reflection_stream({}, "一段"))
         assert any(e["type"] == "error" for e in events)
 
 
 class TestReflectionSync:
-    @patch("nasdx.reflection.refl.run_reflection_stream")
+    @patch("nasdx.reflection.run_reflection_stream")
     def test_returns_done(self, m_stream):
         m_stream.return_value = [
             {"type": "delta", "text": "hello"},
