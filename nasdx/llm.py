@@ -519,4 +519,18 @@ def set_quick_think(enabled: bool = True) -> None:
     LLMClient._instance = None
 
 
+def resolve_request_provider(config: Dict[str, Any] | None = None, **kwargs):
+    """Resolve one API/CLI/MCP request without mutating the legacy singleton."""
+    from nasdx.llm_providers import resolve_provider_config
+
+    return resolve_provider_config(config, **kwargs)
+
+
+def stream_provider_chat(config: Dict[str, Any] | None, messages, **kwargs):
+    """Stream request-scoped provider events while keeping old ``llm`` calls intact."""
+    from nasdx.llm_providers import stream_chat_events
+
+    return stream_chat_events(config, messages, **kwargs)
+
+
 llm = _LazyLLMClient()
