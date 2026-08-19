@@ -12,7 +12,7 @@ import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator
 
 _NOTE_TYPES = ("复盘", "要点", "问AI", "辩论")
 _DB_FILE = Path(__file__).parent.parent / ".data" / "research_notes.db"

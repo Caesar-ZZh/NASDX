@@ -1,9 +1,7 @@
 """研究笔记 + 反思审计的合约测试（离线 mock，不联网）。"""
 from __future__ import annotations
 
-import json
 import sys
-import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -55,10 +53,12 @@ class TestNotesCRUD:
 
     def test_remove(self):
         rid = rn.add("t", "c", "辩论")["id"]
-        assert rn.remove(rid)
+        removed = rn.remove(rid)
+        assert removed
         with pytest.raises(KeyError):
             rn.get(rid)
-        assert not rn.remove(rid)  # 重复删返回 False
+        removed_again = rn.remove(rid)
+        assert not removed_again  # 重复删返回 False
 
     def test_list_filters(self):
         rn.add("a", "1", "复盘", tags=["指数"])
