@@ -1,0 +1,59 @@
+name: Auto-Align (miaoousc → NASDX)
+
+# 触发周期：每 4 小时（UTC 整点）。GitHub cron 为 UTC，
+# 即北京时间 08:00 / 12:00 / 16:00 / 20:00 / 00:00 / 04:00。
+# 也可在 Actions 页面手动 Run workflow（可指定 issue 号）。
+on:
+  schedule:
+    - cron: "0 */4 * * *"
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: "指定只处理某个 issue 号（留空则自动挑最高优先级）"
+        required: false
+
+permissions:
+  contents: write        # 推送 fix/auto-align-* 分支、开 PR
+  issues: write          # 评论 / 关闭 issue
+  pull-requests: write   # 创建 PR
+
+# 串行执行：避免同一时刻两个定时任务互相冲突或重复开 PR
+concurrency:
+  group: auto-align
+  cancel-in-progress: false
+
+jobs:
+  align:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps (best-effort)
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt || true; fi
+          pip install pytest || true
+
+      - name: Run auto-align worker
+        env:
+          GITHUB_REPO: Caesar-ZZh/NASDX
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL || 'deepseek-chat' }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.issue }}" ]; then
+            ARGS="--issue ${{ github.event.inputs.issue }}"
+          fi
+          python scripts/auto_align_worker.py $ARGS
