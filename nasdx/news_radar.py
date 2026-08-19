@@ -68,7 +68,7 @@ def _parse_dt(s: str) -> datetime | None:
 def _is_compliant(text: str, redline: list[str]) -> bool:
     """合规红线过滤：任意关键词命中则拒绝。"""
     lower = text.lower()
-    return not any(k in lower for k in redline)
+    return not any(str(k).lower() in lower for k in redline)
 
 
 def _fetch_source(src: dict, per: int, cutoff: datetime | None, redline: list[str]) -> list[dict] | None:
@@ -83,7 +83,8 @@ def _fetch_source(src: dict, per: int, cutoff: datetime | None, redline: list[st
         )
         with urllib.request.urlopen(req, timeout=14) as r:
             raw = r.read()
-        root = ET.fromstring(raw)
+        # 部分 RSS 在 XML 声明前带换行/BOM；解析前去掉前导空白。
+        root = ET.fromstring(raw.lstrip())
         out: list[dict] = []
         for n in [e for e in root.iter() if _local(e.tag) in ("item", "entry")]:
             if len(out) >= per:
@@ -142,7 +143,10 @@ def _merge_evidence(items: list[dict], weights: dict[str, float]) -> list[dict]:
         it = dict(it)
         auth = it.get("authority", 0)
         fresh = it.get("freshness", 1.0)
-        it["composite_score"] = round(auth * weights.get("authority", 0.6) + fresh * weights.get("freshness", 0.4), 4)
+        it["composite_score"] = round(
+            auth * weights.get("authority", 0.0) + fresh * weights.get("freshness", 0.0),
+            4,
+        )
         merged.append(it)
     return merged
 

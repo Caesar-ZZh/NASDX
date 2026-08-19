@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import tempfile
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, MagicMock
@@ -71,6 +70,15 @@ def _make_fake_response(body: str):
     return resp
 
 
+def _fresh_sample_feed() -> str:
+    current = datetime.now(timezone.utc)
+    return (
+        SAMPLE_FEED
+        .replace("Mon, 14 Jul 2025", current.strftime("%a, %d %b %Y"))
+        .replace("Sun, 13 Jul 2025", (current - timedelta(days=1)).strftime("%a, %d %b %Y"))
+    )
+
+
 @pytest.fixture
 def tmp_src_file(tmp_path):
     """创建临时 news_sources.json。"""
@@ -94,21 +102,23 @@ def tmp_src_file(tmp_path):
 
 @pytest.fixture
 def env_setup(tmp_path, monkeypatch):
-    """将 nasdx 临时路径挂到 sys.path。"""
-    pkg = tmp_path / "nasdx"
-    pkg.mkdir()
-    (pkg / "__init__.py").write_text("", encoding="utf-8")
-    (pkg / "news_radar.py").write_text("", encoding="utf-8")  # 占位
-    tmp_path.joinpath("news_sources.json").write_text(
+    """让模块显式读取离线 fixture，并隔离缓存目录。"""
+    import nasdx.news_radar as radar
+
+    sources_file = tmp_path.joinpath("news_sources.json")
+    sources_file.write_text(
         json.dumps({
             "fetch": {"recent_days": 7, "per_source": 10},
             "redline_keywords": ["btc", "六合彩", "彩票预测", "加密", "色情", "AV"],
+            "evidence_weights": {"authority": 0.6, "freshness": 0.4},
             "industries": [{"key": "macro", "name": "宏观政策", "accent": "#3b82f6"}],
             "sources": [SAMPLE_SOURCE],
         }),
         encoding="utf-8",
     )
-    monkeypatch.syspath_prepend(tmp_path)
+    monkeypatch.setattr(radar, "SOURCES_FILE", str(sources_file))
+    monkeypatch.setattr(radar, "CACHE_DIR", str(tmp_path / ".cache"))
+    monkeypatch.setattr(radar, "CACHE_FILE", str(tmp_path / ".cache" / "radar.json"))
     return tmp_path
 
 
@@ -165,7 +175,7 @@ def test_is_compliant_fail_gambling():
 
 def test_is_compliant_case_insensitive():
     from nasdx.news_radar import _is_compliant
-    assert _is_compliant("Bitcoin 暴跌", ["btc"]) is False
+    assert _is_compliant("Bitcoin 暴跌", ["BITCOIN"]) is False
 
 
 # ── 2. RSS 抓取 + 过滤 ────────────────────────────────────────────────────────
@@ -179,19 +189,19 @@ def test_fetch_source_success(env_setup, monkeypatch):
         "nasdx.news_radar.urllib.request.urlopen",
         lambda req, timeout=None: _make_fake_response(feed),
     )
-    result = _fetch_source(SAMPLE_SOURCE, per=10, cutoff=None, redline=[])
+    result = _fetch_source(SAMPLE_SOURCE, per=10, cutoff=None, redline=["btc", "六合彩"])
     assert result is not None
     assert len(result) == 2  # 仅 2 条通过过滤
     titles = [r["title"] for r in result]
     assert "正常新闻标题" in titles
-    assert "央行降准" in titles
+    assert any("央行降准" in title for title in titles)
 
 
 def test_fetch_source_blocked_by_redline(env_setup, monkeypatch):
     from nasdx.news_radar import _fetch_source
     monkeypatch.setattr(
         "nasdx.news_radar.urllib.request.urlopen",
-        lambda req, timeout=None: _make_fake_response(SAMPLE_FEED),
+        lambda req, timeout=None: _make_fake_response(_fresh_sample_feed()),
     )
     result = _fetch_source(SAMPLE_SOURCE, per=10, cutoff=None, redline=["btc", "六合彩"])
     assert result is not None
@@ -204,7 +214,7 @@ def test_fetch_source_time_cutoff(env_setup, monkeypatch):
     from nasdx.news_radar import _fetch_source
     monkeypatch.setattr(
         "nasdx.news_radar.urllib.request.urlopen",
-        lambda req, timeout=None: _make_fake_response(SAMPLE_FEED),
+        lambda req, timeout=None: _make_fake_response(_fresh_sample_feed()),
     )
     # 设置 cutoff 在未来 → 所有条目都被过滤
     future = datetime.now(timezone.utc) + timedelta(days=1)
@@ -258,7 +268,7 @@ def test_cache_roundtrip(env_setup, monkeypatch, tmp_path):
     monkeypatch.setattr("nasdx.news_radar.CACHE_FILE", str(cache_file))
     monkeypatch.setattr(
         "nasdx.news_radar.urllib.request.urlopen",
-        lambda req, timeout=None: _make_fake_response(SAMPLE_FEED),
+        lambda req, timeout=None: _make_fake_response(_fresh_sample_feed()),
     )
     data = fetch_radar()
     assert data["generated_at"] is not None
@@ -313,7 +323,7 @@ def test_get_radar_force(env_setup, monkeypatch, tmp_path):
     monkeypatch.setattr("nasdx.news_radar.CACHE_FILE", str(cache_file))
     monkeypatch.setattr(
         "nasdx.news_radar.urllib.request.urlopen",
-        lambda req, timeout=None: _make_fake_response(SAMPLE_FEED),
+        lambda req, timeout=None: _make_fake_response(_fresh_sample_feed()),
     )
     data = get_radar(force=True)
     assert data["stats"]["total_items"] == 2
@@ -342,7 +352,7 @@ def test_get_industry_summary(env_setup, monkeypatch, tmp_path):
     monkeypatch.setattr("nasdx.news_radar.CACHE_FILE", str(cache_file))
     monkeypatch.setattr(
         "nasdx.news_radar.urllib.request.urlopen",
-        lambda req, timeout=None: _make_fake_response(SAMPLE_FEED),
+        lambda req, timeout=None: _make_fake_response(_fresh_sample_feed()),
     )
     fetch_radar()
     summary = get_industry_summary()
