@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from urllib.parse import urlparse
 from unittest import mock
 
 import pytest
@@ -104,10 +105,10 @@ def test_push2_falls_back_then_latches_delay_host() -> None:
         gm.clear_cache(reset_host=False)
         assert gm._push2_stock_get("100.SPX")
 
-    assert "push2.eastmoney.com" in urls[0]
-    assert "push2delay.eastmoney.com" in urls[1]
+    assert urlparse(urls[0]).hostname == "push2.eastmoney.com"
+    assert urlparse(urls[1]).hostname == "push2delay.eastmoney.com"
     assert len(urls) == 3
-    assert "push2delay.eastmoney.com" in urls[2]
+    assert urlparse(urls[2]).hostname == "push2delay.eastmoney.com"
 
 
 def test_push2_empty_result_is_not_cached() -> None:

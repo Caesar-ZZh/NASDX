@@ -19,7 +19,7 @@ CACHE_TTL_SECONDS = 300.0
 REQUEST_TIMEOUT_SECONDS = 5.0
 
 _PUSH_HOSTS = ("push2.eastmoney.com", "push2delay.eastmoney.com")
-_push_host_index = 0
+_PUSH_STATE = {"host_index": 0}
 _CACHE: dict[str, tuple[float, Any]] = {}
 _HTTP_SESSIONS: dict[bool, Any] = {}
 
@@ -71,10 +71,9 @@ def _cached(
 
 def clear_cache(*, reset_host: bool = True) -> None:
     """清空成功结果缓存；测试或手动刷新时可重置主机探测。"""
-    global _push_host_index
     _CACHE.clear()
     if reset_host:
-        _push_host_index = 0
+        _PUSH_STATE["host_index"] = 0
 
 
 def _http_session(*, direct: bool) -> Any:
@@ -121,15 +120,14 @@ def _push2_stock_get(secid: str) -> Optional[dict[str, Any]]:
     """实时主机失败后降级延迟主机，并锁存本进程可用主机。"""
 
     def load() -> Optional[dict[str, Any]]:
-        global _push_host_index
-        for index in range(_push_host_index, len(_PUSH_HOSTS)):
+        for index in range(_PUSH_STATE["host_index"], len(_PUSH_HOSTS)):
             payload = _request_json(
                 f"https://{_PUSH_HOSTS[index]}/api/qt/stock/get",
                 params={"secid": secid, "fields": _QUOTE_FIELDS},
             )
             data = payload.get("data")
             if isinstance(data, dict) and data:
-                _push_host_index = index
+                _PUSH_STATE["host_index"] = index
                 return data
         return None
 
