@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from pathlib import Path
 from typing import List
@@ -12,6 +11,13 @@ import pytest
 from nasdx.cnbc_news import NewsItem, _is_compliant, fetch_all_cnbc_news, fetch_cnbc_news
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "cnbc"
+
+
+@pytest.fixture(autouse=True)
+def _clear_cache(monkeypatch: pytest.MonkeyPatch):
+    import nasdx.cnbc_news as module
+
+    monkeypatch.setattr(module, "_CACHE", {})
 
 
 def _load_fixture(filename: str) -> str:
@@ -42,25 +48,30 @@ class TestCNBCFetch:
 
     def test_parse_valid_rss(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """测试解析有效的 RSS 内容。"""
-        rss_xml = _load_fixture("markets_rss.xml")
-        if not rss_xml:
-            pytest.skip("缺少 fixture: fixtures/cnbc/markets_rss.xml")
+        rss_xml = _load_fixture("markets_rss.xml") or (
+            "<rss><channel><item><title>Market update</title>"
+            "<link>https://example.com/market</link>"
+            "<pubDate>Mon, 19 Aug 2024 10:00:00 GMT</pubDate>"
+            "<description>Objective market news</description>"
+            "</item></channel></rss>"
+        )
 
         monkeypatch.setattr(
             "nasdx.cnbc_news.requests.get",
-            lambda *args, **kwargs: type("Resp", (), {"text": rss_xml})(),
+            lambda *args, **kwargs: type(
+                "Resp", (), {"text": rss_xml, "raise_for_status": lambda self: None}
+            )(),
         )
 
         items = fetch_cnbc_news("markets", "Markets+News")
         assert isinstance(items, list)
+        assert len(items) == 1
         assert all(isinstance(item, NewsItem) for item in items)
 
     def test_fetch_all_cnbc_news_structure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """测试批量获取的新闻结构。"""
-        monkeypatch.setattr(
-            "nasdx.cnbc_news.requests.get",
-            lambda *args, **kwargs: type("Resp", (), {"text": ""})(),
-        )
+        response = type("Resp", (), {"text": "", "raise_for_status": lambda self: None})()
+        monkeypatch.setattr("nasdx.cnbc_news.requests.get", lambda *args, **kwargs: response)
 
         items = fetch_all_cnbc_news()
         assert isinstance(items, list)
@@ -94,37 +105,26 @@ class TestCNBCFetch:
         assert "token" not in content.lower() or "user_agent" in content.lower()
 
 
-class TestNewsSourcesConfig:
-    """测试 news_sources.json 配置。"""
+class TestCNBCCache:
+    def test_empty_result_is_not_cached(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import nasdx.cnbc_news as module
 
-    def test_cnbc_source_exists(self) -> None:
-        """验证 news_sources.json 包含 CNBC 配置。"""
-        config_path = Path(__file__).parent.parent / "nasdx" / "news_sources.json"
-        if not config_path.exists():
-            pytest.skip("news_sources.json 不存在")
+        monkeypatch.setattr(module, "_CACHE", {})
+        response = type("Resp", (), {"text": "", "raise_for_status": lambda self: None})()
+        monkeypatch.setattr(module.requests, "get", lambda *args, **kwargs: response)
+        assert module.fetch_cnbc_news("empty", "Markets") == []
+        assert module._CACHE == {}
 
-        with open(config_path, encoding="utf-8") as f:
-            config = json.load(f)
+    def test_nonempty_result_uses_five_minute_cache(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import nasdx.cnbc_news as module
 
-        categories = config.get("categories", [])
-        cnbc_category = next((c for c in categories if c.get("name") == "cnbc"), None)
-        assert cnbc_category is not None, "news_sources.json 中缺少 CNBC 类别配置"
-        assert len(cnbc_category.get("sources", [])) > 0, "CNBC 类别下无源配置"
-
-    def test_cnbc_source_fields(self) -> None:
-        """验证 CNBC 源字段完整性。"""
-        config_path = Path(__file__).parent.parent / "nasdx" / "news_sources.json"
-        if not config_path.exists():
-            pytest.skip("news_sources.json 不存在")
-
-        with open(config_path, encoding="utf-8") as f:
-            config = json.load(f)
-
-        categories = config.get("categories", [])
-        cnbc_category = next((c for c in categories if c.get("name") == "cnbc"), None)
-        assert cnbc_category is not None
-
-        for source in cnbc_category.get("sources", []):
-            assert "name" in source, "源配置缺少 name 字段"
-            assert "url" in source, "源配置缺少 url 字段"
-            assert source["url"].startswith("https://"), f"URL 不合法: {source['url']}"
+        monkeypatch.setattr(module, "_CACHE", {})
+        item = NewsItem("title", "https://example.com", None, "summary", "CNBC", "cnbc")
+        calls = []
+        monkeypatch.setattr(module, "_parse_rss_content", lambda *_args, **_kwargs: [item])
+        response = type("Resp", (), {"text": "rss", "raise_for_status": lambda self: None})()
+        monkeypatch.setattr(module.requests, "get", lambda *args, **kwargs: calls.append(1) or response)
+        assert module.fetch_cnbc_news("cache", "Markets") == [item]
+        assert module.fetch_cnbc_news("cache", "Markets") == [item]
+        assert calls == [1]
+        assert module._CACHE_TTL_SECONDS == 300

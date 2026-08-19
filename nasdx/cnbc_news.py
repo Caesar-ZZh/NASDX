@@ -6,8 +6,11 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from typing import List
 from urllib.parse import quote
 
@@ -24,6 +27,9 @@ PROHIBITED_KEYWORDS = {
     "赌博", "赌场", "加密货币交易", "杠杆交易",
     "内幕交易", "操纵市场", "非法荐股",
 }
+_CACHE_TTL_SECONDS = 300
+_CACHE: dict[str, tuple[float, List["NewsItem"]]] = {}
+_CACHE_LOCK = threading.Lock()
 
 
 @dataclass
@@ -62,6 +68,10 @@ def fetch_cnbc_news(query: str, category: str, timeout: int = 10) -> List[NewsIt
     encoded_query = quote(query)
     encoded_category = quote(category)
     url = CNBC_SEARCH_URL.format(query=encoded_query, category=encoded_category)
+    cache_key = f"{query.strip().lower()}::{category.strip().lower()}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
 
     headers = {
         "User-Agent": (
@@ -78,7 +88,10 @@ def fetch_cnbc_news(query: str, category: str, timeout: int = 10) -> List[NewsIt
         logger.warning(f"CNBC RSS 请求失败: {exc}")
         return []
 
-    return _parse_rss_content(resp.text, source=f"CNBC-{category}")
+    items = _parse_rss_content(resp.text, source=f"CNBC-{category}")
+    if items:
+        _cache_set(cache_key, items)
+    return items
 
 
 def _parse_rss_content(xml_text: str, source: str) -> List[NewsItem]:
@@ -98,10 +111,8 @@ def _parse_rss_content(xml_text: str, source: str) -> List[NewsItem]:
         parsed_date = None
         if pub_date and pub_date.string:
             try:
-                parsed_date = datetime.strptime(
-                    pub_date.string.strip(), "%a, %d %b %Y %H:%M:%S %Z"
-                )
-            except ValueError:
+                parsed_date = parsedate_to_datetime(pub_date.string.strip())
+            except (TypeError, ValueError):
                 logger.debug(f"日期解析失败: {pub_date.string}")
 
         summary = description.string if description else ""
@@ -127,8 +138,27 @@ def _parse_rss_content(xml_text: str, source: str) -> List[NewsItem]:
 
 def _is_compliant(title: str, summary: str) -> bool:
     """合规过滤：检查是否包含禁止内容关键词。"""
-    text = f"{title} {summary}"
-    return not any(kw in text for kw in PROHIBITED_KEYWORDS)
+    text = f"{title} {summary}".lower()
+    return not any(keyword.lower() in text for keyword in PROHIBITED_KEYWORDS)
+
+
+def _cache_get(key: str) -> List[NewsItem] | None:
+    with _CACHE_LOCK:
+        item = _CACHE.get(key)
+        if item is None:
+            return None
+        expires_at, value = item
+        if time.monotonic() >= expires_at:
+            _CACHE.pop(key, None)
+            return None
+        return value
+
+
+def _cache_set(key: str, value: List[NewsItem]) -> None:
+    if not value:
+        return
+    with _CACHE_LOCK:
+        _CACHE[key] = (time.monotonic() + _CACHE_TTL_SECONDS, value)
 
 
 def fetch_all_cnbc_news(timeout: int = 10) -> List[NewsItem]:
