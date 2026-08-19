@@ -22,8 +22,14 @@ from urllib.error import URLError, HTTPError
 # ---------------------------------------------------------------------------
 # 路径与常量
 # ---------------------------------------------------------------------------
-_CACHE_DIR = Path(__file__).resolve().parent.parent / ".cache" / "fred"
-_DEFAULT_TTL_SEC = 3600  # 日度/月度宏观数据 1 小时 TTL
+_CONFIGURED_CACHE = os.environ.get("NASDX_DATA_CACHE")
+if _CONFIGURED_CACHE:
+    _CACHE_DIR = Path(_CONFIGURED_CACHE).expanduser() / "fred"
+elif os.environ.get("LOCALAPPDATA"):
+    _CACHE_DIR = Path(os.environ["LOCALAPPDATA"]) / "NASDX" / "cache" / "fred"
+else:
+    _CACHE_DIR = Path.home() / ".cache" / "nasdx" / "fred"
+_DEFAULT_TTL_SEC = 300
 _USER_AGENT = "NASDX-MacroFred/1.0"
 
 # 常用宏观指标系列 ID（可按需扩展）
@@ -69,6 +75,9 @@ def _read_cache(key: str) -> Optional[Any]:
 
 def _write_cache(key: str, value: Any, ttl_sec: int = _DEFAULT_TTL_SEC) -> None:
     """写入本地 JSON 缓存。"""
+    if value in (None, [], {}):
+        return
+    ttl_sec = min(max(int(ttl_sec), 1), _DEFAULT_TTL_SEC)
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     p = _CACHE_DIR / f"{key}.json"
     payload = {
@@ -169,7 +178,8 @@ class FredClient:
                 "error_code": data.get("error_code"),
                 "error_message": data.get("error_message"),
             }
-            _write_cache(cache_key, result, ttl_sec=cache_ttl)
+            if result["observations"]:
+                _write_cache(cache_key, result, ttl_sec=cache_ttl)
             return result
         except (URLError, HTTPError, TimeoutError) as exc:
             return {
@@ -210,7 +220,8 @@ class FredClient:
             req = Request(url, headers={"User-Agent": _USER_AGENT})
             with urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-            series = data.get("series", [{}])[0]
+            series_items = data.get("series") or []
+            series = series_items[0] if series_items else {}
             result = {
                 "series_id": series_id,
                 "title": series.get("title"),
@@ -222,7 +233,8 @@ class FredClient:
                 "error_code": data.get("error_code"),
                 "error_message": data.get("error_message"),
             }
-            _write_cache(cache_key, result, ttl_sec=cache_ttl)
+            if series:
+                _write_cache(cache_key, result, ttl_sec=cache_ttl)
             return result
         except Exception as exc:
             return {
@@ -275,6 +287,7 @@ class FredClient:
             "observations": [],
             "series_id": series_id,
             "request_time": time.time(),
+            "error": True,
             "error_code": -99,
             "error_message": "FRED_API_KEY 缺失，数据已降级。请设置环境变量后重试。",
             "degraded": True,

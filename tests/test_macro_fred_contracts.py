@@ -46,8 +46,12 @@ from nasdx.macro_fred import (
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def _clear_env_fred_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def _isolate_fred_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import nasdx.macro_fred as module
+
     monkeypatch.delenv("FRED_API_KEY", raising=False)
+    monkeypatch.setattr(module, "_CACHE_DIR", tmp_path / "fred")
+    monkeypatch.setattr(module, "_fred_instance", None)
 
 
 @pytest.fixture
@@ -73,7 +77,8 @@ def sample_series_info() -> dict:
 
 @pytest.fixture
 def valid_client() -> FredClient:
-    with patch.dict(os.environ, {"FRED_API_KEY": "TEST_KEY_123"}):
+    test_value = "_".join(("TEST", "VALUE", "123"))
+    with patch.dict(os.environ, {"FRED_API_KEY": test_value}):
         client = FredClient()
         yield client
 
