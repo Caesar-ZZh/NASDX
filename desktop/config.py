@@ -158,4 +158,18 @@ def absolute_path(path: str | Path) -> Path:
 
 def _looks_like_placeholder(value: str) -> bool:
     lowered = value.lower()
-    return any(marker in lowered for marker in ("your-api-key", "example", "placeholder", "填写", "xxxx"))
+    return any(
+        marker in lowered
+        for marker in (
+            "your-api-key",
+            "example",
+            "placeholder",
+            "填写",
+            "xxxx",
+            "replace",
+            "change-me",
+            "changeme",
+            "todo",
+            "fixme",
+        )
+    )
