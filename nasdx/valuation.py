@@ -67,7 +67,9 @@ def valuation_percentile(code: str, period: str = "近五年") -> dict[str, Any]
             below = sum(1 for x in s if x < cur)
             metrics[key] = {
                 "current": round(cur, 2),
-                "percentile": round(below / max(len(s) - 1, 1) * 100, 1),
+                # 百分位定义为“严格低于当前值的样本数 / 全部样本数”。
+                # 因而历史最大值在 10 条样本中为 90%，不会虚构为 100%。
+                "percentile": round(below / len(s) * 100, 1),
                 "min": round(s[0], 2),
                 "max": round(s[-1], 2),
                 "p20": round(_percentile_interp(s, 0.2), 2),
