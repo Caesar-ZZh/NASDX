@@ -133,10 +133,9 @@ class TestSaveReport:
         assert meta["ext"] == ".png"
         assert (self.mr.REPORTS_DIR / f"{meta['id']}.png").exists()
 
-    def test_empty_name_becomes_unnamed(self):
-        blob = b"x"
-        meta = self.mr.save_report("", _b64(blob))
-        assert meta["name"] == "未命名"
+    def test_empty_name_is_rejected_without_extension(self):
+        with pytest.raises(self.mr.ReportError, match="无扩展名"):
+            self.mr.save_report("", _b64(b"x"))
 
     def test_path_traversal_sanitized(self):
         blob = b"x"
