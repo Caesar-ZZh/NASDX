@@ -10,8 +10,7 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 from typing import Any
 
 import requests
@@ -37,10 +36,9 @@ _FUND_FLOW_URL = "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
-_CACHE_DIR = Path(os.environ.get("NASDX_DATA_CACHE", Path.home() / ".cache" / "nasdx"))
 _EM_RATE_SEC = float(os.environ.get("EM_GET_RATE_SEC", "1.0"))
-
-_last_em_ts: float = 0.0
+_MEMORY_CACHE: dict[str, tuple[float, int, Any]] = {}
+_RATE_LIMIT = {"last_ts": 0.0}
 
 # ---------------------------------------------------------------------------
 # 缓存工具
@@ -51,47 +49,22 @@ def _cache_key(*parts: Any) -> str:
     return "::".join(str(p) for p in parts)
 
 
-def _read_cache(key: str) -> Any | None:
-    path = _CACHE_DIR / (key.replace("::", "_") + ".json")
-    if not path.exists():
-        return None
-    try:
-        import json
-
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-
-
 def _write_cache(key: str, value: Any, ttl_sec: int = 1800) -> None:
     if value in (None, [], {}):
         return
     ttl_sec = min(int(ttl_sec), 300)
-    now = time.time()
-    payload = {
-        "ts": now,
-        "ttl": ttl_sec,
-        "value": value,
-    }
-    path = _CACHE_DIR / (key.replace("::", "_") + ".json")
-    try:
-        import json
-
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
-    except Exception:
-        pass
+    _MEMORY_CACHE[key] = (time.time(), ttl_sec, value)
 
 
 def _load_cache(key: str, ttl_sec: int = 1800) -> Any | None:
-    val = _read_cache(key)
-    if val is None:
+    entry = _MEMORY_CACHE.get(key)
+    if entry is None:
         return None
-    if isinstance(val, dict) and "ts" in val:
-        if time.time() - val["ts"] > min(int(ttl_sec), 300):
-            return None
-        return val.get("value")
-    return val
+    created_at, stored_ttl, value = entry
+    if time.time() - created_at > min(int(ttl_sec), stored_ttl, 300):
+        _MEMORY_CACHE.pop(key, None)
+        return None
+    return value
 
 # ---------------------------------------------------------------------------
 # em_get 限流入口
@@ -103,11 +76,10 @@ def em_get(params: dict[str, Any], timeout: int = 15) -> dict[str, Any]:
 
     失败时抛 RuntimeError； callers 应捕获后优雅降级返回空列表/空字典。
     """
-    global _last_em_ts
-    elapsed = time.time() - _last_em_ts
+    elapsed = time.time() - _RATE_LIMIT["last_ts"]
     if elapsed < _EM_RATE_SEC:
         time.sleep(_EM_RATE_SEC - elapsed)
-    _last_em_ts = time.time()
+    _RATE_LIMIT["last_ts"] = time.time()
 
     resp = requests.get(
         _EASTMONEY_DATACENTER,
@@ -171,7 +143,6 @@ def margin_trading(code: str, days: int = 120) -> list[dict[str, Any]]:
         return cached
 
     try:
-        secid = _to_secid(code)
         params = {
             "reportName": _EASTMONEY_REPORT_NAMES["margin_trading"],
             "columns": "SECURITY_CODE,TRADE_DATE,FIN_BALANCE,RTO_BALANCE,FIN_NET_BUY,RTO_NET_BUY",

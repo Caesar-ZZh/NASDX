@@ -9,9 +9,7 @@
 
 from __future__ import annotations
 
-import json
 import sys
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -161,12 +159,12 @@ def _fixture_interactive_qa() -> list[dict]:
 
 
 @pytest.fixture(autouse=True)
-def _isolated_cache(tmp_path, monkeypatch):
+def _isolated_cache(monkeypatch):
     import nasdx.fund_flow_eastmoney as mod
 
-    monkeypatch.setattr(mod, "_CACHE_DIR", tmp_path / "cache")
+    monkeypatch.setattr(mod, "_MEMORY_CACHE", {})
+    monkeypatch.setattr(mod, "_RATE_LIMIT", {"last_ts": 0.0})
     monkeypatch.setattr(mod, "_EM_RATE_SEC", 0.0)
-    monkeypatch.setattr(mod, "_last_em_ts", 0.0)
     yield
 
 
@@ -367,6 +365,7 @@ class TestInvestorQa:
             resp.raise_for_status.return_value = None
             m.return_value = resp
             out = mod.investor_qa("业绩情况")
+        assert out
         call_params = m.call_args[1]["params"]
         assert call_params["keyword"] == "业绩情况"
         assert call_params["stockCode"] == ""
