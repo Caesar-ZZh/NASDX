@@ -1,191 +1,300 @@
-"""nasdx.daily_review 合同测试：短线情绪聚合 / 缓存行为 / 零个股名。"""
+"""nasdx.daily_review 的离线契约测试。"""
 
 from __future__ import annotations
 
 import json
-import time
+from datetime import date
 from unittest import mock
 
 import pytest
 
+import nasdx.analysis_cache as analysis_cache
 import nasdx.daily_review as dr
 
 
-# ── fixture：东财四池返回 ─────────────────────────────────────────────────
+class FakeFrame:
+    def __init__(self, rows: list[dict]):
+        self._rows = rows
 
-def _pool_zt(count: int, boards_seq: list[int]) -> list[dict]:
-    return [{"c": f"{i:06d}", "n": f"stock{i}", "lbc": b, "p": 1000, "zdp": 9.99, "amount": 1e8, "ltsz": 5e9, "hybk": "软件"} for i, b in enumerate(boards_seq[:count])]
-
-
-def _pool_zb(count: int) -> list[dict]:
-    return [{"c": f"zb{i:06d}", "n": f"zbstock{i}"} for i in range(count)]
-
-
-def _pool_dt(count: int) -> list[dict]:
-    return [{"c": f"dt{i:06d}"} for i in range(count)]
-
-
-def _pool_yzt(count: int) -> list[dict]:
-    return [{"c": f"yzt{i:06d}"} for i in range(count)]
+    def to_dict(self, orient: str) -> list[dict]:
+        assert orient == "records"
+        return list(self._rows)
 
 
 @pytest.fixture(autouse=True)
-def _clear():
+def _clear_cache() -> None:
     dr.clear_cache()
     yield
     dr.clear_cache()
 
 
-# ── 情绪聚合计算 ──────────────────────────────────────────────────────────
-
-def test_emotion_ladder_seal_break_promotion():
-    """mock 四池后校验：连板梯队 / 封板率 / 炸板率 / 晋级率是否按公式计算。"""
-    # 构造：今天涨停 10 只（其中 4 只 2 板+），炸板 2 只，昨涨停 8 只，跌停 3 只
-    zt = _pool_zt(10, [1, 2, 2, 3, 3, 3, 4, 5, 1, 1])  # lbc: 1板×4, 2板×2, 3板×3, 4板×1, 5板×1
-    zb = _pool_zb(2)
-    dt = _pool_dt(3)
-    yzt = _pool_yzt(8)
-
-    expected_lianban = [b for b in [1,2,2,3,3,3,4,5,1,1] if b >= 2]  # 8 只
-    expected_tiers = {2: 2, 3: 3, 4: 1, 5: 1, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0}  # min(b,5)
-    # 实际 min(b,5): 2->2, 3->3, 4->4, 5->5, 6+->5
-    # 2板×2, 3板×3, 4板×1, 5板×1  => tiers: {2:2, 3:3, 4:1, 5:2}  (5和6+合并到5)
-    import collections
-    from nasdx.daily_review import _num
-    lt = [_num(p.get("lbc")) or 1 for p in zt]
-    lb = [b for b in lt if b >= 2]
-    tiers = collections.Counter(min(b, 5) for b in lb)
-
-    assert len(zb) == 2
-    assert len(dt) == 3
-    assert len(yzt) == 8
-
-    with mock.patch.object(dr, "_em_zt_pool", side_effect=lambda t, d, s: {
-        "getTopicZTPool": zt,
-        "getTopicZBPool": zb,
-        "getTopicDTPool": dt,
-        "getYesterdayZTPool": yzt,
-    }.get(t, [])):
-        res = dr.get_short_term_emotion()
-
-    assert res["date"] == "2024-01-01"  # mock 中 resolved 为第一回测日
-    assert res["zt_count"] == 10
-    assert res["dt_count"] == 3
-    assert res["zb_count"] == 2
-    assert res["max_boards"] == 5
-    assert res["lianban_count"] == len(lb)
-    assert res["yzt_count"] == 8
-
-    attempts = 10 + 2
-    assert res["seal_rate"] == round(10 / attempts, 3)
-    assert res["break_rate"] == round(2 / attempts, 3)
-    assert res["promotion_rate"] == round(len(lb) / 8, 3)
-
-    # ladder：只保留有家数的档（2/3/4/5），顺序按 boards 升序
-    ladder = res["ladder"]
-    assert {item["boards"] for item in ladder} == {2, 3, 4, 5}
-    ladder_map = {item["boards"]: item for item in ladder}
-    assert ladder_map[2]["count"] == 2
-    assert ladder_map[3]["count"] == 3
-    assert ladder_map[4]["count"] == 1
-    assert ladder_map[5]["count"] == 2
-    assert all(item["plus"] for item in ladder if item["boards"] >= 5)
-
-    # 零个股名红线：返回字段中不应有 lianban_stocks
-    assert "lianban_stocks" not in res
+def test_existing_analysis_cache_contract_is_preserved() -> None:
+    """每日复盘不能用通用小缓存覆盖已有的分层分析缓存内核。"""
+    assert analysis_cache.CACHE_CONTRACT == "nasdx_analysis_cache.v1"
+    assert analysis_cache.AGENT_CONFIG_VERSION
+    assert analysis_cache.PROMPT_SCHEMA_VERSION
+    assert callable(analysis_cache.plan_reuse)
 
 
-def test_emotion_no_data_returns_empty():
-    with mock.patch.object(dr, "_em_zt_pool", return_value=[]):
-        res = dr._emotion()
-    assert res == {}
+def test_emotion_ladder_and_rates_are_aggregated_without_symbols() -> None:
+    limit_up = [
+        {"代码": f"{index:06d}", "名称": f"证券{index}", "连板数": boards}
+        for index, boards in enumerate([1, 2, 2, 3, 3, 3, 4, 5, 6, 1])
+    ]
+    pools = {
+        "limit_up": limit_up,
+        "broken": [{"代码": "x"}, {"代码": "y"}],
+        "limit_down": [{"代码": "z"}] * 3,
+        "previous_limit_up": [{"代码": str(index)} for index in range(8)],
+    }
+
+    with (
+        mock.patch.object(dr, "_today", return_value=date(2024, 1, 1)),
+        mock.patch.object(
+            dr,
+            "_pool_rows",
+            side_effect=lambda kind, date_text: pools[kind],
+        ),
+    ):
+        result = dr.get_short_term_emotion()
+
+    assert result == {
+        "date": "2024-01-01",
+        "limit_up_count": 10,
+        "limit_down_count": 3,
+        "broken_count": 2,
+        "max_boards": 6,
+        "consecutive_count": 8,
+        "ladder": [
+            {"boards": 2, "count": 2, "plus": False},
+            {"boards": 3, "count": 3, "plus": False},
+            {"boards": 4, "count": 1, "plus": False},
+            {"boards": 5, "count": 2, "plus": True},
+        ],
+        "seal_rate": 0.833,
+        "break_rate": 0.167,
+        "promotion_rate": 1.0,
+        "previous_limit_up_count": 8,
+    }
+    encoded = json.dumps(result, ensure_ascii=False)
+    assert "证券" not in encoded
+    assert "代码" not in encoded
+    assert "名称" not in encoded
 
 
-# ── 缓存行为 ──────────────────────────────────────────────────────────────
+def test_emotion_resolves_recent_trading_date_once() -> None:
+    requested: list[tuple[str, str]] = []
 
-def test_cache_ttl_and_empty_not_cached():
-    call_count = 0
+    def load(kind: str, date_text: str) -> list[dict]:
+        requested.append((kind, date_text))
+        if kind == "limit_up":
+            return [{"连板数": 1}] if date_text == "20240106" else []
+        return []
 
-    def fn_ok():
-        nonlocal call_count
-        call_count += 1
-        return {"v": call_count}
+    with (
+        mock.patch.object(dr, "_today", return_value=date(2024, 1, 8)),
+        mock.patch.object(dr, "_pool_rows", side_effect=load),
+    ):
+        result = dr.get_short_term_emotion()
 
-    def fn_empty():
-        nonlocal call_count
-        call_count += 1
+    assert result["date"] == "2024-01-06"
+    assert requested[:3] == [
+        ("limit_up", "20240108"),
+        ("limit_up", "20240107"),
+        ("limit_up", "20240106"),
+    ]
+    assert requested[3:] == [
+        ("broken", "20240106"),
+        ("limit_down", "20240106"),
+        ("previous_limit_up", "20240106"),
+    ]
+
+
+def test_emotion_empty_result_is_not_cached() -> None:
+    calls = 0
+
+    def empty(kind: str, date_text: str) -> list[dict]:
+        nonlocal calls
+        calls += 1
+        return []
+
+    with mock.patch.object(dr, "_pool_rows", side_effect=empty):
+        assert dr.get_short_term_emotion() == {}
+        assert dr.get_short_term_emotion() == {}
+
+    assert calls == 16
+
+
+def test_cache_ttl_expires_at_five_minutes() -> None:
+    calls = 0
+
+    def load() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"call": calls}
+
+    with mock.patch.object(dr, "_monotonic", side_effect=[100.0, 399.0, 400.0]):
+        first = dr._cached("key", load)
+        hit = dr._cached("key", load)
+        expired = dr._cached("key", load)
+
+    assert first == hit == {"call": 1}
+    assert expired == {"call": 2}
+    assert dr.CACHE_TTL_SECONDS == 300.0
+
+
+def test_cache_empty_result_and_selective_clear() -> None:
+    calls = 0
+
+    def empty() -> dict:
+        nonlocal calls
+        calls += 1
         return {}
 
-    dr.clear_cache()
-    r1 = dr._cached("k_ok", fn_ok)
-    r2 = dr._cached("k_ok", fn_ok)
-    assert call_count == 1, "命中缓存应只调用一次"
-    assert r1 == r2
+    assert dr._cached("empty", empty) == {}
+    assert dr._cached("empty", empty) == {}
+    assert calls == 2
 
-    call_count = 0
-    r3 = dr._cached("k_empty", fn_empty, valid=bool)
-    r4 = dr._cached("k_empty", fn_empty, valid=bool)
-    assert call_count == 2, "空结果不缓存，下次应重新调用"
-
-
-def test_cache_clear():
-    dr._CACHE["x"] = (0.0, 1)
-    dr.clear_cache(["x"])
-    assert "x" not in dr._CACHE
-    dr.clear_cache()
-    assert not dr._CACHE
+    dr._CACHE["keep"] = (0.0, {"value": 1})
+    dr._CACHE["drop"] = (0.0, {"value": 2})
+    dr.clear_cache(["drop"])
+    assert "keep" in dr._CACHE
+    assert "drop" not in dr._CACHE
 
 
-# ── sentiment / sectors / turnover / global 结构契约 ──────────────────────
+def test_overview_normalizes_sentiment_and_sorts_sector_funds() -> None:
+    class FakeAkshare:
+        @staticmethod
+        def stock_market_activity_legu() -> FakeFrame:
+            return FakeFrame(
+                [
+                    {"item": "上涨", "value": 2500},
+                    {"item": "下跌", "value": 1800},
+                    {"item": "平盘", "value": 200},
+                    {"item": "涨停", "value": 85},
+                    {"item": "真实涨停", "value": 72},
+                    {"item": "跌停", "value": 5},
+                    {"item": "真实跌停", "value": 4},
+                    {"item": "活跃度", "value": "高"},
+                    {"item": "统计日期", "value": "2024-01-01"},
+                ]
+            )
 
-def test_sentiment_structure():
-    fake_df = mock.MagicMock()
-    fake_df.iterrows.return_value = [
-        (0, {"item": "上涨", "value": 2500}),
-        (1, {"item": "下跌", "value": 1800}),
-        (2, {"item": "平盘", "value": 200}),
-        (3, {"item": "涨停", "value": 85}),
-        (4, {"item": "真实涨停", "value": 72}),
-        (5, {"item": "跌停", "value": 5}),
-        (6, {"item": "真实跌停", "value": 4}),
-        (7, {"item": "活跃度", "value": "高"}),
-        (8, {"item": "统计日期", "value": "2024-01-01"}),
+        @staticmethod
+        def stock_fund_flow_industry(*, symbol: str) -> FakeFrame:
+            assert symbol == "即时"
+            return FakeFrame(
+                [
+                    {
+                        "行业": "计算机",
+                        "行业-涨跌幅": 1.2,
+                        "净额": 2_000.0,
+                        "流入资金": 4_000.0,
+                        "流出资金": 2_000.0,
+                        "公司家数": 50,
+                    },
+                    {
+                        "行业": "半导体",
+                        "行业-涨跌幅": 2.1,
+                        "净额": 5_200.0,
+                        "流入资金": 8_000.0,
+                        "流出资金": 2_800.0,
+                        "公司家数": 42,
+                    },
+                ]
+            )
+
+    with mock.patch.object(dr, "_load_akshare", return_value=FakeAkshare):
+        result = dr.get_overview()
+
+    assert result["sentiment"]["up"] == 2500
+    assert result["sentiment"]["down"] == 1800
+    assert result["sentiment"]["breadth"] == "偏强"
+    assert result["sentiment"]["speculation"] == "活跃"
+    assert [item["sector"] for item in result["sectors"]] == ["半导体", "计算机"]
+    assert result["sectors"][0]["net"] == 5_200.0
+
+
+def test_overview_source_failure_is_an_empty_retryable_result() -> None:
+    class BrokenAkshare:
+        @staticmethod
+        def stock_market_activity_legu() -> None:
+            raise RuntimeError("offline")
+
+        @staticmethod
+        def stock_fund_flow_industry(*, symbol: str) -> None:
+            raise RuntimeError("offline")
+
+    with mock.patch.object(dr, "_load_akshare", return_value=BrokenAkshare):
+        assert dr.get_overview() == {}
+    assert "daily_review:overview" not in dr._CACHE
+
+
+def test_turnover_top_returns_only_market_aggregate() -> None:
+    raw_rows = [
+        {"代码": "000001", "名称": "甲", "成交额": 1_000.0, "涨跌幅": 1.0},
+        {"代码": "000002", "名称": "乙", "成交额": 3_000.0, "涨跌幅": -2.0},
+        {"代码": "000003", "名称": "丙", "成交额": 2_000.0, "涨跌幅": 3.0},
+        {"代码": "000004", "名称": "丁", "成交额": 500.0, "涨跌幅": 0.0},
     ]
-    with mock.patch("nasdx.daily_review.akshare") as m_ak:
-        m_ak.stock_market_activity_legu.return_value = fake_df
-        res = dr._sentiment()
-    assert res["up"] == 2500
-    assert res["down"] == 1800
-    assert res["breadth"] == "偏强"  # 2500/1800 ≈ 1.39, 在 [1.2, 2.5)
-    assert res["speculation"] == "活跃"  # 72 在 [60, 100)
+
+    class FakeAkshare:
+        @staticmethod
+        def stock_zh_a_spot_em() -> FakeFrame:
+            return FakeFrame(raw_rows)
+
+    with mock.patch.object(dr, "_load_akshare", return_value=FakeAkshare):
+        result = dr.get_turnover_top(2)
+
+    assert result["requested_top_n"] == 2
+    assert result["sample_size"] == 2
+    assert result["total_amount"] == 5_000.0
+    assert result["median_amount"] == 2_500.0
+    assert result["market_amount_share"] == 0.7692
+    assert result["up_count"] == 1
+    assert result["down_count"] == 1
+    assert result["flat_count"] == 0
+    assert result["mean_change_pct"] == 0.5
+
+    encoded = json.dumps(result, ensure_ascii=False)
+    for forbidden in ("000001", "000002", "000003", "000004", "甲", "乙", "丙", "丁"):
+        assert forbidden not in encoded
+    assert "stocks" not in result
+    assert "ranking" not in result
 
 
-def test_sectors_structure():
-    fake_df = mock.MagicMock()
-    fake_df.sort_values.return_value = fake_df
-    fake_df.iterrows.return_value = [
-        (0, {"行业": "半导体", "行业-涨跌幅": 2.1, "净额": 5.2e9, "流入资金": 8e9, "流出资金": 2.8e9, "公司家数": 42}),
-    ]
-    with mock.patch("nasdx.daily_review.akshare") as m_ak:
-        m_ak.stock_fund_flow_industry.return_value = fake_df
-        res = dr._sectors()
-    assert len(res) == 1
-    assert res[0]["name"] == "半导体"
-    assert res[0]["net"] == pytest.approx(5.2e9, abs=0.1)
+@pytest.mark.parametrize("limit", [0, -1, 1.5, True, "20"])
+def test_turnover_limit_must_be_a_positive_integer(limit: object) -> None:
+    with pytest.raises(ValueError, match="positive integer"):
+        dr.get_turnover_top(limit)  # type: ignore[arg-type]
 
 
-def test_turnover_top_empty_graceful():
-    with mock.patch("nasdx.daily_review.nasdx.astock") as m_astock:
-        m_astock.market_turnover_rank.side_effect = ImportError("no astock")
-        res = dr.get_turnover_top(20)
-    assert res["stocks"] == []
-    assert "updated" in res
+def test_turnover_empty_result_is_not_cached() -> None:
+    calls = 0
+
+    class FakeAkshare:
+        @staticmethod
+        def stock_zh_a_spot_em() -> FakeFrame:
+            nonlocal calls
+            calls += 1
+            return FakeFrame([])
+
+    with mock.patch.object(dr, "_load_akshare", return_value=FakeAkshare):
+        assert dr.get_turnover_top() == {}
+        assert dr.get_turnover_top() == {}
+    assert calls == 2
 
 
-def test_get_overview_combines():
-    with mock.patch.object(dr, "_sentiment", return_value={"up": 1000, "down": 900, "breadth": "中性"}), \
-         mock.patch.object(dr, "_sectors", return_value=[{"name": "计算机", "net": 1e9}]):
-        res = dr.get_overview()
-    assert "sentiment" in res
-    assert "sectors" in res
-    assert "updated" in res
+def test_daily_review_combines_independently_cached_sections() -> None:
+    with (
+        mock.patch.object(dr, "get_overview", return_value={"sentiment": {}}),
+        mock.patch.object(dr, "get_short_term_emotion", return_value={"limit_up_count": 1}),
+        mock.patch.object(dr, "get_turnover_top", return_value={"sample_size": 20}) as turnover,
+    ):
+        result = dr.get_daily_review(20)
+
+    turnover.assert_called_once_with(20)
+    assert result["overview"] == {"sentiment": {}}
+    assert result["short_term_emotion"] == {"limit_up_count": 1}
+    assert result["turnover"] == {"sample_size": 20}
+    assert result["updated"]
