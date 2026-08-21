@@ -17,24 +17,28 @@ from desktop.runtime import (  # noqa: E402
     DEFAULT_PORT,
     PASS_THROUGH_ENV_KEYS,
     create_launch_plan,
+    react_frontend_ready,
     start_streamlit,
     stop_process,
     wait_for_http_ok,
     wait_for_ready,
+    wait_for_server_ready,
 )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Launch NASDX Streamlit as a Windows-friendly desktop entry.")
+    parser = argparse.ArgumentParser(description="Launch NASDX as a Windows-friendly desktop entry.")
     parser.add_argument("--host", default=DEFAULT_HOST, help="Local bind host. Defaults to 127.0.0.1.")
     parser.add_argument("--port", type=int, default=None, help=f"Local port. Defaults to {DEFAULT_PORT} when free.")
-    parser.add_argument("--page", default=None, help="Optional Streamlit page key, for example plan or quant.")
+    parser.add_argument("--mode", choices=("streamlit", "react"), default="streamlit",
+                        help="streamlit=现有 Streamlit 应用；react=React 前端（uvicorn server.main，默认 8900）。")
+    parser.add_argument("--page", default=None, help="Optional Streamlit page key, for example plan or quant (streamlit mode only).")
     parser.add_argument("--webview", action="store_true", help="Open the app in optional pywebview window.")
     parser.add_argument("--window-title", default="NASDX Desktop", help="Desktop window title for --webview.")
     parser.add_argument("--browser", dest="browser", action="store_true", default=True, help="Open the app URL.")
     parser.add_argument("--no-browser", dest="browser", action="store_false", help="Do not open a browser window.")
-    parser.add_argument("--dry-run", action="store_true", help="Print launch plan and exit without starting Streamlit.")
-    parser.add_argument("--headless-smoke", action="store_true", help="Start Streamlit, wait until ready, then stop.")
+    parser.add_argument("--dry-run", action="store_true", help="Print launch plan and exit without starting backend.")
+    parser.add_argument("--headless-smoke", action="store_true", help="Start backend, wait until ready, then stop.")
     parser.add_argument("--timeout", type=float, default=30.0, help="Startup readiness timeout in seconds.")
     return parser.parse_args(argv)
 
@@ -46,6 +50,7 @@ def plan_to_json(plan) -> str:
         "root": str(plan.root),
         "host": plan.host,
         "port": plan.port,
+        "mode": plan.mode,
         "page": plan.page,
         "url": plan.url,
         "command": plan.command,
@@ -62,15 +67,27 @@ def plan_to_json(plan) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    plan = create_launch_plan(host=args.host, port=args.port, page=args.page)
+    plan = create_launch_plan(host=args.host, port=args.port, page=args.page, mode=args.mode)
 
     if args.dry_run:
         print(plan_to_json(plan))
         return 0
 
+    if plan.mode == "react":
+        if not react_frontend_ready(plan.root):
+            print(
+                "React 前端尚未构建：请先在 frontend/ 目录执行 `npm install && npm run build`，再启动。",
+                file=sys.stderr,
+            )
+            return 1
+
     process = start_streamlit(plan)
     try:
-        if not wait_for_ready(plan.host, plan.port, timeout=args.timeout):
+        if plan.mode == "react":
+            ready = wait_for_server_ready(plan.host, plan.port, timeout=args.timeout)
+        else:
+            ready = wait_for_ready(plan.host, plan.port, timeout=args.timeout)
+        if not ready:
             print(f"NASDX desktop launch timed out waiting for {plan.url}", file=sys.stderr)
             return 1
 

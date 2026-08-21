@@ -16,6 +16,7 @@ from desktop.paths import build_desktop_env, resolve_app_root
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8501
+DEFAULT_REACT_PORT = 8900
 PASS_THROUGH_ENV_KEYS = (
     "NASDX_API_KEY",
     "NASDX_BASE_URL",
@@ -39,6 +40,7 @@ class LaunchPlan:
     page: str | None
     url: str
     command: list[str]
+    mode: str = "streamlit"
 
 
 def find_project_root(start: Path | None = None) -> Path:
@@ -86,6 +88,27 @@ def build_streamlit_command(root: Path, host: str, port: int) -> list[str]:
     ]
 
 
+def build_server_command(root: Path, host: str, port: int) -> list[str]:
+    """React 模式：起 NASDX FastAPI（server.main 同源托管 API + 前端 SPA）。"""
+    return [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "server.main:app",
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--log-level",
+        "warning",
+    ]
+
+
+def react_frontend_ready(root: Path) -> bool:
+    """React 模式要求前端已构建（server.main 托管 frontend/dist）。"""
+    return (root / "frontend" / "dist" / "index.html").exists()
+
+
 def build_streamlit_env(parent_env: Mapping[str, str] | None = None) -> dict[str, str]:
     return build_desktop_env(find_project_root(), parent_env)
 
@@ -96,8 +119,23 @@ def create_launch_plan(
     host: str = DEFAULT_HOST,
     port: int | None = None,
     page: str | None = None,
+    mode: str = "streamlit",
 ) -> LaunchPlan:
     project_root = find_project_root(root)
+
+    if mode == "react":
+        # React 模式：uvicorn 起 server.main（API + 前端同源），page 不适用
+        selected_port = port if port is not None else find_free_port(host, preferred=DEFAULT_REACT_PORT)
+        return LaunchPlan(
+            root=project_root,
+            host=host,
+            port=selected_port,
+            page=None,
+            url=build_url(host, selected_port),
+            command=build_server_command(project_root, host, selected_port),
+            mode=mode,
+        )
+
     selected_port = port if port is not None else find_free_port(host)
     return LaunchPlan(
         root=project_root,
@@ -106,6 +144,7 @@ def create_launch_plan(
         page=page,
         url=build_url(host, selected_port, page),
         command=build_streamlit_command(project_root, host, selected_port),
+        mode=mode,
     )
 
 
@@ -120,6 +159,13 @@ def wait_for_ready(host: str, port: int, timeout: float = 30.0, interval: float 
         except OSError:
             time.sleep(interval)
     return False
+
+
+def wait_for_server_ready(host: str, port: int, timeout: float = 30.0, interval: float = 0.5) -> bool:
+    """React 模式就绪探测：/api/health 返回 200。"""
+    return wait_for_http_ok(
+        f"http://{host}:{port}/api/health", timeout=timeout, interval=interval
+    )
 
 
 def wait_for_http_ok(url: str, timeout: float = 10.0, interval: float = 0.5) -> bool:

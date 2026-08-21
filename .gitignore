@@ -63,3 +63,15 @@ nasdx_portfolio_*.db
 nasdx_decisions.db
 nasdx_decisions_*.db
 models/signal_confidence.json
+
+# —— 融合阶段（阶段5）新增排除 ——
+# 第三方研究副本（zhangsa69 项目 clone，本地只读参考，绝不纳入 NASDX 版本库）
+_reverse_miaoou/
+# WorkBuddy 工作区数据（agent 会话记忆等）
+.workbuddy/
+# 交付物与审计状态（不入库）
+deliverables/
+.audit_state.json
+# 运行期缓存与本地数据（不入库）
+.cache/
+.data/

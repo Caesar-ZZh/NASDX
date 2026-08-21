@@ -31,6 +31,14 @@ The goal is to evolve this project into a maintainable Windows desktop applicati
 - `quant/factors.py`: factor calculation
 - `quant/backtest.py`: backtesting engine
 
+## React 融合层（阶段1-4，与 Streamlit 双轨并存）
+
+- `server/main.py`: FastAPI 入口，单进程同源托管 API（base 股票接口并入 `server/stock/`）与 React 前端静态（`frontend/dist`）。启动：`python -m uvicorn server.main:app --port 8900`；依赖 `server/requirements.txt`（akshare/mootdx/openai 惰性，缺则 501 降级）。
+- `server/stock/`: base（Vibe-Research，MIT）接口模块：astock/market/portfolio/debate/gstock/newsradar/myreports/reflection/chat/tools/cli_runtime/base_app；`llm_cfg.py` 为统一 LLM 配置桥（请求体 > `NASDX_*` 环境变量 > `VR_*`）。
+- `frontend/`: React 19 + Vite 前端源码（自 base 迁入），`npm run build` 产出 dist；开发态 `npm run dev`（Vite 5899，/api 代理默认 8900）。
+- `启动NASDX桌面React.bat`: 桌面 React 模式入口（`desktop/launcher.py --webview --mode react`）；`desktop/launcher.py --mode react` 亦支持 `--dry-run`/`--headless-smoke`。默认 streamlit 模式不变。
+- LLM 凭证统一走 `NASDX_API_KEY` / `NASDX_BASE_URL` / `NASDX_MODEL`（`config.toml` 的 `[llm]` 表由 desktop 环境注入）。
+
 ## Do Not Rewrite
 
 Do not rewrite the entire project.

@@ -34,6 +34,7 @@
 | **投研闭环** | 一键串联行情刷新 → ETF / 个股扫描 → 深度分析 → 组合路线 → 投资简报 |
 | **决策与风控** | 保守 / 均衡 / 进取三档仓位纪律、数据质量闸门、候选证据核查、建议漂移追踪与结果复盘 |
 | **桌面化** | Windows 桌面控制面板、便携包、安装器，复用现有 Streamlit UI |
+| **React 股票站** | 个股全景（估值分位带 / 财报 / 研报 / 公告 / 资金筹码 / 龙虎榜 / 解禁 / 互动易）、自选股实时报价、板块中心、持仓盈亏、每日复盘、多空辩论（与 Streamlit 双轨并存，`启动NASDX桌面React.bat` 一键桌面启动） |
 | **历史与复盘** | SQLite 历史库、真实账户复盘（成交 CSV）、复盘快照包、盘前 / 盘中 / 盘后执行队列 |
 
 > 无 API Key 时自动生成同结构的规则深度报告，仍进入组合路线与最终简报；有 Key 时升级为 LLM 结构化分析。
@@ -59,7 +60,7 @@ python -m pip install -r requirements_nasdx.txt
 
 ### 2. 启动界面
 
-两种方式，任选其一：
+三种方式，任选其一：
 
 ```bash
 # 方式 A：一键启动（双击 启动网页.bat 亦可）
@@ -67,6 +68,12 @@ streamlit run app.py
 
 # 方式 B：Windows 桌面控制面板
 python -B desktop\control_panel.py
+
+# 方式 C：React 股票站（API 与页面同源，端口 8900；前置：frontend/ 已构建）
+pip install -r server/requirements.txt
+cd frontend && npm install && npm run build && cd ..
+python -m uvicorn server.main:app --host 127.0.0.1 --port 8900
+# 桌面模式：双击 启动NASDX桌面React.bat（pywebview 未装时自动降级浏览器）
 ```
 
 ### 3. 最常用的命令
