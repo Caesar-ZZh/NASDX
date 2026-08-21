@@ -254,7 +254,7 @@ def _start_etf50_scan() -> None:
     task_id = _new_task_id("etf50_scan")
     thread = threading.Thread(
         target=_run_command_task,
-        args=(task_id, [sys.executable, str(ROOT / "scan_etf50.py")]),
+        args=(task_id, [sys.executable, str(ROOT / "scripts" / "scan_etf50.py")]),
         kwargs={
             "timeout": 240,
             "success_message": "ETF 50 扫描完成，结果已刷新。",
@@ -278,7 +278,7 @@ def _start_stocks60_scan() -> None:
     task_id = _new_task_id("stocks60_scan")
     thread = threading.Thread(
         target=_run_command_task,
-        args=(task_id, [sys.executable, str(ROOT / "scan_stocks_full.py")]),
+        args=(task_id, [sys.executable, str(ROOT / "scripts" / "scan_stocks_full.py")]),
         kwargs={
             "timeout": 600,
             "success_message": "个股扫描完成，结果已刷新。",
@@ -297,7 +297,7 @@ def _start_stocks60_scan() -> None:
 
 def run_analysis_bg(code, rounds, risk_profile, workflow, analysis_mode, log_path, env):
     cmd = [
-        sys.executable, "-u", str(ROOT/"run_investment_workflow.py"),
+        sys.executable, "-u", str(ROOT/"scripts"/"run_investment_workflow.py"),
         code,
         "--workflow", workflow,
         "--rounds", str(rounds),

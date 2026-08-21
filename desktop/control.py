@@ -55,7 +55,7 @@ def ensure_user_config(app_root: Path, env: Mapping[str, str] | None = None) -> 
 
 
 def data_refresh_command(app_root: Path) -> list[str]:
-    return [sys.executable, "-B", str(app_root / "fetch_stock_data.py")]
+    return [sys.executable, "-B", str(app_root / "scripts" / "fetch_stock_data.py")]
 
 
 def open_path(path: Path) -> None:

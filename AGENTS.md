@@ -19,14 +19,15 @@ The goal is to evolve this project into a maintainable Windows desktop applicati
 
 - `app.py`: Streamlit UI entry
 - `启动网页.bat`: Windows one-click Streamlit launcher
-- `fetch_stock_data.py`: market data refresh
-- `scan_etf50.py`: ETF50 rule-based scan
-- `scan_stocks_full.py`: stock scan
-- `run_analysis.py`: single-stock multi-agent analysis
-- `run_investment_workflow.py`: one-click investment workflow
-- `run_portfolio_plan.py`: portfolio plan generation
-- `run_final_audit.py`: final self-check
-- `quant_page.py`: quantitative strategy page
+- `scripts/`: CLI 入口脚本（自根目录移入，头部已含项目根 sys.path 引导）：
+  - `scripts/fetch_stock_data.py`: market data refresh
+  - `scripts/scan_etf50.py`: ETF50 rule-based scan
+  - `scripts/scan_stocks_full.py`: stock scan
+  - `scripts/run_analysis.py`: single-stock multi-agent analysis
+  - `scripts/run_investment_workflow.py`: one-click investment workflow
+  - `scripts/run_portfolio_plan.py`: portfolio plan generation
+  - `scripts/run_final_audit.py`: final self-check
+  - `scripts/quant_page.py` / `scripts/confidence_page.py` / `scripts/position_page.py` / `scripts/selector_page.py`: Streamlit 页面入口
 - `quant/data.py`: unified OHLCV data layer
 - `quant/factors.py`: factor calculation
 - `quant/backtest.py`: backtesting engine
