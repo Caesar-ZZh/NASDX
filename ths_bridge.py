@@ -167,9 +167,11 @@ def _get_tdx():
     if _tdx_api is not None:
         return _tdx_api
     # 优先用 mootdx（纯Python，无需编译）
+    # bestip=False：不再逐服务器测速选优（实测 7.7s+ 且常 WinError 10054），
+    # 固定走默认服务器快速连接，失败立即降级 pytdx。
     try:
         from mootdx.quotes import Quotes
-        api = Quotes.factory(market="std", bestip=True, timeout=10)
+        api = Quotes.factory(market="std", bestip=False, timeout=5)
         _tdx_api = ("mootdx", api)
         print("✅ 行情连接（mootdx）")
         return _tdx_api

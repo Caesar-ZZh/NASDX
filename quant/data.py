@@ -342,8 +342,9 @@ def _get_mootdx(code: str, days: int, start_s: str = "", end_s: str = "") -> Opt
     try:
         from mootdx.quotes import Quotes
 
-        # 创建 API 连接
-        api = Quotes.factory(market="std", bestip=True, timeout=8)
+        # 创建 API 连接（bestip=False：不做全服务器测速选优，实测测速耗时 7.7s+
+        # 且本机网络下常连接失败，固定默认服务器 + 短超时快速失败）
+        api = Quotes.factory(market="std", bestip=False, timeout=5)
 
         # 估算覆盖自然日窗口所需的 bars 数（含周末/停牌缓冲）
         try:
@@ -480,35 +481,54 @@ def _map_tencent_to_quotes(tencent: dict, codes: list[str]) -> dict[str, dict]:
     return result
 
 
-def get_realtime_quotes(codes: list[str]) -> dict[str, dict]:
+def get_realtime_quotes(
+    codes: list[str],
+    *,
+    ths_timeout: float = 3.0,
+) -> dict[str, dict]:
     """
     获取实时行情（最新价、涨幅、成交额）
 
-    优先级：tdxrs（逐代码盘口） > ths_bridge > 腾讯 qt.gtimg.cn（逐代码快照） > akshare 全表兜底
+    优先级：腾讯 qt.gtimg.cn（逐代码快照，最稳） > tdxrs（逐代码盘口） > ths_bridge > akshare 全表兜底
+
+    实测依据（2026-08-13，本机网络）：
+    - 腾讯 qt.gtimg.cn：10 只 ~3.1s，最稳定（HTTP 源）
+    - tdxrs：连接 ~150ms 但当前网络下请求常返回空
+    - ths_bridge（mootdx bestip 测速）：7.7s+ 失败，是 26s 慢路径的元凶
+    - akshare 全表：72s+，仅作最后手段
+
     除最后的 akshare 兜底外，均按需拉取指定代码，避免为少数标的而拉取全市场 ETF 表。
+    ths_bridge 调用带整体超时护栏（默认 3s），防止通达信测速黑洞拖慢整条链路。
     """
     codes = [str(c).strip() for c in codes if str(c).strip()]
     if not codes:
         return {}
 
-    # 优先尝试 tdxrs (Rust 极速引擎)，逐代码盘口
+    # 1) 腾讯 qt.gtimg.cn 逐代码快照——实测最稳最快，HTTP 源不受通达信服务器状态影响
+    try:
+        from nasdx.fast_market import fetch_tencent_quotes
+        tencent = fetch_tencent_quotes(codes, request_timeout=4.0)
+        result = _map_tencent_to_quotes(tencent, codes)
+        if result:
+            return result
+    except Exception:
+        pass
+
+    # 2) tdxrs (Rust 极速引擎)，逐代码盘口；连接/请求约 150ms~1s，失败即放弃
     tdxrs_quotes = _get_tdxrs_quotes(codes)
     if tdxrs_quotes:
         return tdxrs_quotes
 
+    # 3) ths_bridge（mootdx/pytdx 通达信）——整体超时护栏：
+    #    mootdx bestip 测速与 TCP 连接失败可能耗时数十秒，超时即放弃不阻塞调用方
     try:
+        from concurrent.futures import ThreadPoolExecutor
         from ths_bridge import get_realtime_batch
-        return get_realtime_batch(codes)
-    except Exception:
-        pass  # ths_bridge 不可用，降级到腾讯逐代码快照
-
-    # 逐代码快照（腾讯 qt.gtimg.cn），按代码分批请求，不拉全市场表
-    try:
-        from nasdx.fast_market import fetch_tencent_quotes
-        tencent = fetch_tencent_quotes(codes)
-        result = _map_tencent_to_quotes(tencent, codes)
-        if result:
-            return result
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(get_realtime_batch, codes)
+            ths_quotes = future.result(timeout=ths_timeout)
+        if ths_quotes:
+            return ths_quotes
     except Exception:
         pass
 
