@@ -82,8 +82,8 @@ $RequiredFiles = @(
     "desktop\doctor.py",
     "static\style.css",
     "requirements_nasdx.txt",
-    "run_desktop_doctor.py",
-    "run_desktop_completion_audit.py",
+    "scripts/run_desktop_doctor.py",
+    "scripts/run_desktop_completion_audit.py",
     "packaging\windows\create_shortcuts.ps1",
     "packaging\windows\smoke_installer_roundtrip.ps1",
     "启动NASDX桌面.bat"
@@ -164,7 +164,7 @@ try {
             }
         }
 
-        $DoctorOutput = & $PythonExe -B run_desktop_doctor.py --json
+        $DoctorOutput = & $PythonExe -B scripts/run_desktop_doctor.py --json
         if ($LASTEXITCODE -ne 0) {
             throw "Installed desktop doctor failed"
         }
@@ -180,7 +180,7 @@ try {
             }
         }
 
-        $CompletionOutput = & $PythonExe -B run_desktop_completion_audit.py --json
+        $CompletionOutput = & $PythonExe -B scripts/run_desktop_completion_audit.py --json
         if ($LASTEXITCODE -ne 0) {
             throw "Installed desktop completion audit failed"
         }

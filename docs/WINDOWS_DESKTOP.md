@@ -39,21 +39,21 @@ python -B desktop\launcher.py --headless-smoke --timeout 30 --no-browser --page 
 Run a read-only desktop environment diagnostic:
 
 ```powershell
-python -B run_desktop_doctor.py
-python -B run_desktop_doctor.py --json
+python -B scripts/run_desktop_doctor.py
+python -B scripts/run_desktop_doctor.py --json
 ```
 
 Run the read-only desktop completion evidence matrix:
 
 ```powershell
-python -B run_desktop_completion_audit.py
-python -B run_desktop_completion_audit.py --json
+python -B scripts/run_desktop_completion_audit.py
+python -B scripts/run_desktop_completion_audit.py --json
 ```
 
 Use the write probe only when you want to verify runtime/report paths:
 
 ```powershell
-python -B run_desktop_doctor.py --check-write
+python -B scripts/run_desktop_doctor.py --check-write
 ```
 
 The doctor reports config paths and loaded key names only; it does not print API key values.
@@ -294,33 +294,33 @@ Use these commands before handing off a Windows desktop change:
 ```powershell
 python -m pytest tests
 python -m ruff check --no-cache .
-python -B run_security_checks.py --skip-optional
-python -B run_desktop_doctor.py
-python -B run_desktop_completion_audit.py
-python -B run_desktop_release_evidence.py --json --package-dir dist\NASDX-Desktop-check
-python -B run_desktop_release_check.py --write-evidence
+python -B scripts/run_security_checks.py --skip-optional
+python -B scripts/run_desktop_doctor.py
+python -B scripts/run_desktop_completion_audit.py
+python -B scripts/run_desktop_release_evidence.py --json --package-dir dist\NASDX-Desktop-check
+python -B scripts/run_desktop_release_check.py --write-evidence
 powershell -ExecutionPolicy Bypass -File packaging\windows\build_portable.ps1 -SkipDependencyInstall
 powershell -ExecutionPolicy Bypass -File packaging\windows\smoke_portable.ps1 -PackageDir dist\NASDX-Desktop -Timeout 60
 powershell -ExecutionPolicy Bypass -File packaging\windows\smoke_installed.ps1 -InstallDir dist\NASDX-Desktop -Timeout 60
 powershell -ExecutionPolicy Bypass -File packaging\windows\build_installer.ps1 -SkipPortableBuild -SkipCompile
-python -B run_desktop_release_check.py
+python -B scripts/run_desktop_release_check.py
 python -B run_final_audit.py
 python -B run_product_readiness.py
 ```
 
-`run_security_checks.py` is intentionally lightweight by default. It scans versionable text files for likely committed API keys and skips optional external tools unless `--run-optional` is passed. If `pip-audit`, `bandit`, and `detect-secrets` are installed locally, use:
+`scripts/run_security_checks.py` is intentionally lightweight by default. It scans versionable text files for likely committed API keys and skips optional external tools unless `--run-optional` is passed. If `pip-audit`, `bandit`, and `detect-secrets` are installed locally, use:
 
 ```powershell
-python -B run_security_checks.py --run-optional
+python -B scripts/run_security_checks.py --run-optional
 ```
 
-`run_desktop_release_check.py` is the local desktop release gate. By default it runs lint, desktop contract tests, lightweight security checks, desktop doctor, desktop completion audit, portable package build, portable smoke, installed-layout smoke using the isolated `dist\NASDX-Desktop-check` directory, release evidence JSON for that package via `--package-dir`, installer input validation with `-SkipCompile`, and final audit. It does not run or install the generated setup executable, and it does not overwrite a dependency-contained `dist\NASDX-Desktop` release package unless `--full-package` is explicit. Add `--write-evidence` only when a packaging machine should persist ignored `dist\release-evidence\NASDX-desktop-release-evidence.json`; use `--evidence-output` for a different ignored handoff path.
+`scripts/run_desktop_release_check.py` is the local desktop release gate. By default it runs lint, desktop contract tests, lightweight security checks, desktop doctor, desktop completion audit, portable package build, portable smoke, installed-layout smoke using the isolated `dist\NASDX-Desktop-check` directory, release evidence JSON for that package via `--package-dir`, installer input validation with `-SkipCompile`, and final audit. It does not run or install the generated setup executable, and it does not overwrite a dependency-contained `dist\NASDX-Desktop` release package unless `--full-package` is explicit. Add `--write-evidence` only when a packaging machine should persist ignored `dist\release-evidence\NASDX-desktop-release-evidence.json`; use `--evidence-output` for a different ignored handoff path.
 
 The default release gate passes `--skip-zip` to release evidence because it does not build a portable zip unless `--zip-package` is explicit. When `--zip-package` is used, release evidence points at the zip and manifest produced and smoked in that run.
 
-`run_desktop_completion_audit.py` is a read-only evidence matrix. It reports preserved entrypoints, launcher MVP, local config, packaging chain, portable runtime bundle status, release gates, ignored generated files, optional WebView availability, Inno Setup availability, and installer roundtrip status. Missing `pywebview` is a WARN because browser fallback is acceptable for the first MVP. Missing `ISCC.exe` or an unproven installer roundtrip remains INCOMPLETE until tested on a packaging machine or disposable Windows VM. `ISCC.exe` discovery checks PATH, Inno Setup 7/6 common locations, and Windows uninstall registry metadata.
+`scripts/run_desktop_completion_audit.py` is a read-only evidence matrix. It reports preserved entrypoints, launcher MVP, local config, packaging chain, portable runtime bundle status, release gates, ignored generated files, optional WebView availability, Inno Setup availability, and installer roundtrip status. Missing `pywebview` is a WARN because browser fallback is acceptable for the first MVP. Missing `ISCC.exe` or an unproven installer roundtrip remains INCOMPLETE until tested on a packaging machine or disposable Windows VM. `ISCC.exe` discovery checks PATH, Inno Setup 7/6 common locations, and Windows uninstall registry metadata.
 
-`run_desktop_release_evidence.py` is a read-only release evidence bundle. It combines completion audit output, desktop doctor output, portable package/zip/installer artifact metadata, ignored path checks, and next packaging commands. It prints JSON by default; `--package-dir` points the evidence at the package under test, and `--write` stores ignored `dist\release-evidence\NASDX-desktop-release-evidence.json` for handoff or PR notes. The `forbidden_present` field lists forbidden package-relative paths only, and `package_forbidden_failures` fails the evidence when `.env`, `config.toml`, `reports/`, logs, `__pycache__/`, `*.pyc`, local databases, or build outputs are present without reading or printing their contents.
+`scripts/run_desktop_release_evidence.py` is a read-only release evidence bundle. It combines completion audit output, desktop doctor output, portable package/zip/installer artifact metadata, ignored path checks, and next packaging commands. It prints JSON by default; `--package-dir` points the evidence at the package under test, and `--write` stores ignored `dist\release-evidence\NASDX-desktop-release-evidence.json` for handoff or PR notes. The `forbidden_present` field lists forbidden package-relative paths only, and `package_forbidden_failures` fails the evidence when `.env`, `config.toml`, `reports/`, logs, `__pycache__/`, `*.pyc`, local databases, or build outputs are present without reading or printing their contents.
 
 The packaged `PACKAGING_MANIFEST.json` uses `path_policy=relative-or-redacted`: it records relative paths or `<source-checkout>` / `<external-path>` placeholders instead of packaging-machine absolute paths.
 
@@ -331,9 +331,9 @@ Portable zip safety is checked twice: `build_portable_zip.ps1` rejects forbidden
 For a fuller local package check after dependencies and Inno Setup 7/6 are ready:
 
 ```powershell
-python -B run_desktop_release_check.py --full-package --package-timeout 1200 --pip-timeout 120 --pip-retries 3
-python -B run_desktop_release_check.py --full-package --zip-package --package-timeout 1200 --zip-timeout 900 --pip-timeout 120 --pip-retries 3
-python -B run_desktop_release_check.py --full-package --compile-installer
+python -B scripts/run_desktop_release_check.py --full-package --package-timeout 1200 --pip-timeout 120 --pip-retries 3
+python -B scripts/run_desktop_release_check.py --full-package --zip-package --package-timeout 1200 --zip-timeout 900 --pip-timeout 120 --pip-retries 3
+python -B scripts/run_desktop_release_check.py --full-package --compile-installer
 ```
 
 `--full-package` installs runtime dependencies into `dist\NASDX-Desktop\.venv`, keeps that bundled runtime, scrubs Python caches from it, and then runs smoke with `-RequireVenv`, so the check fails if the package falls back to the developer machine's global Python. Slow networks can exceed the default fast local gate, so use `--package-timeout`, `--pip-timeout`, and `--pip-retries` on build machines that do real dependency installation.
@@ -349,7 +349,7 @@ Without `-AllowInstall`, `smoke_installer_roundtrip.ps1` stays in plan-only mode
 
 After a successful real roundtrip, the script writes ignored proof metadata to `dist\installer\NASDX-Desktop-roundtrip-proof.json` by default. The completion audit treats installer roundtrip as PASS only when that proof uses schema `nasdx_installer_roundtrip_proof.v1`, matches the current setup executable SHA256, and proves installed smoke, uninstall, `-RequireVenv`, and `-CheckShortcuts`.
 
-The repository also includes a Windows GitHub Actions workflow at `.github/workflows/windows-desktop.yml`. It uses the Node 24 based `actions/checkout@v5` and `actions/setup-python@v6`, runs `python -B run_desktop_release_check.py --skip-final-audit --fail-fast` on `windows-latest`, then delivery-asset contracts. The CI job includes the lightweight security check but intentionally skips `run_final_audit.py` because a fresh checkout does not include local market snapshots or generated reports.
+The repository also includes a Windows GitHub Actions workflow at `.github/workflows/windows-desktop.yml`. It uses the Node 24 based `actions/checkout@v5` and `actions/setup-python@v6`, runs `python -B scripts/run_desktop_release_check.py --skip-final-audit --fail-fast` on `windows-latest`, then delivery-asset contracts. The CI job includes the lightweight security check but intentionally skips `run_final_audit.py` because a fresh checkout does not include local market snapshots or generated reports.
 
 ## Troubleshooting
 

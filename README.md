@@ -80,13 +80,13 @@ python -m uvicorn server.main:app --host 127.0.0.1 --port 8900
 
 | 命令 | 作用 |
 |---|---|
-| `python fetch_stock_data.py` | 抓取行情（无需 API Key） |
-| `python scan_etf50.py` | ETF50 技术面扫描（秒出） |
-| `python scan_stocks_full.py` | 60 只热门个股扫描 |
-| `python run_analysis.py 603501` | 单股多智能体深度分析 |
-| `python run_investment_workflow.py 603501` | 一键投研闭环 |
-| `python run_portfolio_plan.py` | 生成组合级投资路线 |
-| `python run_investment_brief.py` | 生成最终投资简报 |
+| `python scripts/fetch_stock_data.py` | 抓取行情（无需 API Key） |
+| `python scripts/scan_etf50.py` | ETF50 技术面扫描（秒出） |
+| `python scripts/scan_stocks_full.py` | 60 只热门个股扫描 |
+| `python scripts/run_analysis.py 603501` | 单股多智能体深度分析 |
+| `python scripts/run_investment_workflow.py 603501` | 一键投研闭环 |
+| `python scripts/run_portfolio_plan.py` | 生成组合级投资路线 |
+| `python scripts/run_investment_brief.py` | 生成最终投资简报 |
 
 <details>
 <summary><b>展开：完整命令参考</b></summary>
@@ -95,42 +95,42 @@ python -m uvicorn server.main:app --host 127.0.0.1 --port 8900
 
 ```bash
 # 获取数据（无需 API Key）
-python fetch_stock_data.py
+python scripts/fetch_stock_data.py
 
 # ETF50 定时扫描与云端同步
-python scan_and_sync.py
-python scan_and_sync.py --no-sync
+python scripts/scan_and_sync.py
+python scripts/scan_and_sync.py --no-sync
 
 # 动态选股（网页默认预筛 50 只进入历史因子）
-python run_stock_selector.py --limit 50
+python scripts/run_stock_selector.py --limit 50
 
 # 单股深度分析（auto / rules / llm 三种模式）
-python run_analysis.py 603501 --risk-profile balanced
-python run_analysis.py 603501 --mode rules --risk-profile balanced
-python run_analysis.py 603501 --mode llm  --risk-profile balanced
+python scripts/run_analysis.py 603501 --risk-profile balanced
+python scripts/run_analysis.py 603501 --mode rules --risk-profile balanced
+python scripts/run_analysis.py 603501 --mode llm  --risk-profile balanced
 
 # 一键投研闭环（analysis-only / quick / full / selector）
-python run_investment_workflow.py 603501
-python run_investment_workflow.py 603501 --workflow quick  --risk-profile balanced
-python run_investment_workflow.py 603501 --workflow full  --rounds 1 --risk-profile conservative
-python run_investment_workflow.py --workflow selector --analysis-mode rules
+python scripts/run_investment_workflow.py 603501
+python scripts/run_investment_workflow.py 603501 --workflow quick  --risk-profile balanced
+python scripts/run_investment_workflow.py 603501 --workflow full  --rounds 1 --risk-profile conservative
+python scripts/run_investment_workflow.py --workflow selector --analysis-mode rules
 
 # 组合路线与简报
-python run_portfolio_plan.py --risk-profile balanced
-python run_investment_brief.py --risk-profile balanced
+python scripts/run_portfolio_plan.py --risk-profile balanced
+python scripts/run_investment_brief.py --risk-profile balanced
 
 # 资金仓位换算（不写入账户数据）
-python run_position_sizing.py --capital 100000 --current-etf 10000 --current-stock 5000 --risk-profile balanced
+python scripts/run_position_sizing.py --capital 100000 --current-etf 10000 --current-stock 5000 --risk-profile balanced
 
 # 建议漂移追踪 / 结果复盘
-python run_recommendation_tracker.py --print
-python run_recommendation_review.py --print
+python scripts/run_recommendation_tracker.py --print
+python scripts/run_recommendation_review.py --print
 
 # 真实账户复盘（从成交 CSV 计算盈亏）
-python run_account_review.py --ledger trades.csv --capital 100000 --print
+python scripts/run_account_review.py --ledger trades.csv --capital 100000 --print
 
 # 导出复盘快照包
-python run_review_snapshot.py --risk-profile balanced
+python scripts/run_review_snapshot.py --risk-profile balanced
 
 # 建议样本外评价：冻结决策记录（只读查看，写入由生成流程完成）
 python -m nasdx.decision_record status
@@ -143,8 +143,8 @@ python -m nasdx.decision_record list --code 600519 --limit 20
 
 | 链路 | 回答的问题 | 入口 | 数据来源 | 典型指标 |
 |---|---|---|---|---|
-| 信号延续复盘 | 当初那个**信号今天还成立吗** | `run_recommendation_tracker.py` / `run_recommendation_review.py` | 当前行情重算信号 | 信号是否漂移、是否触发复核 |
-| 真实账户复盘 | 我的**账户实际赚了多少** | `run_account_review.py --ledger trades.csv` | 用户成交 CSV | 已实现 / 未实现盈亏、持仓成本 |
+| 信号延续复盘 | 当初那个**信号今天还成立吗** | `scripts/run_recommendation_tracker.py` / `scripts/run_recommendation_review.py` | 当前行情重算信号 | 信号是否漂移、是否触发复核 |
+| 真实账户复盘 | 我的**账户实际赚了多少** | `scripts/run_account_review.py --ledger trades.csv` | 用户成交 CSV | 已实现 / 未实现盈亏、持仓成本 |
 | 建议样本外评价 | 当时那条**建议本身好不好** | `nasdx.decision_record` + `nasdx.outcome_labels` + `nasdx.decision_evaluation` | 生成时冻结的记录 + 之后的 K 线 | T+1/3/5/10/20 收益、MFE / MAE、胜率、CI95、置信度校准 |
 
 第三条链路的关键约束：
@@ -161,11 +161,11 @@ python -m nasdx.decision_record list --code 600519 --limit 20
 **自检与发布门禁**
 
 ```bash
-python run_final_audit.py          # 最终版交付自检
-python run_product_readiness.py    # 产品化巡检聚合（单测 + 最终审计）
+python scripts/run_final_audit.py          # 最终版交付自检
+python scripts/run_product_readiness.py    # 产品化巡检聚合（单测 + 最终审计）
 ```
 
-`run_final_audit.py` 必须**退出码为 0** 才算交付自检通过；任何非 0 退出（含 README / 决策文档缺失）都视为发布门禁未过，不可标注为「验证通过」。CI 的 Final Audit Gate 会在 `master` / PR 上运行该脚本，非 0 退出即判失败（详见 `.github/workflows/final-audit.yml`）。
+`scripts/run_final_audit.py` 必须**退出码为 0** 才算交付自检通过；任何非 0 退出（含 README / 决策文档缺失）都视为发布门禁未过，不可标注为「验证通过」。CI 的 Final Audit Gate 会在 `master` / PR 上运行该脚本，非 0 退出即判失败（详见 `.github/workflows/final-audit.yml`）。
 
 | 工作流 | 做什么 | 适合场景 |
 |---|---|---|
@@ -287,7 +287,7 @@ python -B desktop\launcher.py --webview --page plan
 <details>
 <summary><b>分析缓存契约（#65）</b></summary>
 
-深度分析支持 `full` / `intraday` / `refresh` 三档深度，通过 `NasdxAnalyzer(depth=...)` 控制，`run_analysis.py` 也接受 `--depth`：
+深度分析支持 `full` / `intraday` / `refresh` 三档深度，通过 `NasdxAnalyzer(depth=...)` 控制，`scripts/run_analysis.py` 也接受 `--depth`：
 
 | 深度 | 行为 | 何时用 |
 |---|---|---|
