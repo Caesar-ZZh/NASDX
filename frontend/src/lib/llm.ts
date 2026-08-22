@@ -59,8 +59,8 @@ export interface ChatHandlers {
 // 边流边回调 onDelta/onTool；返回累积的最终 {content, trace, rounds}。
 // signal：调用方可传 AbortController.signal，用户关面板/换问题时中止请求（省订阅/API 额度）。
 export async function chatStream(messages: ChatMsg[], context: string, handlers: ChatHandlers = {}, signal?: AbortSignal): Promise<ChatResult> {
-  const llm = loadLlm();
-  if (!llm) throw new ApiError("尚未接入 AI，请先在「接入 AI」里配置", 400);
+  // 本地未配置时传空配置：后端会回退到服务端统一 LLM（NASDX_* / config.toml，如 Agnes），无需前端逐项填写。
+  const llm = loadLlm() ?? { provider: "" as ProviderId, baseURL: "", apiKey: "", model: "" };
 
   let resp: Response;
   try {

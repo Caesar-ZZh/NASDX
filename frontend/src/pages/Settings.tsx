@@ -29,7 +29,8 @@ export function Settings() {
     const m = apiModels.find((x) => x.id === id);
     if (!m) return;
     setApiId(id);
-    setModelName(id);
+    // custom = 其它 OpenAI 兼容：模型名必须由用户填真实值（如 agnes-2.5-flash），不能默认占位 "custom"
+    setModelName(id === "custom" ? "" : id);
     setBaseURL(PROVIDER_BASE[m.provider] || "");
   };
 

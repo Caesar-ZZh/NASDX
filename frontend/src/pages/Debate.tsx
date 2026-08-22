@@ -1,20 +1,11 @@
-import { useRef, useState } from "react";
 import { Swords, Play, Square, Save, CheckCircle2, Circle, AlertTriangle } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Disclaimer } from "@/components/ui/Disclaimer";
-import { debateStream, type DebateStage } from "@/lib/agents";
-import { addNote } from "@/lib/notes";
-import { ApiError } from "@/lib/api";
-
-interface StageBox {
-  stage: DebateStage;
-  label: string;
-  content: string;
-  done: boolean;
-}
+import { useDebateStore, type StageBox } from "@/lib/debateStore";
+import type { DebateStage } from "@/lib/agents";
 
 // 多方用品牌橙、空方用蓝灰、主持用中性——刻意不用红绿，
 // 免得和 A 股「红涨绿跌」撞车被读成涨跌信号。
@@ -29,64 +20,10 @@ const STAGE_TONE: Record<DebateStage, string> = {
 const DOSSIER_HINT = "多空双方拿到的是同一份接口实时拉取的数据，谁也不能靠编数字赢。";
 
 export function Debate() {
-  const [code, setCode] = useState("");
-  const [rounds, setRounds] = useState(1);
-  const [running, setRunning] = useState(false);
-  const [status, setStatus] = useState("");
-  const [progress, setProgress] = useState<{ title: string; ok: boolean }[]>([]);
-  const [missing, setMissing] = useState<string[]>([]);
-  const [stages, setStages] = useState<StageBox[]>([]);
-  const [error, setError] = useState("");
-  const [saved, setSaved] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
-
-  const reset = () => {
-    setStatus(""); setProgress([]); setMissing([]); setStages([]); setError(""); setSaved(false);
-  };
-
-  async function start() {
-    const c = code.trim();
-    if (!/^\d{6}$/.test(c)) { setError("请输入 6 位 A 股代码"); return; }
-    reset();
-    setRunning(true);
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    try {
-      await debateStream(c, rounds, {
-        onStatus: setStatus,
-        onDossierProgress: (title, ok, loaded, total) => {
-          setStatus(`正在拉取客观事实底稿… ${loaded}/${total}`);
-          setProgress((p) => [...p, { title, ok }]);
-        },
-        onDossierReady: (_sections, miss) => { setMissing(miss); setStatus("底稿就绪，辩论开始"); },
-        onStageStart: (stage, label) =>
-          setStages((s) => [...s, { stage, label, content: "", done: false }]),
-        onDelta: (stage, text) =>
-          setStages((s) => s.map((b) => (b.stage === stage && !b.done ? { ...b, content: b.content + text } : b))),
-        onStageDone: (stage, _label, content) =>
-          setStages((s) => s.map((b) => (b.stage === stage && !b.done ? { ...b, content, done: true } : b))),
-        onError: (message, stage) => setError(stage ? `${stage}：${message}` : message),
-      }, ctrl.signal);
-      setStatus("辩论完成");
-    } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") setStatus("已中止");
-      else setError(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setRunning(false);
-      abortRef.current = null;
-    }
-  }
-
-  function stop() {
-    abortRef.current?.abort();
-    setRunning(false);
-  }
-
-  function save() {
-    const body = stages.map((s) => `## ${s.label}\n\n${s.content}`).join("\n\n---\n\n");
-    addNote("多空辩论", `多空辩论 · ${code.trim()}`, body);
-    setSaved(true);
-  }
+  const {
+    code, rounds, running, status, progress, missing, stages, error, saved,
+    setCode, setRounds, start, stop, save,
+  } = useDebateStore();
 
   const finished = stages.length > 0 && stages.every((s) => s.done);
 
@@ -182,7 +119,7 @@ export function Debate() {
       </GlassCard>
 
       <div className="mt-4 space-y-4">
-        {stages.map((s) => (
+        {stages.map((s: StageBox) => (
           <div key={s.stage} className={`rounded-xl border p-4 ${STAGE_TONE[s.stage]}`}>
             <div className="mb-2 flex items-center gap-2">
               <Swords className="h-4 w-4 text-muted-foreground" />

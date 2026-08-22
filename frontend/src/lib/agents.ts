@@ -1,7 +1,7 @@
 // 多 agent 能力的前端客户端：多空辩论 + 反思审计。
 // 两者都走后端 NDJSON 流；模型配置沿用「接入 AI」里存的那一份（用户自己的 key / 本机 CLI）。
 
-import { ApiError } from "@/lib/api";
+import { type ProviderId } from "@/lib/ai-models";
 import { loadLlm } from "@/lib/llm";
 import { streamNdjson, type NdjsonEvent } from "@/lib/ndjson";
 
@@ -18,9 +18,8 @@ export interface DebateHandlers {
 }
 
 function requireLlm() {
-  const llm = loadLlm();
-  if (!llm) throw new ApiError("尚未接入 AI，请先在「接入 AI」里配置", 400);
-  return llm;
+  // 本地未配置时返回空配置：后端回退到服务端统一 LLM（NASDX_* / config.toml，如 Agnes）。
+  return loadLlm() ?? { provider: "" as ProviderId, baseURL: "", apiKey: "", model: "" };
 }
 
 function dispatchDebate(ev: NdjsonEvent, h: DebateHandlers) {
