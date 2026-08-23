@@ -25,8 +25,8 @@ Without `-SkipDependencyInstall`, the script creates `.venv` inside the package 
 The release gate can run that full dependency-contained package path explicitly:
 
 ```powershell
-python -B run_desktop_release_check.py --full-package --zip-package --package-timeout 1200 --zip-timeout 900 --pip-timeout 120 --pip-retries 3
-python -B run_desktop_release_check.py --full-package --zip-package --write-evidence --package-timeout 1200 --zip-timeout 900 --pip-timeout 120 --pip-retries 3
+python -B scripts/run_desktop_release_check.py --full-package --zip-package --package-timeout 1200 --zip-timeout 900 --pip-timeout 120 --pip-retries 3
+python -B scripts/run_desktop_release_check.py --full-package --zip-package --write-evidence --package-timeout 1200 --zip-timeout 900 --pip-timeout 120 --pip-retries 3
 ```
 
 When `--full-package` is used, the release gate passes `-RequireVenv` to portable and installed-layout smoke so the package cannot accidentally fall back to the developer machine's global Python.
@@ -162,7 +162,7 @@ From the source checkout, pass `--package-dir` when you want the evidence to des
 
 ```powershell
 python -B scripts/run_desktop_release_evidence.py --json --package-dir dist\NASDX-Desktop-check
-python -B run_desktop_release_check.py --write-evidence --evidence-output dist\release-evidence\NASDX-desktop-release-evidence.json
+python -B scripts/run_desktop_release_check.py --write-evidence --evidence-output dist\release-evidence\NASDX-desktop-release-evidence.json
 ```
 
 The evidence includes `forbidden_present` and `package_forbidden_failures`; it fails if the tested package contains `.env`, `config.toml`, `reports/`, logs, `__pycache__/`, `*.pyc`, local databases, or build outputs, and it reports only package-relative paths rather than file contents.

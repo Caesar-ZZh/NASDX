@@ -169,6 +169,7 @@ def compute_backtest(payload: dict) -> dict:
         use_cache=True,
         cache_ttl_seconds=600,
         request_timeout=8,
+        fallback_missing=False,
     )
     price_data = {}
     for code in config["universe"]:

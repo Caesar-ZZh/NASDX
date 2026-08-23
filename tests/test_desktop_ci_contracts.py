@@ -20,9 +20,9 @@ class DesktopCiContractsTest(unittest.TestCase):
             "actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0",
             'python-version: "3.11.9"',
             'python -m pip install "pip==25.3" "uv==0.10.2"',
-            "python -B run_dependency_lock_check.py --enforce-toolchain",
+            "python -B scripts/run_dependency_lock_check.py --enforce-toolchain",
             "python -m pip install -r requirements-dev.txt",
-            "python -B run_desktop_release_check.py --skip-final-audit --fail-fast",
+            "python -B scripts/run_desktop_release_check.py --skip-final-audit --fail-fast",
             "tests/test_delivery_assets_contracts.py",
             "tests/test_desktop_release_check_contracts.py",
         ]:
@@ -40,7 +40,7 @@ class DesktopCiContractsTest(unittest.TestCase):
 
         secret_scan = text.index("python -B scripts/run_security_checks.py --skip-optional")
         dependency_install = text.index("python -m pip install -r requirements-dev.txt")
-        release_check = text.index("python -B run_desktop_release_check.py")
+        release_check = text.index("python -B scripts/run_desktop_release_check.py")
         self.assertLess(secret_scan, dependency_install)
         self.assertLess(secret_scan, release_check)
 

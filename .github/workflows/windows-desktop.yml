@@ -46,13 +46,13 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install "pip==25.3" "uv==0.10.2"
-          python -B run_dependency_lock_check.py --enforce-toolchain
+          python -B scripts/run_dependency_lock_check.py --enforce-toolchain
           python -m pip install -r requirements-dev.txt
 
       - name: Run desktop release check without installer compile
         shell: pwsh
         run: |
-          python -B run_desktop_release_check.py --skip-final-audit --fail-fast
+          python -B scripts/run_desktop_release_check.py --skip-final-audit --fail-fast
 
       - name: Run delivery asset contracts
         shell: pwsh

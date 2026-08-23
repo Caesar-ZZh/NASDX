@@ -272,7 +272,7 @@ CI 侧的安全门禁：`security.yml`（自研多供应商扫描 + 固定版本
 python -B desktop\control_panel.py                 # 桌面控制面板
 .\启动NASDX桌面.bat --dry-run --page plan           # 验证批处理入口
 python -B desktop\launcher.py --page plan           # 打开投资路线页
-python -B run_desktop_release_check.py --write-evidence   # 桌面发布前聚合检查
+python -B scripts/run_desktop_release_check.py --write-evidence   # 桌面发布前聚合检查
 ```
 
 原生桌面窗口体验（可选 WebView2 / pywebview）：

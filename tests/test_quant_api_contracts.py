@@ -54,12 +54,13 @@ class QuantApiContractTests(unittest.TestCase):
             "top_n": 2,
         }
 
-        with patch("quant.data.get_batch_ohlcv", return_value=frames):
+        with patch("quant.data.get_batch_ohlcv", return_value=frames) as batch:
             result = quant_service.compute_backtest(payload)
 
         self.assertEqual(["momentum", "mean_reversion"], [row["strategy"] for row in result["strategies"]])
         self.assertEqual(3, result["coverage"]["available"])
         self.assertTrue(all(row["equity_curve"] for row in result["strategies"]))
+        self.assertFalse(batch.call_args.kwargs["fallback_missing"])
         self.assertEqual("objective_calculation", result["result_type"])
         rendered = json.dumps(result, ensure_ascii=False)
         self.assertNotIn("recommendation", rendered.lower())

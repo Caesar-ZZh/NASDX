@@ -274,7 +274,7 @@ Release builds use the exact Python/pip versions in `packaging/windows/toolchain
 Validate or refresh the locks with:
 
 ```powershell
-python -B run_dependency_lock_check.py
+python -B scripts/run_dependency_lock_check.py
 powershell -ExecutionPolicy Bypass -File packaging\windows\refresh_dependency_locks.ps1
 ```
 
@@ -305,7 +305,7 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\smoke_installed.ps1 -
 powershell -ExecutionPolicy Bypass -File packaging\windows\build_installer.ps1 -SkipPortableBuild -SkipCompile
 python -B scripts/run_desktop_release_check.py
 python -B scripts/run_final_audit.py
-python -B run_product_readiness.py
+python -B scripts/run_product_readiness.py
 ```
 
 `scripts/run_security_checks.py` is intentionally lightweight by default. It scans versionable text files for likely committed API keys and skips optional external tools unless `--run-optional` is passed. If `pip-audit`, `bandit`, and `detect-secrets` are installed locally, use:

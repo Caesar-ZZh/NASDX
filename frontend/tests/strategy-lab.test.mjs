@@ -43,3 +43,12 @@ test("strategy lab has explicit timeout retry and non-advice copy", async () => 
   assert.match(page, /不构成投资建议/);
   assert.match(page, /<Disclaimer/);
 });
+
+
+test("strategy lab default dates use local calendar days", async () => {
+  const page = await source("pages/StrategyLab.tsx");
+
+  assert.match(page, /getFullYear\(\)/);
+  assert.match(page, /getMonth\(\)/);
+  assert.doesNotMatch(page, /toISOString\(\)\.slice\(0, 10\)/);
+});

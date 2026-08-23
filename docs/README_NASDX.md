@@ -52,13 +52,13 @@ export NASDX_BASE_URL=https://api.deepseek.com   # 可选，默认 DeepSeek
 export NASDX_MODEL=deepseek-chat                  # 可选
 
 # 方式二：命令行参数
-python analyze.py 603501 --api-key sk-xxxx
+python scripts/analyze.py 603501 --api-key sk-xxxx
 ```
 
 ### 3. 获取数据
 
 ```bash
-python fetch_stock_data.py
+python scripts/fetch_stock_data.py
 # 输出：stock_data_YYYYMMDD.json
 ```
 
@@ -66,19 +66,19 @@ python fetch_stock_data.py
 
 ```bash
 # 分析单只股票
-python analyze.py 603501
+python scripts/analyze.py 603501
 
 # 3轮辩论（更充分）
-python analyze.py 603501 --rounds 3
+python scripts/analyze.py 603501 --rounds 3
 
 # JSON 格式输出
-python analyze.py 603501 --format json
+python scripts/analyze.py 603501 --format json
 
 # 批量分析多只
-python analyze.py --batch 603501 000063 600900 002371
+python scripts/analyze.py --batch 603501 000063 600900 002371
 
 # 分析全部6板块42只标的
-python analyze.py --all-sectors
+python scripts/analyze.py --all-sectors
 ```
 
 ## 支持的 LLM
