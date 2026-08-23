@@ -14,10 +14,8 @@ _ROOT_DIR = str(Path(__file__).resolve().parents[1])
 if _ROOT_DIR not in sys.path:
     sys.path.insert(0, _ROOT_DIR)
 import ast
-import importlib
 import json
 import os
-import requests
 import subprocess
 import sys
 import tempfile
@@ -725,28 +723,28 @@ def check_architecture_optimization_contract() -> str:
 
     data_modules = ("scripts.fetch_stock_data", "quant.data", "quant.patch_requests")
     proxy_keys = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"]
-    original_get = requests.get
-    original_session_get = requests.Session.get
-    original_env = {key: os.environ.get(key) for key in proxy_keys}
-    sentinel_env = {key: "http://127.0.0.1:9000" for key in proxy_keys}
-    try:
-        os.environ.update(sentinel_env)
-        for module_name in data_modules:
-            sys.modules.pop(module_name, None)
-            importlib.import_module(module_name)
-        if requests.get is not original_get or requests.Session.get is not original_session_get:
-            raise AssertionError("数据模块导入时修改了 requests 全局方法")
-        changed = [key for key, expected in sentinel_env.items() if os.environ.get(key) != expected]
-        if changed:
-            raise AssertionError("数据模块导入时修改了代理环境变量: " + ", ".join(changed))
-    finally:
-        requests.get = original_get
-        requests.Session.get = original_session_get
-        for key, value in original_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
+    sentinel = "http://127.0.0.1:9000"
+    probe_env = os.environ.copy()
+    probe_env.update({key: sentinel for key in proxy_keys})
+    probe = (
+        "import importlib, os, requests; "
+        "before=(requests.get, requests.Session.get); "
+        f"[importlib.import_module(name) for name in {data_modules!r}]; "
+        "assert before == (requests.get, requests.Session.get); "
+        f"assert all(os.environ.get(key) == {sentinel!r} for key in {proxy_keys!r})"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-B", "-c", probe],
+        cwd=str(ROOT),
+        env=probe_env,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        timeout=30,
+    )
+    if proc.returncode != 0:
+        raise AssertionError("数据模块导入隔离失败: " + (proc.stdout + proc.stderr).strip()[:300])
     return f"5 Agent 并发耗时 {elapsed:.3f}s，HTTP导入隔离已验证"
 
 
