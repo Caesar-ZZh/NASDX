@@ -67,7 +67,7 @@ class ArchitectureContractTests(unittest.TestCase):
 
         try:
             os.environ.update(sentinel_env)
-            for module_name in ("fetch_stock_data", "quant.data", "quant.patch_requests"):
+            for module_name in ("scripts.fetch_stock_data", "quant.data", "quant.patch_requests"):
                 sys.modules.pop(module_name, None)
                 importlib.import_module(module_name)
 

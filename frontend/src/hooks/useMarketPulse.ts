@@ -18,6 +18,7 @@ export interface MarketPulseState {
   industry: IndustryData | null;
   updatedAt: number | null;
   polling: boolean;
+  loading: boolean;
   error: string | null;
   refresh: () => void;
 }
@@ -28,6 +29,7 @@ export function useMarketPulse(enabled: boolean): MarketPulseState {
   const [industry, setIndustry] = useState<IndustryData | null>(null);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [polling, setPolling] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const failuresRef = useRef(0);
@@ -37,25 +39,32 @@ export function useMarketPulse(enabled: boolean): MarketPulseState {
   const fetchOnce = useCallback(async (): Promise<boolean> => {
     if (inFlightRef.current) return true;
     inFlightRef.current = true;
+    setLoading(true);
     try {
-      const [idx, ov, ind] = await Promise.all([
+      const [idx, ov, ind] = await Promise.allSettled([
         api.indices(),
         api.marketOverview(),
         api.industry(30),
       ]);
-      setIndices(idx);
-      setOverview(ov);
-      setIndustry(ind);
-      setUpdatedAt(Date.now());
-      setError(null);
-      failuresRef.current = 0;
-      return true;
-    } catch {
+      let successes = 0;
+      if (idx.status === "fulfilled") { setIndices(idx.value); successes += 1; }
+      if (ov.status === "fulfilled") { setOverview(ov.value); successes += 1; }
+      if (ind.status === "fulfilled") { setIndustry(ind.value); successes += 1; }
+      if (successes > 0) setUpdatedAt(Date.now());
+      if (successes === 3) {
+        setError(null);
+        failuresRef.current = 0;
+        return true;
+      }
       failuresRef.current += 1;
-      if (failuresRef.current >= 2) setError("市场数据获取失败，正在重试…");
+      const timedOut = [idx, ov, ind].some(
+        (result) => result.status === "rejected" && String(result.reason).includes("超时"),
+      );
+      setError(timedOut ? "部分市场数据加载超时，可点击重试" : "部分市场数据获取失败，可点击重试");
       return false;
     } finally {
       inFlightRef.current = false;
+      setLoading(false);
     }
   }, []);
   fetchRef.current = fetchOnce;
@@ -119,5 +128,5 @@ export function useMarketPulse(enabled: boolean): MarketPulseState {
     };
   }, [enabled, fetchOnce]);
 
-  return { indices, overview, industry, updatedAt, polling, error, refresh };
+  return { indices, overview, industry, updatedAt, polling, loading, error, refresh };
 }
