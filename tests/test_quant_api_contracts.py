@@ -84,6 +84,29 @@ class QuantApiContractTests(unittest.TestCase):
             quant_service.run_guarded("slow-test", lambda: time.sleep(0.15), timeout=0.02)
         self.assertLess(time.perf_counter() - started, 0.1)
 
+    def test_timeout_keeps_singleflight_and_retry_can_receive_background_result(self):
+        calls = 0
+
+        def finish_after_first_wait():
+            nonlocal calls
+            calls += 1
+            time.sleep(0.08)
+            return {"ok": True}
+
+        with self.assertRaises(TimeoutError):
+            quant_service.run_guarded("slow-then-ready", finish_after_first_wait, timeout=0.02)
+
+        result = quant_service.run_guarded("slow-then-ready", finish_after_first_wait, timeout=1)
+
+        self.assertEqual({"ok": True}, result)
+        self.assertEqual(1, calls, "重试必须复用仍在运行的同键任务，不能重复提交计算")
+
+    def test_backtest_wait_window_covers_normal_cold_data_fetch(self):
+        with patch.object(quant_service, "run_guarded", return_value={}) as guarded:
+            quant_service.get_backtest({"universe": ["510300"], "strategies": ["momentum"]})
+
+        self.assertGreaterEqual(guarded.call_args.kwargs["timeout"], 60.0)
+
     def test_failures_are_negative_cached(self):
         calls = 0
 

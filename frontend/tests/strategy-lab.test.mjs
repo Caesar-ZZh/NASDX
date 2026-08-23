@@ -35,6 +35,7 @@ test("strategy lab exposes backtest comparison and ETF50 scoring", async () => {
 
 
 test("strategy lab has explicit timeout retry and non-advice copy", async () => {
+  const api = await source("lib/api.ts");
   const page = await source("pages/StrategyLab.tsx");
 
   assert.match(page, /加载超时/);
@@ -42,6 +43,17 @@ test("strategy lab has explicit timeout retry and non-advice copy", async () => 
   assert.match(page, /客观计算/);
   assert.match(page, /不构成投资建议/);
   assert.match(page, /<Disclaimer/);
+  assert.match(api, /QUANT_BACKTEST_TIMEOUT_MS\s*=\s*65_000/);
+  assert.match(api, /quantBacktest:[\s\S]*QUANT_BACKTEST_TIMEOUT_MS/);
+});
+
+
+test("strategy lab reserves space for the bottom legend", async () => {
+  const page = await source("pages/StrategyLab.tsx");
+
+  assert.match(page, /legend:\s*\{[\s\S]*?bottom:\s*0[\s\S]*?left:\s*"center"/);
+  assert.match(page, /grid:\s*\{[^}]*bottom:\s*72/);
+  assert.match(page, /itemStyle:\s*\{\s*color:\s*COLORS\[index % COLORS\.length\]/);
 });
 
 

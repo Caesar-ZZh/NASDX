@@ -107,8 +107,8 @@ export function StrategyLab() {
     )).sort();
     return {
       tooltip: { trigger: "axis" },
-      legend: { data: backtest?.strategies.map((row) => row.label) ?? [], textStyle: { color: "#94a3b8" } },
-      grid: { left: 56, right: 20, top: 44, bottom: 38 },
+      legend: { data: backtest?.strategies.map((row) => row.label) ?? [], bottom: 0, left: "center", textStyle: { color: "#94a3b8" } },
+      grid: { left: 56, right: 20, top: 24, bottom: 72 },
       xAxis: { type: "category", data: dates, axisLabel: { color: "#64748b", hideOverlap: true } },
       yAxis: { type: "value", scale: true, axisLabel: { color: "#64748b" }, splitLine: { lineStyle: { color: "rgba(148,163,184,.12)" } } },
       series: (backtest?.strategies ?? []).map((row, index) => {
@@ -119,6 +119,7 @@ export function StrategyLab() {
           showSymbol: false,
           smooth: 0.2,
           data: dates.map((day) => values.get(day) ?? null),
+          itemStyle: { color: COLORS[index % COLORS.length] },
           lineStyle: { color: COLORS[index % COLORS.length], width: 2 },
         };
       }),
