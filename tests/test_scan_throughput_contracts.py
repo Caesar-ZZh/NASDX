@@ -22,9 +22,9 @@ import pandas as pd
 from nasdx.fast_market import RateLimiter, bounded_map
 
 ROOT = Path(__file__).resolve().parents[1]
-FETCH_SCRIPT = ROOT / "fetch_stock_data.py"
-SCAN_SCRIPT = ROOT / "scan_stocks_full.py"
-ETF_SCRIPT = ROOT / "scan_etf50.py"
+FETCH_SCRIPT = ROOT / "scripts" / "fetch_stock_data.py"
+SCAN_SCRIPT = ROOT / "scripts" / "scan_stocks_full.py"
+ETF_SCRIPT = ROOT / "scripts" / "scan_etf50.py"
 
 # 逐标的固定 sleep 的典型写法：time.sleep(0.2) / sleep(0.4)
 _SLEEP_CALL = re.compile(r"(?<![\w.])(?:time\.)?sleep\s*\(", re.MULTILINE)
@@ -212,7 +212,7 @@ class FetchStockDataBatchTests(unittest.TestCase):
     """验收 2/4：fetch_stock_data 走批量层，一次调用覆盖整池。"""
 
     def setUp(self):
-        self.module = importlib.import_module("fetch_stock_data")
+        self.module = importlib.import_module("scripts.fetch_stock_data")
 
     def test_pool_histories_calls_batch_layer_once_with_unique_codes(self):
         captured = {}
@@ -415,7 +415,7 @@ class ScanStocksFullBatchTests(unittest.TestCase):
 
     def test_history_window_matches_fetch_stock_data_cache_key(self):
         """同一工作流内两个脚本的缓存键必须一致，才能只抓一次。"""
-        fetch_module = importlib.import_module("fetch_stock_data")
+        fetch_module = importlib.import_module("scripts.fetch_stock_data")
         self.assertIn("timedelta(days=90)", self.source)
         self.assertIn("timedelta(days=90)", FETCH_SCRIPT.read_text(encoding="utf-8"))
         self.assertEqual(fetch_module.HISTORY_SOURCES, ("tdxrs", "tencent_hist_tx", "eastmoney_hist"))

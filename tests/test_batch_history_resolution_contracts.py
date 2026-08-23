@@ -25,7 +25,7 @@ import pandas as pd
 from nasdx.fast_market import resolve_batch_history
 
 ROOT = Path(__file__).resolve().parents[1]
-SCAN_SCRIPT = ROOT / "scan_stocks_full.py"
+SCAN_SCRIPT = ROOT / "scripts" / "scan_stocks_full.py"
 
 
 def _history_frame(code: str = "600000", rows: int = 30) -> pd.DataFrame:
@@ -74,6 +74,14 @@ def _load_script_definitions(path: Path, module_name: str) -> types.ModuleType:
             continue
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
             prefix.append(node)  # 模块 docstring
+            continue
+        if (
+            isinstance(node, ast.If)
+            and isinstance(node.test, ast.Compare)
+            and "_ROOT_DIR" in ast.unparse(node.test)
+            and "sys.path" in ast.unparse(node.test)
+        ):
+            prefix.append(node)  # scripts/ 的仓库根 sys.path 引导
             continue
         break
     module = types.ModuleType(module_name)
@@ -301,7 +309,7 @@ class CrossScriptSemanticsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.scan = _load_script_definitions(SCAN_SCRIPT, "scan_stocks_full_defs_cross")
-        cls.fetch = importlib.import_module("fetch_stock_data")
+        cls.fetch = importlib.import_module("scripts.fetch_stock_data")
 
     def test_both_scripts_delegate_to_the_shared_resolver(self):
         self.assertIs(self.scan.resolve_batch_history, resolve_batch_history)

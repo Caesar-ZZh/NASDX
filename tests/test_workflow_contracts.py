@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from run_investment_workflow import _select_top_selector_code, _step_command
+from scripts.run_investment_workflow import _select_top_selector_code, _step_command
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,7 +44,14 @@ class InvestmentWorkflowContractsTest(unittest.TestCase):
 
     def test_selector_dry_run_uses_candidate_placeholder_not_none(self):
         proc = subprocess.run(
-            [sys.executable, "-B", "run_investment_workflow.py", "--workflow", "selector", "--dry-run"],
+            [
+                sys.executable,
+                "-B",
+                "scripts/run_investment_workflow.py",
+                "--workflow",
+                "selector",
+                "--dry-run",
+            ],
             cwd=str(ROOT),
             text=True,
             capture_output=True,

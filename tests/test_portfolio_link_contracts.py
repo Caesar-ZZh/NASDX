@@ -291,7 +291,8 @@ class TestCacheInvalidationHash(LinkTestBase):
 
 class TestEntryPointWiring(unittest.TestCase):
     def _read(self, name):
-        with open(os.path.join(ROOT, name), "r", encoding="utf-8") as fh:
+        base = ROOT if name.startswith(f"nasdx{os.sep}") else os.path.join(ROOT, "scripts")
+        with open(os.path.join(base, name), "r", encoding="utf-8") as fh:
             return fh.read()
 
     def test_run_analysis_enables_link_by_default(self):

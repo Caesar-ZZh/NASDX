@@ -1,12 +1,11 @@
 import time
-import importlib
 import json
 import os
 import re
+import subprocess
+import sys
 import unittest
 from pathlib import Path
-
-import requests
 
 from nasdx.environments.research import ResearchEnvironment
 from nasdx.schema import AnalysisResult
@@ -89,29 +88,28 @@ class ArchitectureContractTests(unittest.TestCase):
 
     def test_data_modules_do_not_patch_requests_or_proxy_env_on_import(self):
         proxy_keys = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"]
-        original_get = requests.get
-        original_session_get = requests.Session.get
-        original_env = {key: os.environ.get(key) for key in proxy_keys}
-        sentinel_env = {key: "http://127.0.0.1:9000" for key in proxy_keys}
-
-        try:
-            os.environ.update(sentinel_env)
-            for module_name in ("scripts.fetch_stock_data", "quant.data", "quant.patch_requests"):
-                module = importlib.import_module(module_name)
-                importlib.reload(module)
-
-            self.assertIs(requests.get, original_get)
-            self.assertIs(requests.Session.get, original_session_get)
-            for key, expected in sentinel_env.items():
-                self.assertEqual(os.environ.get(key), expected)
-        finally:
-            requests.get = original_get
-            requests.Session.get = original_session_get
-            for key, value in original_env.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
+        sentinel = "http://127.0.0.1:9000"
+        env = os.environ.copy()
+        env.update({key: sentinel for key in proxy_keys})
+        probe = (
+            "import importlib, os, requests; "
+            "before=(requests.get, requests.Session.get); "
+            "[importlib.import_module(name) for name in "
+            "('scripts.fetch_stock_data','quant.data','quant.patch_requests')]; "
+            "assert before == (requests.get, requests.Session.get); "
+            f"assert all(os.environ.get(key) == {sentinel!r} for key in {proxy_keys!r})"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-B", "-c", probe],
+            cwd=str(ROOT),
+            env=env,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            timeout=30,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
 
 if __name__ == "__main__":

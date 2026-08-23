@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "run_security_checks.py"
+SCRIPT = ROOT / "scripts" / "run_security_checks.py"
 
 # Fake credential fragments, joined at runtime so no literal token is committed.
 _FAKE_BODY = "Kq7fT2mZ9wB4nD8xR1vC5hJ3pL6yG0sA"
@@ -86,7 +86,7 @@ class SecurityChecksContractsTest(unittest.TestCase):
 
     def test_cli_skip_optional_succeeds_without_external_security_tools(self):
         proc = subprocess.run(
-            [sys.executable, "-B", "run_security_checks.py", "--skip-optional"],
+            [sys.executable, "-B", "scripts/run_security_checks.py", "--skip-optional"],
             cwd=str(ROOT),
             text=True,
             encoding="utf-8",
@@ -103,7 +103,7 @@ class SecurityChecksContractsTest(unittest.TestCase):
 
     def test_cli_history_mode_scans_reachable_blobs(self):
         proc = subprocess.run(
-            [sys.executable, "-B", "run_security_checks.py", "--skip-optional", "--history"],
+            [sys.executable, "-B", "scripts/run_security_checks.py", "--skip-optional", "--history"],
             cwd=str(ROOT),
             text=True,
             encoding="utf-8",

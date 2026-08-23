@@ -40,7 +40,7 @@ jobs:
       - name: Run required secret scan
         shell: pwsh
         run: |
-          python -B run_security_checks.py --skip-optional
+          python -B scripts/run_security_checks.py --skip-optional
 
       - name: Install dependencies
         shell: pwsh

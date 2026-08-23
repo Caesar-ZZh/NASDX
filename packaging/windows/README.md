@@ -140,28 +140,28 @@ The batch passes arguments through to the desktop control panel. The dry-run com
 Run the packaged desktop diagnostic:
 
 ```powershell
-python -B dist\NASDX-Desktop\run_desktop_doctor.py
-python -B dist\NASDX-Desktop\run_desktop_doctor.py --check-write
+python -B dist\NASDX-Desktop\scripts\run_desktop_doctor.py
+python -B dist\NASDX-Desktop\scripts\run_desktop_doctor.py --check-write
 ```
 
 Run the packaged desktop completion audit:
 
 ```powershell
-python -B dist\NASDX-Desktop\run_desktop_completion_audit.py
-python -B dist\NASDX-Desktop\run_desktop_completion_audit.py --json
+python -B dist\NASDX-Desktop\scripts\run_desktop_completion_audit.py
+python -B dist\NASDX-Desktop\scripts\run_desktop_completion_audit.py --json
 ```
 
 Collect the packaged desktop release evidence:
 
 ```powershell
-python -B dist\NASDX-Desktop\run_desktop_release_evidence.py --json
-python -B dist\NASDX-Desktop\run_desktop_release_evidence.py --write
+python -B dist\NASDX-Desktop\scripts\run_desktop_release_evidence.py --json
+python -B dist\NASDX-Desktop\scripts\run_desktop_release_evidence.py --write
 ```
 
 From the source checkout, pass `--package-dir` when you want the evidence to describe the package built by a specific release gate run:
 
 ```powershell
-python -B run_desktop_release_evidence.py --json --package-dir dist\NASDX-Desktop-check
+python -B scripts/run_desktop_release_evidence.py --json --package-dir dist\NASDX-Desktop-check
 python -B run_desktop_release_check.py --write-evidence --evidence-output dist\release-evidence\NASDX-desktop-release-evidence.json
 ```
 

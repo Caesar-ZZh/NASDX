@@ -241,7 +241,7 @@ class CloudSyncContractsTest(unittest.TestCase):
             )
 
     def test_legacy_script_contains_no_checkout_or_report_wildcard(self):
-        source = (ROOT / "scan_and_sync.py").read_text(encoding="utf-8")
+        source = (ROOT / "scripts" / "scan_and_sync.py").read_text(encoding="utf-8")
 
         self.assertNotIn('"checkout"', source)
         self.assertNotIn("reports/*.json", source)

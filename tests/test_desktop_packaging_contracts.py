@@ -693,7 +693,7 @@ class DesktopPackagingContractsTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, "installer output should be ignored under dist/")
 
     def test_final_audit_ignores_packaging_outputs(self):
-        audit_source = (ROOT / "run_final_audit.py").read_text(encoding="utf-8")
+        audit_source = (ROOT / "scripts" / "run_final_audit.py").read_text(encoding="utf-8")
 
         for marker in ['"dist"', '"build"', '"wheelhouse"', '".pytest_cache"', '".ruff_cache"']:
             self.assertIn(marker, audit_source)
@@ -741,8 +741,8 @@ class DesktopPackagingContractsTest(unittest.TestCase):
             self.assertTrue((output_dir / "docs" / "WINDOWS_DESKTOP.md").exists())
             self.assertTrue((output_dir / "requirements_nasdx.txt").exists())
             self.assertTrue((output_dir / "requirements_desktop.txt").exists())
-            self.assertTrue((output_dir / "run_desktop_completion_audit.py").exists())
-            self.assertTrue((output_dir / "run_desktop_release_evidence.py").exists())
+            self.assertTrue((output_dir / "scripts" / "run_desktop_completion_audit.py").exists())
+            self.assertTrue((output_dir / "scripts" / "run_desktop_release_evidence.py").exists())
             self.assertTrue((output_dir / "启动NASDX桌面.bat").exists())
             self.assertTrue((output_dir / "packaging" / "windows" / "build_launcher_exe.ps1").exists())
             self.assertTrue((output_dir / "packaging" / "windows" / "constraints-win.txt").exists())

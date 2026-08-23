@@ -124,7 +124,7 @@ class ReviewSnapshotSecurityContractsTest(unittest.TestCase):
             self.assertTrue(Path(result["zip_path"]).exists())
 
     def test_cli_returns_nonzero_without_success_banner_on_validation_failure(self):
-        import run_review_snapshot
+        from scripts import run_review_snapshot
         from nasdx.review_snapshot import SnapshotValidationError
 
         output = io.StringIO()

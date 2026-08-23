@@ -239,9 +239,9 @@ python -m pip install -r requirements-dev.txt
 python -m pytest
 python -m ruff check --no-cache .
 python -B -m unittest discover -s tests
-python -B run_security_checks.py --skip-optional
-python -B run_desktop_doctor.py
-python -B run_desktop_release_check.py
+python -B scripts/run_security_checks.py --skip-optional
+python -B scripts/run_desktop_doctor.py
+python -B scripts/run_desktop_release_check.py
 ```
 
 可选安装本地提交前检查：
@@ -251,7 +251,7 @@ pre-commit install
 pre-commit run --all-files
 ```
 
-轻量安全检查默认只扫描可入库文本文件里的疑似密钥；加 `--history` 可扫描所有 ref 可达的历史 blob（覆盖"提交后又删掉"）；若已安装 `pip-audit` / `bandit` / `detect-secrets`，可显式运行 `python -B run_security_checks.py --run-optional`。
+轻量安全检查默认只扫描可入库文本文件里的疑似密钥；加 `--history` 可扫描所有 ref 可达的历史 blob（覆盖"提交后又删掉"）；若已安装 `pip-audit` / `bandit` / `detect-secrets`，可显式运行 `python -B scripts/run_security_checks.py --run-optional`。
 
 CI 侧的安全门禁：`security.yml`（自研多供应商扫描 + 固定版本 gitleaks，当前树与全历史）、`codeql.yml`（Python SAST，PR / push / 每周定时）、`dependabot.yml`（依赖与 Actions 升级 PR）。所有 workflow 显式声明最小权限，官方 Action 全部固定到 commit SHA。
 

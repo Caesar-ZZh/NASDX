@@ -304,7 +304,7 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\smoke_portable.ps1 -P
 powershell -ExecutionPolicy Bypass -File packaging\windows\smoke_installed.ps1 -InstallDir dist\NASDX-Desktop -Timeout 60
 powershell -ExecutionPolicy Bypass -File packaging\windows\build_installer.ps1 -SkipPortableBuild -SkipCompile
 python -B scripts/run_desktop_release_check.py
-python -B run_final_audit.py
+python -B scripts/run_final_audit.py
 python -B run_product_readiness.py
 ```
 
@@ -326,7 +326,7 @@ The packaged `PACKAGING_MANIFEST.json` uses `path_policy=relative-or-redacted`: 
 
 Portable zip safety is checked twice: `build_portable_zip.ps1` rejects forbidden package files before compression, and `smoke_portable_zip.ps1` checks the extracted package again. Release evidence also records forbidden zip entries and counts them in `zip_forbidden_failures`.
 
-`run_final_audit.py` also checks the desktop delivery assets: launcher, control panel, desktop doctor, desktop completion audit, release evidence bundle, desktop batch entry, shortcut script, portable package scripts, installer wrapper, release check script, security check script, documentation markers, and ignored build-output paths.
+`scripts/run_final_audit.py` also checks the desktop delivery assets: launcher, control panel, desktop doctor, desktop completion audit, release evidence bundle, desktop batch entry, shortcut script, portable package scripts, installer wrapper, release check script, security check script, documentation markers, and ignored build-output paths.
 
 For a fuller local package check after dependencies and Inno Setup 7/6 are ready:
 

@@ -143,7 +143,7 @@ class PlanTableContractsTest(unittest.TestCase):
             self.assertNotIn(f"        def {name}(", source)
 
     def test_final_audit_covers_the_plan_table_module_boundary(self):
-        from run_final_audit import check_streamlit_markers
+        from scripts.run_final_audit import check_streamlit_markers
 
         detail = check_streamlit_markers()
 

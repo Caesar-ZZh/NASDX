@@ -38,7 +38,7 @@ class DesktopCiContractsTest(unittest.TestCase):
     def test_secret_scan_runs_before_dependency_install_and_release_checks(self):
         text = WORKFLOW.read_text(encoding="utf-8")
 
-        secret_scan = text.index("python -B run_security_checks.py --skip-optional")
+        secret_scan = text.index("python -B scripts/run_security_checks.py --skip-optional")
         dependency_install = text.index("python -m pip install -r requirements-dev.txt")
         release_check = text.index("python -B run_desktop_release_check.py")
         self.assertLess(secret_scan, dependency_install)
