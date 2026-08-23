@@ -1,76 +1,99 @@
+/* ============================================================
+   Cosmos 主题改造 — 冷静深色冷青蓝（2026-08-22）
+
+   设计决策（auteur commit-sheet）：
+   - Peak：数据驾驶舱的"冷青蓝主色 + 高对比等宽数字"。
+   - Color：主色冰蓝 HSL 215°（OKLCH ≈ L0.70 C0.12 H220），背景明度 8%（非死黑，
+     降低长时阅屏压抑）；不用紫蓝渐变（hue 250–290 禁）、不用奶油白（暗色主题）。
+   - Type：Inter（正文/UI，贴合 visual-direction-os 的 Aptos/Segoe 干净无衬线）
+     + Noto Sans SC（中文协调）+ JetBrains Mono（数字/表格）。
+   - Grid break：保持数据网格（产品本质），以层级/留白/对比做变化。
+   - Motion：保持克制（hover/tab/流式生成），不新增滚动动效。
+   - Reflex check：避"深色+紫蓝+玻璃+Inter"与"近黑+琥珀终端感"两个 AI 默认。
+   - House tells broken：不近黑（底明度 8%）、不用琥珀强调、弱化玻璃。
+   涨跌语义固定：红涨（--danger）绿跌（--success），不反色。
+   原 Vibe-Research MIT 署名保留，主题取值已置换为 Cosmos。
+   ============================================================ */
+
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "@fontsource/noto-sans-sc/400.css";
+@import "@fontsource/noto-sans-sc/500.css";
+@import "@fontsource/noto-sans-sc/700.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/700.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  /* ============================================================
-     Vibe-Research · 科技玻璃暖橙主题
-     默认呈现 = 暗色暖橙（数据密集、长时间看，暗底最护眼；橙红＝A股红盘气质，避开近绿的青色）。
-     .light 提供亮色备选。HSL 变量沿用 4 级 surface 架构。
-     ============================================================ */
   :root {
-    /* ---- 暗色暖橙（默认） ---- */
-    --background: 222 47% 6%;          /* 深蓝黑纵深底 */
-    --foreground: 210 30% 92%;
-    --card: 222 40% 9%;                /* 卡底（玻璃质感另用 .glass 叠加） */
-    --card-foreground: 210 30% 92%;
+    /* ---- 冷静深色冷青蓝（默认） ---- */
+    --background: 222 30% 8%;           /* 深蓝灰底（明度 8%，非死黑） */
+    --foreground: 210 25% 90%;
+    --card: 222 28% 11%;                /* 卡底（实表面，弱化玻璃） */
+    --card-foreground: 210 25% 90%;
 
-    --primary: 15 89% 56%;             /* 暖橙红主色（朱橙 ≈#F35D2B）—— A股红盘气质，替代原青光 */
-    --primary-foreground: 222 47% 6%;
-    --accent: 25 95% 58%;              /* 橙 · 强调/告警点缀 */
-    --accent-foreground: 222 47% 6%;
+    --primary: 215 85% 60%;             /* 冰蓝主色 ≈ #5CA0F2（冷青蓝，避开紫蓝） */
+    --primary-foreground: 222 30% 8%;
+    --accent: 190 80% 55%;              /* 更冷青点缀 ≈ #3BC0DC */
+    --accent-foreground: 222 30% 8%;
 
-    --muted: 220 28% 15%;              /* surface-2 */
-    --muted-foreground: 215 18% 62%;
+    --muted: 220 22% 15%;               /* surface-2 */
+    --muted-foreground: 215 15% 60%;
     --destructive: 0 72% 58%;
     --destructive-foreground: 0 0% 100%;
-    --border: 210 30% 22%;             /* surface-3 边框 */
+    --border: 216 22% 20%;              /* surface-3 边框 */
     --radius: 1rem;
 
-    /* 语义色（涨跌配色由页面按 A股红涨绿跌自行选用 success/danger） */
-    --success: 145 62% 47%;
-    --danger: 0 74% 60%;
-    --warning: 38 92% 55%;
-    --info: 15 89% 56%;
+    /* 语义色（A股红涨绿跌固定，不互换） */
+    --success: 150 55% 45%;             /* 跌 = 绿（略冷化） */
+    --danger: 0 70% 60%;                /* 涨 = 红（略柔） */
+    --warning: 38 85% 55%;
+    --info: 215 85% 60%;
 
-    /* 玻璃发丝边框 / 内高光（rgba，供 .glass 使用） */
-    --glass-fill-top: rgba(255, 255, 255, 0.055);
-    --glass-fill-bot: rgba(255, 255, 255, 0.012);
-    --glass-stroke: rgba(255, 232, 214, 0.10);
-    --glass-hi: rgba(255, 255, 255, 0.06);
+    /* 玻璃叠加参数（弱化：更实表面、细边框、弱模糊） */
+    --glass-fill-top: rgba(255, 255, 255, 0.030);
+    --glass-fill-bot: rgba(255, 255, 255, 0.008);
+    --glass-stroke: rgba(148, 180, 230, 0.10);
+    --glass-hi: rgba(255, 255, 255, 0.04);
 
     /* Chart tokens */
-    --chart-grid: 220 20% 14%;
-    --chart-text: 215 15% 55%;
-    --chart-axis: 220 20% 24%;
+    --chart-grid: 220 18% 14%;
+    --chart-text: 215 14% 56%;
+    --chart-axis: 220 18% 24%;
   }
 
   .light {
-    --background: 210 30% 97%;
-    --foreground: 222 40% 12%;
+    --background: 210 30% 98%;          /* 冷白底 */
+    --foreground: 222 40% 14%;
     --card: 0 0% 100%;
-    --card-foreground: 222 40% 12%;
+    --card-foreground: 222 40% 14%;
 
-    --primary: 15 82% 50%;             /* 暖橙红主色（亮色版，略深保对比） */
+    --primary: 215 80% 48%;             /* 冰蓝主色（亮色版，略深保对比） */
     --primary-foreground: 0 0% 100%;
-    --accent: 25 90% 50%;
+    --accent: 195 85% 45%;
     --accent-foreground: 0 0% 100%;
 
-    --muted: 210 20% 92%;
+    --muted: 212 25% 92%;
     --muted-foreground: 215 16% 42%;
     --destructive: 0 74% 55%;
     --destructive-foreground: 0 0% 100%;
-    --border: 214 20% 84%;
+    --border: 214 22% 84%;
 
-    --success: 145 62% 40%;
-    --danger: 0 74% 52%;
-    --warning: 38 92% 45%;
-    --info: 15 82% 50%;
+    --success: 150 55% 38%;
+    --danger: 0 72% 52%;
+    --warning: 38 90% 48%;
+    --info: 215 80% 48%;
 
-    --glass-fill-top: rgba(255, 255, 255, 0.7);
-    --glass-fill-bot: rgba(255, 255, 255, 0.35);
+    --glass-fill-top: rgba(255, 255, 255, 0.6);
+    --glass-fill-bot: rgba(255, 255, 255, 0.30);
     --glass-stroke: rgba(15, 40, 70, 0.10);
-    --glass-hi: rgba(255, 255, 255, 0.8);
+    --glass-hi: rgba(255, 255, 255, 0.7);
 
     --chart-grid: 214 20% 88%;
     --chart-text: 215 16% 42%;
@@ -81,18 +104,19 @@
 
   body {
     @apply bg-background text-foreground;
-    /* 纵深暖冷双光晕（顶橙 + 右下冷蓝），别留死黑 */
+    font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    /* 纵深冷光晕（顶青蓝 + 右下蓝紫，弱化、偏冷，别留死黑） */
     background-color: hsl(var(--background));
     background-image:
-      radial-gradient(1100px 620px at 12% -12%, hsl(15 89% 56% / 0.11), transparent 60%),
-      radial-gradient(980px 720px at 108% 112%, hsl(220 60% 45% / 0.08), transparent 55%);
+      radial-gradient(1100px 620px at 12% -12%, hsl(215 85% 60% / 0.09), transparent 60%),
+      radial-gradient(980px 720px at 108% 112%, hsl(230 55% 50% / 0.06), transparent 55%);
     background-attachment: fixed;
   }
 
   .light body {
     background-image:
-      radial-gradient(1100px 620px at 12% -12%, hsl(15 85% 55% / 0.08), transparent 60%),
-      radial-gradient(980px 720px at 108% 112%, hsl(220 65% 60% / 0.06), transparent 55%);
+      radial-gradient(1100px 620px at 12% -12%, hsl(215 80% 55% / 0.06), transparent 60%),
+      radial-gradient(980px 720px at 108% 112%, hsl(230 60% 60% / 0.05), transparent 55%);
   }
 
   /* prose 表格 */
@@ -107,27 +131,27 @@
 }
 
 @layer components {
-  /* 玻璃卡：半透明填充 + 发丝边框 + 柔投影 + 顶部内高光（EP26 高级感配方） */
+  /* 卡面：弱化玻璃 —— 更实填充、细边框、柔投影、弱模糊 */
   .glass {
     background-image: linear-gradient(162deg, var(--glass-fill-top), var(--glass-fill-bot));
     border: 1px solid var(--glass-stroke);
     border-radius: var(--radius);
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35), inset 0 1px 0 var(--glass-hi);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28), inset 0 1px 0 var(--glass-hi);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
   }
-  .light .glass { box-shadow: 0 10px 26px rgba(30, 60, 100, 0.10), inset 0 1px 0 var(--glass-hi); }
+  .light .glass { box-shadow: 0 10px 26px rgba(30, 60, 100, 0.08), inset 0 1px 0 var(--glass-hi); }
 
-  /* 顶角暖橙光晕（配 .glass 用，装饰热点） */
+  /* 顶角冷青光晕（配 .glass 用，装饰热点） */
   .glass-glow { position: relative; overflow: hidden; }
   .glass-glow::before {
     content: "";
     position: absolute; top: -40%; right: -20%;
     width: 240px; height: 240px;
-    background: radial-gradient(circle, hsl(var(--primary) / 0.16), transparent 70%);
+    background: radial-gradient(circle, hsl(var(--primary) / 0.12), transparent 70%);
     pointer-events: none;
   }
 
-  /* 暖橙光文字 */
-  .text-glow { text-shadow: 0 0 18px hsl(var(--primary) / 0.45); }
+  /* 冷青光文字 */
+  .text-glow { text-shadow: 0 0 18px hsl(var(--primary) / 0.38); }
 }

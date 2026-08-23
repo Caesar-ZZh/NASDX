@@ -1,4 +1,4 @@
-// 接入 AI 的模型清单（移植自 SDesign-opensource / open-design，按 Vibe-Research 适配）。
+// 接入 AI 的模型清单（移植自 SDesign-opensource / open-design，按 Cosmos 适配）。
 // 两类：
 //   订阅版（provider "cli-*"）= 调本机已登录的 CLI，用订阅额度、免 API key（仅本地自托管可用）。
 //   API 版 = 填自己的 key，走 OpenAI 兼容 /chat/completions。

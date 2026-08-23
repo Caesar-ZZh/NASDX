@@ -103,7 +103,7 @@ export function Settings() {
         {mode === "subscription" ? (
           <div className="space-y-3 text-sm">
             <p className="text-xs text-muted-foreground">
-              选一个你本机已安装并登录的 CLI。Vibe-Research 后端会用它以你的订阅额度作答，<b className="text-foreground">不用填 key</b>。
+              选一个你本机已安装并登录的 CLI。Cosmos 后端会用它以你的订阅额度作答，<b className="text-foreground">不用填 key</b>。
               <span className="text-muted-foreground/60">（仅当后端跑在你本机时可用；复盘 / 今日要点 / 个股问 AI 等场景。）</span>
             </p>
             <div className="grid gap-2 sm:grid-cols-2">

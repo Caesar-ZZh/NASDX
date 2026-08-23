@@ -1,4 +1,4 @@
-"""Vibe-Research 后端 —— A股数据层 HTTP 接口（FastAPI）。
+"""Cosmos 后端 —— A股数据层 HTTP 接口（FastAPI，基于 Vibe-Research MIT 改编）。
 
 端点全部在 /api 下，前端 vite 代理 /api → localhost:8900。
 只读、无状态、按用户传入代码返回客观数据。不预置标的、不建议。
@@ -29,7 +29,7 @@ import newsradar
 import portfolio as pf
 import reflection as reflect_layer
 
-app = FastAPI(title="Vibe-Research API", version="0.2.2")
+app = FastAPI(title="Cosmos API", version="0.2.0")
 
 # 每半小时后台刷新持仓数据
 pf.start_scheduler(1800)
@@ -73,7 +73,7 @@ def _validate(code: str) -> str:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "service": "vibe-research-api", "version": "0.2.2"}
+    return {"ok": True, "service": "cosmos-api", "version": "0.2.0"}
 
 
 class LLMConfig(BaseModel):

@@ -342,7 +342,7 @@ python -B desktop\launcher.py --webview --page plan
 
 本项目仅供学习研究，所有分析结果为技术规则计算或 AI 推演，**不构成任何投资建议**。股市有风险，投资需谨慎。
 
-MIT License — 自由使用，欢迎 Star ⭐ 和 PR。
+MIT License — 自由使用，欢迎 Star ⭐ 和 PR。 · 作者：Caesar-ZZh · caesarzzh@163.com · 仓库：https://github.com/Caesar-ZZh/cosmos
 
 ---
 

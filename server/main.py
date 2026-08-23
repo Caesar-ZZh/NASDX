@@ -3,7 +3,7 @@
 阶段1：把 base 的股票/AI 接口模块挂载为 NASDX 后端层。
 阶段2：同一进程同时托管构建后的前端（frontend/dist），实现单命令启动整套产品。
 
-base 模块来自 Vibe-Research（MIT），仅做最小包装：加 CORS、加 SPA 静态托管、
+base 模块来自 Vibe-Research（MIT，已更名为 Cosmos），仅做最小包装：加 CORS、加 SPA 静态托管、
 统一由本模块导出 app。LLM 统一接入将在阶段3 切换到 nasdx/llm.py。
 """
 import os

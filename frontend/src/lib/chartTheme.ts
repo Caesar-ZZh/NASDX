@@ -12,8 +12,8 @@ function readVar(name: string, fallback: string): string {
 export interface ChartColors {
   up: string;        // 涨 = 红（A股惯例）
   down: string;      // 跌 = 绿
-  primary: string;   // 暖橙主色
-  accent: string;    // 橙强调
+  primary: string;   // 冰蓝主色（冷青蓝）
+  accent: string;    // 冷青强调
   foreground: string;
   muted: string;     // 次要文字
   grid: string;      // 分割线
@@ -24,9 +24,9 @@ export function chartColors(): ChartColors {
   return {
     up: readVar("--danger", "#ef4444"),
     down: readVar("--success", "#22c55e"),
-    primary: readVar("--primary", "#f35d2b"),
-    accent: readVar("--accent", "#fa832e"),
-    foreground: readVar("--foreground", "#e7eef7"),
+    primary: readVar("--primary", "#5ca0f2"),
+    accent: readVar("--accent", "#3bc0dc"),
+    foreground: readVar("--foreground", "#e6ecf2"),
     muted: readVar("--chart-text", "#8a93a3"),
     grid: readVar("--chart-grid", "rgba(255,255,255,0.06)"),
     axis: readVar("--chart-axis", "rgba(255,255,255,0.12)"),

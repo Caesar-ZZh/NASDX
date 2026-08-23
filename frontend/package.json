@@ -1,8 +1,9 @@
 {
-  "name": "vibe-research-frontend",
+  "name": "cosmos-frontend",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.2.0",
   "type": "module",
+  "author": "Caesar-ZZh <caesarzzh@163.com>",
   "scripts": {
     "dev": "vite",
     "test": "node --test tests/*.test.mjs",
@@ -10,6 +11,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.1.0",
+    "@fontsource/jetbrains-mono": "^5.1.0",
+    "@fontsource/noto-sans-sc": "^5.1.0",
     "clsx": "^2.1.0",
     "echarts": "^6.0.0",
     "lucide-react": "^0.460.0",

@@ -49,7 +49,7 @@ ANALYSIS_FRAMEWORK = """【投研分析框架】当用户要你分析个股、�
 （简单的事实性问题——如"现价多少"——直接答，不必套用整个框架。）"""
 
 # 用 f-string 先把框架焊进去，只留 {{context}} 给运行时 .format() 填——4 处调用点无需改。
-SYSTEM_PROMPT = f"""你是 Vibe-Research 里的投研助理。你可以调用工具获取客观数据来支撑回答，A 股工具一律传 6 位代码：
+SYSTEM_PROMPT = f"""你是 Cosmos 里的投研助理。你可以调用工具获取客观数据来支撑回答，A 股工具一律传 6 位代码：
 
 - 行情估值：query_quote（批量行情）/ query_valuation（前向 PE、PEG）/ query_valuation_percentile（估值历史分位）/ query_kline（K 线与区间涨跌）
 - 基本面：query_financials（营收净利 ROE 毛利率）/ query_company_info / query_reports（研报）/ query_news

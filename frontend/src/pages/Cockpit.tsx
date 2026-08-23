@@ -105,7 +105,7 @@ export function Cockpit() {
           itemStyle: { borderColor: c.grid, borderWidth: 2, gapWidth: 2 },
           label: {
             show: true,
-            color: "#fff",
+            color: c.foreground,
             fontSize: 11,
             formatter: (p: any) => {
               const v = p.data.value[1] as number;

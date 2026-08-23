@@ -10,11 +10,11 @@ import { cn } from "@/lib/utils";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { storageGet, storageSet } from "@/lib/storage";
 
-const APP_VERSION = "v0.2.2";
-const REPO_URL = "https://github.com/simonlin1212/Vibe-Research";
+const APP_VERSION = "v0.2.0";
+const REPO_URL = "https://github.com/Caesar-ZZh/cosmos";
 // 作者联系方式
-const X_URL = "https://x.com/linsizhen";
-const MAIL_URL = "mailto:simonlin0423@gmail.com";
+const X_URL = "https://github.com/Caesar-ZZh";
+const MAIL_URL = "mailto:caesarzzh@163.com";
 
 const NAV = [
   { to: "/daily-review", icon: Activity, label: "每日复盘" },
@@ -61,9 +61,7 @@ export function Layout() {
           <Link to="/daily-review" className={cn("flex items-center", collapsed ? "justify-center" : "gap-2")}>
             <LineChart className="h-6 w-6 shrink-0 text-primary text-glow" />
             {!collapsed && (
-              <span className="text-lg font-extrabold tracking-tight">
-                Vibe-<span className="text-primary">Research</span>
-              </span>
+              <span className="text-lg font-extrabold tracking-tight text-primary">Cosmos</span>
             )}
           </Link>
           {!collapsed && <p className="mt-1 text-[11px] text-muted-foreground">个人 AI 投研系统 · A股/美股/港股</p>}
@@ -127,7 +125,7 @@ export function Layout() {
               <button onClick={toggle} className="rounded p-1.5 text-muted-foreground transition-colors hover:text-foreground" title={dark ? "亮色" : "暗色"}>
                 {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               </button>
-              <a href={X_URL} target="_blank" rel="noreferrer" className="rounded p-1.5 text-muted-foreground transition-colors hover:text-foreground" title="联系作者 · X @linsizhen">
+              <a href={X_URL} target="_blank" rel="noreferrer" className="rounded p-1.5 text-muted-foreground transition-colors hover:text-foreground" title="联系作者 · Caesar-ZZh">
                 <UserRound className="h-4 w-4" />
               </a>
               <button onClick={() => setCollapsed(false)} className="rounded p-1.5 text-muted-foreground transition-colors hover:text-foreground" title="展开">
@@ -142,7 +140,7 @@ export function Layout() {
                   {dark ? "亮色" : "暗色"}
                 </button>
                 <div className="flex items-center gap-2">
-                  <a href={X_URL} target="_blank" rel="noreferrer" className="text-muted-foreground transition-colors hover:text-foreground" title="联系作者 · X @linsizhen">
+                  <a href={X_URL} target="_blank" rel="noreferrer" className="text-muted-foreground transition-colors hover:text-foreground" title="联系作者 · Caesar-ZZh">
                     <UserRound className="h-3.5 w-3.5" />
                   </a>
                   <a href={REPO_URL} target="_blank" rel="noreferrer" className="text-muted-foreground transition-colors hover:text-foreground" title="GitHub">
@@ -155,7 +153,7 @@ export function Layout() {
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-primary/80">
                 <span className="text-muted-foreground/60">联系作者</span>
-                <a href={X_URL} target="_blank" rel="noreferrer" className="transition-colors hover:text-primary">X</a>
+                <a href={X_URL} target="_blank" rel="noreferrer" className="transition-colors hover:text-primary">GitHub</a>
                 <span className="text-muted-foreground/40">·</span>
                 <a href={MAIL_URL} className="transition-colors hover:text-primary">Email</a>
               </div>

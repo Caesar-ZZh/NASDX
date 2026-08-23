@@ -1,4 +1,4 @@
-// Vibe-Research 后端 API 客户端。/api → vite 代理到本地 FastAPI（默认 8900）。
+// Cosmos 后端 API 客户端。/api → vite 代理到本地 FastAPI（默认 8900）。
 // 后端未启动或数据源异常时抛 ApiError，页面据此优雅降级。
 
 export class ApiError extends Error {
