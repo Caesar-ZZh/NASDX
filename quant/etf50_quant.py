@@ -75,6 +75,9 @@ def run_etf50_quant(
     rebalance_freq: str = "W",
     verbose: bool = True,
     progress_cb=None,               # fn(i, total, code, name)
+    save_report: bool = True,
+    allow_legacy_fallback: bool = True,
+    run_backtest: bool = True,
 ) -> dict:
     """
     对 ETF50 池中所有 ETF 执行量化分析
@@ -86,6 +89,10 @@ def run_etf50_quant(
         只有批量层整体抛异常时本函数才降级为逐只 ``get_ohlcv``；
       - 每个标的持有 DataFrame 的独立深拷贝，杜绝跨标的污染；
       - 数据源部分失败时保留已成功的结果，并在 ``missing_codes`` 中列出缺失标的。
+
+    ``save_report=False`` 用于只读 API；``allow_legacy_fallback=False`` 可跳过缺失项的
+    慢速逐只兼容回退；``run_backtest=False`` 可只计算 ETF 横截面因子评分。三个参数
+    默认均保持原 CLI 行为不变。
 
     Returns:
         {
@@ -132,15 +139,17 @@ def run_etf50_quant(
     batch_layer_failed = False
     if pool_codes:
         try:
-            batch_frames = get_batch_ohlcv(
-                pool_codes,
-                days=days,
-                verbose=False,
-                max_workers=BATCH_MAX_WORKERS,
-                use_cache=True,
-                cache_ttl_seconds=BATCH_CACHE_TTL_SECONDS,
-                request_timeout=BATCH_REQUEST_TIMEOUT,
-            )
+            batch_kwargs = {
+                "days": days,
+                "verbose": False,
+                "max_workers": BATCH_MAX_WORKERS,
+                "use_cache": True,
+                "cache_ttl_seconds": BATCH_CACHE_TTL_SECONDS,
+                "request_timeout": BATCH_REQUEST_TIMEOUT,
+            }
+            if not allow_legacy_fallback:
+                batch_kwargs["fallback_missing"] = False
+            batch_frames = get_batch_ohlcv(pool_codes, **batch_kwargs)
         except Exception as exc:  # 批量层整体不可用才降级到逐只回退
             batch_layer_failed = True
             batch_frames = {}
@@ -234,7 +243,7 @@ def run_etf50_quant(
     bt_result = None
     portfolio_weights = {}
 
-    if len(price_cache) >= 3:
+    if run_backtest and len(price_cache) >= 3:
         if verbose:
             print(f"\n  ⚡ 回测滚动 Top{top_n} 组合...")
         try:
@@ -312,16 +321,15 @@ def run_etf50_quant(
         } if bt_result else {},
     }
 
-    # 保存 JSON
-    out_path = get_reports_dir(create=True) / f"etf50_quant_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        import copy
-        json.dump(output, f, ensure_ascii=False, indent=2, default=str)
-    output["_saved_to"] = str(out_path)
+    if save_report:
+        out_path = get_reports_dir(create=True) / f"etf50_quant_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(output, f, ensure_ascii=False, indent=2, default=str)
+        output["_saved_to"] = str(out_path)
 
-    if verbose:
-        print(f"\n  📁 已保存: {out_path}")
+        if verbose:
+            print(f"\n  📁 已保存: {out_path}")
 
     return output
 

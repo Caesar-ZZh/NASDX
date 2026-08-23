@@ -1,7 +1,6 @@
 import time
 import importlib
 import os
-import sys
 import unittest
 from pathlib import Path
 
@@ -68,8 +67,8 @@ class ArchitectureContractTests(unittest.TestCase):
         try:
             os.environ.update(sentinel_env)
             for module_name in ("scripts.fetch_stock_data", "quant.data", "quant.patch_requests"):
-                sys.modules.pop(module_name, None)
-                importlib.import_module(module_name)
+                module = importlib.import_module(module_name)
+                importlib.reload(module)
 
             self.assertIs(requests.get, original_get)
             self.assertIs(requests.Session.get, original_session_get)

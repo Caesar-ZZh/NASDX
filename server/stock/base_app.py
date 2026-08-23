@@ -24,12 +24,14 @@ import debate as debate_layer
 import gstock
 import llm_cfg
 import market
+import quant_router
 import myreports as mr
 import newsradar
 import portfolio as pf
 import reflection as reflect_layer
 
 app = FastAPI(title="Cosmos API", version="0.2.0")
+app.include_router(quant_router.router)
 
 # 每半小时后台刷新持仓数据
 pf.start_scheduler(1800)

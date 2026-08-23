@@ -255,6 +255,58 @@ export interface HkCashflow {
   currency: string | null; item_order: string[]; periods: HkCashflowPeriod[];
 }
 
+export interface QuantBacktestRequest {
+  universe: string[];
+  strategies: Array<"momentum" | "mean_reversion" | "factor_rank">;
+  start: string;
+  end: string;
+  initial_capital: number;
+  rebalance: string;
+  top_n: number;
+}
+export interface QuantMetrics {
+  total_return: number | null;
+  annual_return: number | null;
+  sharpe_ratio: number | null;
+  max_drawdown: number | null;
+  win_rate: number | null;
+  completed_trades: number;
+}
+export interface QuantStrategyResult {
+  strategy: string;
+  label: string;
+  metrics: QuantMetrics;
+  equity_curve: Array<{ date: string; equity: number }>;
+}
+export interface QuantBacktestResult {
+  result_type: "objective_calculation";
+  notice: string;
+  parameters: QuantBacktestRequest;
+  coverage: { requested: number; available: number; missing: string[] };
+  strategies: QuantStrategyResult[];
+}
+export interface EtfQuantRow {
+  code: string;
+  name: string;
+  category: string;
+  quant_score: number;
+  factor_rank: number;
+  roc20: number;
+  rsi14: number;
+  has_data: boolean;
+}
+export interface Etf50QuantResult {
+  result_type: "objective_calculation";
+  notice: string;
+  datetime: string;
+  days: number;
+  total: number;
+  success: number;
+  coverage: number;
+  missing_codes: string[];
+  results: EtfQuantRow[];
+}
+
 export const api = {
   health: () => get<{ ok: boolean }>("/health"),
   indices: () => get<IndexQuote[]>("/indices", 15_000),
@@ -291,6 +343,10 @@ export const api = {
   hotConcepts: (code: string) => get<HotConcept[]>(`/hot-concepts?code=${code}`),
   investorQa: (code: string) => get<QaRow[]>(`/investor-qa?code=${code}`),
   industry: (top = 20) => get<IndustryData>(`/industry?top=${top}`, 15_000),
+  quantBacktest: (payload: QuantBacktestRequest) =>
+    request<QuantBacktestResult>("/quant/backtest", "POST", payload, 35_000),
+  quantEtf50: (days = 252, topN = 5, rebalance = "W") =>
+    get<Etf50QuantResult>(`/quant/etf50?days=${days}&top_n=${topN}&rebalance=${encodeURIComponent(rebalance)}`, 50_000),
   myReports: () => get<MyReport[]>("/myreports"),
   uploadReport: (name: string, contentB64: string) =>
     request<MyReport>("/myreports", "POST", { name, content_b64: contentB64 }),
