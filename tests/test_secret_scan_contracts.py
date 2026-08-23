@@ -392,13 +392,17 @@ class GitleaksIgnoreTest(unittest.TestCase):
                     "each fingerprint needs a '# reason:' comment above it",
                 )
 
-    def test_exemptions_are_scoped_to_known_test_fixtures(self):
+    def test_exemptions_are_scoped_to_known_non_secrets(self):
+        historical_public_parameters = {
+            "8e958ea1a89cfc02aea9b687f0f96e0cc9802b19:MIAOOUSC_NASDX_对齐方案.md:generic-api-key:94",
+            "e4c7bc61d70f5c00ab8b11f39301ae10b8fe5e34:server/stock/gstock.py:generic-api-key:105",
+        }
         for entry, _reason in self._entries_with_reasons():
             path = entry.split(":")[1]
             with self.subTest(entry=entry):
                 self.assertTrue(
-                    path.startswith("tests/"),
-                    "only deliberately fake test fixtures may be waived",
+                    path.startswith("tests/") or entry in historical_public_parameters,
+                    "only fake test fixtures or the two reviewed public parameters may be waived",
                 )
 
     def test_workflow_passes_the_ignore_file_explicitly(self):
