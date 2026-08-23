@@ -92,6 +92,8 @@ async function request<T>(
   }
 }
 
+const QUANT_BACKTEST_TIMEOUT_MS = 65_000;
+
 const get = <T>(path: string, timeoutMs = 30_000) => request<T>(path, "GET", undefined, timeoutMs);
 
 export interface Quote {
@@ -344,7 +346,7 @@ export const api = {
   investorQa: (code: string) => get<QaRow[]>(`/investor-qa?code=${code}`),
   industry: (top = 20) => get<IndustryData>(`/industry?top=${top}`, 15_000),
   quantBacktest: (payload: QuantBacktestRequest) =>
-    request<QuantBacktestResult>("/quant/backtest", "POST", payload, 35_000),
+    request<QuantBacktestResult>("/quant/backtest", "POST", payload, QUANT_BACKTEST_TIMEOUT_MS),
   quantEtf50: (days = 252, topN = 5, rebalance = "W") =>
     get<Etf50QuantResult>(`/quant/etf50?days=${days}&top_n=${topN}&rebalance=${encodeURIComponent(rebalance)}`, 50_000),
   myReports: () => get<MyReport[]>("/myreports"),
