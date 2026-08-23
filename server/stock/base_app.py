@@ -24,15 +24,23 @@ import debate as debate_layer
 import gstock
 import llm_cfg
 import market
+import quant_router
 import myreports as mr
 import newsradar
 import portfolio as pf
 import reflection as reflect_layer
 
-app = FastAPI(title="Cosmos API", version="0.2.0")
+app = FastAPI(title="Cosmos API", version="0.3.0")
+app.include_router(quant_router.router)
 
 # 每半小时后台刷新持仓数据
 pf.start_scheduler(1800)
+
+
+@app.on_event("startup")
+def _warm_market_cache():
+    """后台预抓首屏市场总览，启动本身不等待第三方数据源。"""
+    market.warm_cache()
 
 # CORS：默认放开（本地自托管友好）；公网部署时用 VR_ALLOW_ORIGINS 收紧成白名单。
 #   例：VR_ALLOW_ORIGINS="https://myhost"  （逗号分隔多个）
@@ -73,7 +81,7 @@ def _validate(code: str) -> str:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "service": "cosmos-api", "version": "0.2.0"}
+    return {"ok": True, "service": "cosmos-api", "version": "0.3.0"}
 
 
 class LLMConfig(BaseModel):

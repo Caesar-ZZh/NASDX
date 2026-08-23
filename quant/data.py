@@ -281,7 +281,7 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     # 转数值型（用 to_numeric 替代已弃用且将在 pandas 3.0 移除的 astype(errors="ignore")）
     numeric_cols = [c for c in ["open", "high", "low", "close", "volume", "amount", "change_pct"] if c in df.columns]
     if numeric_cols:
-        df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
+        df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce").astype(float)
     return df
 
 
@@ -392,6 +392,7 @@ def get_batch_ohlcv(
     use_cache: bool = True,
     cache_ttl_seconds: float = 600.0,
     request_timeout: float = 8.0,
+    fallback_missing: bool = True,
 ) -> dict[str, pd.DataFrame]:
     """
     批量获取多只股票/ETF 的 OHLCV
@@ -403,6 +404,7 @@ def get_batch_ohlcv(
       max_workers: 缺失标的并发回退上限
       use_cache: 是否复用用户目录下的短期行情缓存
       cache_ttl_seconds: 成功行情缓存有效期
+      fallback_missing: 批量层缺失时是否继续逐只走兼容数据源
 
     返回：
       {code: DataFrame} 的字典，失败的代码会被跳过
@@ -443,8 +445,10 @@ def get_batch_ohlcv(
             frame, _source = history_map.get(code, (None, None))
             if isinstance(frame, pd.DataFrame) and _validate_ohlcv(frame):
                 df = _standardize_columns(frame)
-            else:
+            elif fallback_missing:
                 df = get_ohlcv(code, days=normalized_days)
+            else:
+                df = None
 
             if isinstance(df, pd.DataFrame) and not df.empty:
                 results[code] = df.copy(deep=True)

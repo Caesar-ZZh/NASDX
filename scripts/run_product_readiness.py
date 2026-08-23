@@ -43,7 +43,7 @@ def build_commands(include_llm_smoke: bool = False) -> list[CommandSpec]:
         ),
         CommandSpec(
             label="final_audit",
-            argv=[sys.executable, "-B", "run_final_audit.py"],
+            argv=[sys.executable, "-B", "scripts/run_final_audit.py"],
             timeout=900,
         ),
     ]
@@ -54,7 +54,7 @@ def build_commands(include_llm_smoke: bool = False) -> list[CommandSpec]:
                 argv=[
                     sys.executable,
                     "-B",
-                    "run_analysis.py",
+                    "scripts/run_analysis.py",
                     "603501",
                     "--mode",
                     "llm",

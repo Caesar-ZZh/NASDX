@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "run_desktop_completion_audit.py"
+SCRIPT = ROOT / "scripts" / "run_desktop_completion_audit.py"
 
 
 class DesktopCompletionAuditContractsTest(unittest.TestCase):
@@ -60,7 +60,7 @@ class DesktopCompletionAuditContractsTest(unittest.TestCase):
         env["NASDX_API_KEY"] = secret
 
         proc = subprocess.run(
-            [sys.executable, "-B", "run_desktop_completion_audit.py", "--json"],
+            [sys.executable, "-B", "scripts/run_desktop_completion_audit.py", "--json"],
             cwd=str(ROOT),
             env=env,
             text=True,

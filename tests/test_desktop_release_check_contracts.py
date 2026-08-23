@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "run_desktop_release_check.py"
+SCRIPT = ROOT / "scripts" / "run_desktop_release_check.py"
 
 
 def load_release_module():

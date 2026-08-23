@@ -8,26 +8,71 @@ from __future__ import annotations
 
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
+from threading import Event, Lock, Thread
 
 import astock
 import gstock
 
 BEIJING = timezone(timedelta(hours=8))
 _CACHE: dict = {}
+_NEGATIVE_CACHE: dict = {}
+_IN_FLIGHT: dict = {}
+_CACHE_LOCK = Lock()
 _TTL = 300  # 5 分钟；全站共享，省数据源压力
+_NEGATIVE_TTL = 60  # 失败结果短缓存，防止上游故障时反复惊群
+
+
+@dataclass
+class _Flight:
+    event: Event = field(default_factory=Event)
+    value: object = None
+    error: BaseException | None = None
 
 
 def _cached(key: str, fn, valid=bool):
-    """TTL 缓存。数据源故障的空结果不缓存（valid 判否），下次请求直接重试。"""
+    """TTL + single-flight 缓存；空结果短缓存，避免故障期反复打上游。"""
     now = time.time()
-    hit = _CACHE.get(key)
-    if hit and now - hit[0] < _TTL:
-        return hit[1]
-    val = fn()
-    if valid(val):
-        _CACHE[key] = (now, val)
-    return val
+    with _CACHE_LOCK:
+        hit = _CACHE.get(key)
+        if hit and now - hit[0] < _TTL:
+            return hit[1]
+        failed = _NEGATIVE_CACHE.get(key)
+        if failed and now - failed[0] < _NEGATIVE_TTL:
+            return failed[1]
+
+        flight = _IN_FLIGHT.get(key)
+        owner = flight is None
+        if owner:
+            flight = _Flight()
+            _IN_FLIGHT[key] = flight
+
+    if not owner:
+        flight.event.wait()
+        if flight.error is not None:
+            raise flight.error
+        return flight.value
+
+    try:
+        value = fn()
+        with _CACHE_LOCK:
+            if valid(value):
+                _CACHE[key] = (time.time(), value)
+                _NEGATIVE_CACHE.pop(key, None)
+            else:
+                _NEGATIVE_CACHE[key] = (time.time(), value)
+            flight.value = value
+        return value
+    except BaseException as exc:
+        with _CACHE_LOCK:
+            flight.error = exc
+        raise
+    finally:
+        with _CACHE_LOCK:
+            _IN_FLIGHT.pop(key, None)
+            flight.event.set()
 
 
 def _num(v) -> int:
@@ -41,7 +86,7 @@ def _sentiment() -> dict:
     """市场情绪：涨跌家数/涨停跌停/活跃度 + 大盘宽度、题材投机（客观数据机械分档）。"""
     try:
         # akshare 惰性导入（同 astock 模式）：未装时降级返回空，不挡整个服务启动
-        df = astock._akshare().stock_market_activity_legu()
+        df = astock._call_akshare("stock_market_activity_legu")
         d = {row["item"]: row["value"] for _, row in df.iterrows()}
     except Exception:
         return {}
@@ -72,7 +117,7 @@ def _sentiment() -> dict:
 def _sectors() -> list[dict]:
     """行业资金流（按净额降序）。不含领涨股等个股字段。"""
     try:
-        f = astock._akshare().stock_fund_flow_industry(symbol="即时")
+        f = astock._call_akshare("stock_fund_flow_industry", symbol="即时")
         f = f.sort_values("净额", ascending=False)
     except Exception:
         return []
@@ -92,12 +137,20 @@ def _sectors() -> list[dict]:
 def get_overview() -> dict:
     """市场情绪 + 板块资金（含缓存）。资金轮动由前端从 sectors 头尾取。"""
     def build():
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="cosmos-overview") as pool:
+            sentiment = pool.submit(_sentiment)
+            sectors = pool.submit(_sectors)
         return {
-            "sentiment": _sentiment(),
-            "sectors": _sectors(),
+            "sentiment": sentiment.result(),
+            "sectors": sectors.result(),
             "updated": datetime.now(BEIJING).strftime("%Y-%m-%d %H:%M"),
         }
     return _cached("overview", build, valid=lambda v: bool(v.get("sentiment") or v.get("sectors")))
+
+
+def warm_cache() -> None:
+    """后台预热市场总览；不阻塞 FastAPI 启动。"""
+    Thread(target=get_overview, name="cosmos-market-warmup", daemon=True).start()
 
 
 def _emotion() -> dict:

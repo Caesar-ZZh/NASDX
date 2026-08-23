@@ -426,7 +426,7 @@ class EvaluationCliTest(unittest.TestCase):
         return argparse.Namespace(**base)
 
     def test_no_samples_refuses_to_conclude(self):
-        import run_decision_evaluation as cli
+        from scripts import run_decision_evaluation as cli
 
         with temp_db() as path:
             report = cli.build_report(self._args(db=str(path)))
@@ -436,7 +436,7 @@ class EvaluationCliTest(unittest.TestCase):
             self.assertIn("insufficient_sample", markdown)
 
     def test_small_sample_marks_insufficient(self):
-        import run_decision_evaluation as cli
+        from scripts import run_decision_evaluation as cli
 
         with temp_db() as path:
             record = dr.build_decision_record(
@@ -454,7 +454,7 @@ class EvaluationCliTest(unittest.TestCase):
             self.assertIn("样本量", markdown)
 
     def test_optional_sections_render(self):
-        import run_decision_evaluation as cli
+        from scripts import run_decision_evaluation as cli
 
         with temp_db() as path:
             for code, action in (("600519", "分批布局"), ("512880", "观察等待")):
@@ -499,13 +499,13 @@ class EntryPointsWiredTest(unittest.TestCase):
             "run_investment_workflow.py": "record_candidate_if_enabled",
         }
         for name, symbol in expected.items():
-            text = (self.ROOT / name).read_text(encoding="utf-8")
+            text = (self.ROOT / "scripts" / name).read_text(encoding="utf-8")
             self.assertIn("nasdx.decision_wiring", text, f"{name} 未导入接线模块")
             self.assertIn(symbol, text, f"{name} 未调用 {symbol}")
 
     def test_cli_entry_points_exist(self):
         for name in ("run_decision_backfill.py", "run_decision_evaluation.py"):
-            self.assertTrue((self.ROOT / name).exists(), f"缺少 CLI {name}")
+            self.assertTrue((self.ROOT / "scripts" / name).exists(), f"缺少 CLI {name}")
 
     def test_wiring_calls_are_guarded(self):
         """接线调用必须被 try/except 包住，异常不能冒泡到主流程。"""
@@ -515,7 +515,7 @@ class EntryPointsWiredTest(unittest.TestCase):
             "run_intraday_copilot.py",
             "run_investment_workflow.py",
         ):
-            text = (self.ROOT / name).read_text(encoding="utf-8")
+            text = (self.ROOT / "scripts" / name).read_text(encoding="utf-8")
             self.assertIn("决策记录落库跳过", text, f"{name} 缺少 fail-open 兜底")
 
 

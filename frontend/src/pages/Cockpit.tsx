@@ -4,7 +4,7 @@
 // 轮询复用 useMarketPulse（5s，交易时段 + 页面可见才跑）与 useLiveQuotes（3s，自选股）。
 
 import { useMemo, useState } from "react";
-import { RefreshCw, Star, LayoutGrid, Gauge } from "lucide-react";
+import { AlertCircle, RefreshCw, Star, LayoutGrid, Gauge } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { EChart } from "@/components/ui/EChart";
@@ -148,6 +148,13 @@ export function Cockpit() {
         }
       />
 
+      {pulse.error && (
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
+          <span className="flex items-center gap-2"><AlertCircle className="h-4 w-4" />{pulse.error}</span>
+          <button onClick={pulse.refresh} className="text-xs font-medium underline underline-offset-2">重试</button>
+        </div>
+      )}
+
       {/* ① 大盘指数 KPI */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
         {(pulse.indices ?? []).map((i) => (
@@ -161,7 +168,9 @@ export function Cockpit() {
           </GlassCard>
         ))}
         {!pulse.indices && (
-          <div className="col-span-full text-sm text-muted-foreground">大盘指数加载中…</div>
+          <div className="col-span-full text-sm text-muted-foreground">
+            {pulse.loading ? "大盘指数加载中…" : pulse.error ? "大盘指数加载超时，可点上方重试" : "大盘指数暂无数据"}
+          </div>
         )}
       </div>
 
@@ -172,8 +181,12 @@ export function Cockpit() {
             <Gauge className="h-4 w-4 text-primary" />
             <h3 className="text-sm font-bold">涨跌家数</h3>
           </div>
-          <EChart option={breadthOption} height={236} />
-          <div className="mt-1 grid grid-cols-2 gap-2 text-center text-xs">
+          {sentiment ? <EChart option={breadthOption} height={236} /> : (
+            <p className="flex h-[236px] items-center justify-center text-sm text-muted-foreground">
+              {pulse.loading ? "涨跌家数加载中…" : pulse.error ? "涨跌家数加载超时，可点上方重试" : "涨跌家数暂无数据"}
+            </p>
+          )}
+          {sentiment && <div className="mt-1 grid grid-cols-2 gap-2 text-center text-xs">
             <div className="rounded-lg bg-danger/10 py-1.5">
               <div className="font-mono text-base font-bold text-danger">{(sentiment?.zt ?? 0)}</div>
               <div className="text-muted-foreground">涨停</div>
@@ -182,7 +195,7 @@ export function Cockpit() {
               <div className="font-mono text-base font-bold text-success">{(sentiment?.dt ?? 0)}</div>
               <div className="text-muted-foreground">跌停</div>
             </div>
-          </div>
+          </div>}
         </GlassCard>
 
         <GlassCard className="lg:col-span-2">
@@ -204,7 +217,11 @@ export function Cockpit() {
               )}
             </div>
           </div>
-          <EChart option={sectorOption} height={300} />
+          {(pulse.industry?.top?.length ?? 0) > 0 ? <EChart option={sectorOption} height={300} /> : (
+            <p className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
+              {pulse.loading ? "板块热力加载中…" : pulse.error ? "板块热力加载超时，可点上方重试" : "板块热力暂无数据"}
+            </p>
+          )}
           <p className="mt-1 text-center text-xs text-muted-foreground/60">
             共 {pulse.industry?.total ?? 0} 个板块 · 颜色越红越强、越绿越弱
           </p>

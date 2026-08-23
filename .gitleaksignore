@@ -10,13 +10,12 @@
 #   * NEVER add an entry for a real credential; rotate it and clean history
 #     instead
 #
-# Why this file exists at all: git history is immutable. The entries below are
-# deliberately fake `api_key=` fixtures that privacy tests feed into the
-# redaction helpers to prove the redaction works. They were committed before
-# this gate existed, so they cannot be removed without rewriting published
-# history (the repository has public forks). The in-repo scanner
-# (nasdx/secret_scan.py) already ignores them via its entropy/length gate;
-# only gitleaks' deliberately broader `generic-api-key` rule matches.
+# Why this file exists at all: git history is immutable. Most entries below are
+# deliberately fake `api_key=` fixtures that privacy tests feed into redaction
+# helpers; two are public Eastmoney request identifiers in published history.
+# They predate this gate and cannot be removed without rewriting history (the
+# repository has public forks). The in-repo scanner already distinguishes these
+# non-secrets; only gitleaks' deliberately broader generic rule matches.
 #
 # New code must NOT add literal fake tokens. Build them at runtime by
 # concatenating fragments, the way tests/test_secret_scan_contracts.py does.
@@ -29,3 +28,7 @@ f0f30ab56e2b39c2936e9b7d7964d517e2c98556:tests/test_memory_privacy.py:generic-ap
 54a1c5302c607f5308286022cf5e0f379fc5229e:tests/test_decision_log_privacy.py:generic-api-key:55
 # reason: fake api_key fixture asserting decision-log inputs are redacted (#62)
 54a1c5302c607f5308286022cf5e0f379fc5229e:tests/test_decision_log_privacy.py:generic-api-key:122
+# reason: public Eastmoney request parameter documented in the upstream alignment note
+8e958ea1a89cfc02aea9b687f0f96e0cc9802b19:MIAOOUSC_NASDX_对齐方案.md:generic-api-key:94
+# reason: public Eastmoney search API token embedded by the imported stock data source
+e4c7bc61d70f5c00ab8b11f39301ae10b8fe5e34:server/stock/gstock.py:generic-api-key:105

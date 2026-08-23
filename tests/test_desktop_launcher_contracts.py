@@ -201,9 +201,9 @@ base_url = "example.invalid"
         config_path = ROOT / "config.toml"
         before_config_exists = config_path.exists()
         cli_scripts = [
-            ROOT / "scan_etf50.py",
-            ROOT / "scan_stocks_full.py",
-            ROOT / "run_investment_workflow.py",
+            ROOT / "scripts" / "scan_etf50.py",
+            ROOT / "scripts" / "scan_stocks_full.py",
+            ROOT / "scripts" / "run_investment_workflow.py",
             ROOT / "启动网页.bat",
         ]
 

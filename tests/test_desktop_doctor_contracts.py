@@ -11,7 +11,7 @@ from desktop.doctor import FAIL, PASS, WARN, run_doctor
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "run_desktop_doctor.py"
+SCRIPT = ROOT / "scripts" / "run_desktop_doctor.py"
 
 
 class DesktopDoctorContractsTest(unittest.TestCase):
@@ -54,7 +54,7 @@ class DesktopDoctorContractsTest(unittest.TestCase):
         env["NASDX_API_KEY"] = secret
 
         proc = subprocess.run(
-            [sys.executable, "-B", "run_desktop_doctor.py", "--json"],
+            [sys.executable, "-B", "scripts/run_desktop_doctor.py", "--json"],
             cwd=str(ROOT),
             env=env,
             text=True,
@@ -89,7 +89,7 @@ base_url = "example.invalid"
 
     def test_doctor_text_summary_succeeds_with_warnings(self):
         proc = subprocess.run(
-            [sys.executable, "-B", "run_desktop_doctor.py"],
+            [sys.executable, "-B", "scripts/run_desktop_doctor.py"],
             cwd=str(ROOT),
             text=True,
             encoding="utf-8",

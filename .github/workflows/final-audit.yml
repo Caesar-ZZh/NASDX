@@ -48,4 +48,4 @@ jobs:
       - name: Run final delivery audit (release gate)
         shell: pwsh
         run: |
-          python run_final_audit.py
+          python scripts/run_final_audit.py

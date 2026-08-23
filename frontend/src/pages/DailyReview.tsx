@@ -40,20 +40,42 @@ export function DailyReview() {
   const [ovDone, setOvDone] = useState(false);
   const [emoDone, setEmoDone] = useState(false);
   const [toDone, setToDone] = useState(false);
+  const [ovError, setOvError] = useState<string | null>(null);
+  const [emoError, setEmoError] = useState<string | null>(null);
+  const [toError, setToError] = useState<string | null>(null);
 
-  const loadIndices = () => {
-    api.indices().then(setIndices).catch(() => setIdxErr(true));
-    api.globalIndices().then(setGlobalIdx).catch(() => {});
-    api.marketOverview().then(setOverview).catch(() => {}).finally(() => setOvDone(true));
-    api.emotion().then(setEmotion).catch(() => {}).finally(() => setEmoDone(true));
-    api.turnoverTop().then(setTurnover).catch(() => {}).finally(() => setToDone(true));
+  const dataError = (error: unknown) => error instanceof ApiError ? error.message : "数据获取失败";
+
+  const loadOverview = () => {
+    setOvDone(false); setOvError(null);
+    api.marketOverview().then(setOverview).catch((e) => setOvError(dataError(e))).finally(() => setOvDone(true));
   };
 
-  // 数据块占位：请求没回来 = 加载中；回来了但为空 = 数据源暂不可用（别让用户干等）
-  const pending = (done: boolean) => (
-    <p className="py-4 text-center text-sm text-muted-foreground/60">
-      {done ? "暂无数据：可能是非交易时段或数据源暂时不可用，可点「大盘指数」旁的刷新重试" : "加载中…"}
-    </p>
+  const loadEmotion = () => {
+    setEmoDone(false); setEmoError(null);
+    api.emotion().then(setEmotion).catch((e) => setEmoError(dataError(e))).finally(() => setEmoDone(true));
+  };
+
+  const loadTurnover = () => {
+    setToDone(false); setToError(null);
+    api.turnoverTop().then(setTurnover).catch((e) => setToError(dataError(e))).finally(() => setToDone(true));
+  };
+
+  const loadIndices = () => {
+    setIdxErr(false);
+    api.indices().then(setIndices).catch(() => setIdxErr(true));
+    api.globalIndices().then(setGlobalIdx).catch(() => {});
+    loadOverview();
+    loadEmotion();
+    loadTurnover();
+  };
+
+  // 数据块占位：加载中 / 失败或超时 / 已返回但为空，三态明确可重试。
+  const pending = (done: boolean, error: string | null, retry: () => void) => (
+    <div className="py-4 text-center text-sm text-muted-foreground/60">
+      <p>{!done ? "加载中…" : error ? (error.includes("超时") ? "加载超时，请重试" : "加载失败，请重试") : "暂无数据：可能是非交易时段或数据源暂时不可用"}</p>
+      {done && <button onClick={retry} className="mt-2 text-xs text-primary hover:underline">重试</button>}
+    </div>
   );
 
   const refreshWatch = (codes: string[]) => {
@@ -262,7 +284,7 @@ export function DailyReview() {
       </div>
       <GlassCard className="mb-6">
         {!sentiment?.breadth ? (
-          pending(ovDone)
+          pending(ovDone, ovError, loadOverview)
         ) : (
           <>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -297,7 +319,7 @@ export function DailyReview() {
       </div>
       <GlassCard className="mb-6">
         {!emotion || emotion.zt_count === undefined ? (
-          pending(emoDone)
+          pending(emoDone, emoError, loadEmotion)
         ) : (
           <>
             {/* 关键计数 */}
@@ -374,7 +396,7 @@ export function DailyReview() {
       </div>
       <GlassCard className="mb-6">
         {!turnover || turnover.stocks.length === 0 ? (
-          pending(toDone)
+          pending(toDone, toError, loadTurnover)
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -412,7 +434,7 @@ export function DailyReview() {
       </div>
       <GlassCard className="mb-6">
         {sectors.length === 0 ? (
-          pending(ovDone)
+          pending(ovDone, ovError, loadOverview)
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -453,7 +475,7 @@ export function DailyReview() {
           <GlassCard key={col.title}>
             <h4 className={cn("mb-3 flex items-center gap-1.5 text-sm font-semibold", col.color)}><col.icon className="h-4 w-4" /> {col.title}</h4>
             {col.rows.length === 0 ? (
-              pending(ovDone)
+              pending(ovDone, ovError, loadOverview)
             ) : (
               <div className="space-y-1.5">
                 {col.rows.map((s, i) => (
