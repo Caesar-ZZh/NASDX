@@ -1,6 +1,8 @@
 import time
 import importlib
+import json
 import os
+import re
 import unittest
 from pathlib import Path
 
@@ -32,6 +34,34 @@ class SleepingAgent:
 
 
 class ArchitectureContractTests(unittest.TestCase):
+    def test_cosmos_release_version_is_synchronized(self):
+        expected = "0.3.0"
+        package = json.loads((ROOT / "frontend" / "package.json").read_text(encoding="utf-8"))
+        package_lock = json.loads((ROOT / "frontend" / "package-lock.json").read_text(encoding="utf-8"))
+        layout_source = (ROOT / "frontend" / "src" / "components" / "layout" / "Layout.tsx").read_text(
+            encoding="utf-8"
+        )
+        api_source = (ROOT / "server" / "stock" / "base_app.py").read_text(encoding="utf-8")
+
+        layout_match = re.search(r'APP_VERSION = "v([^"]+)"', layout_source)
+        fastapi_match = re.search(r'FastAPI\(title="Cosmos API", version="([^"]+)"\)', api_source)
+        health_match = re.search(r'"service": "cosmos-api", "version": "([^"]+)"', api_source)
+
+        self.assertIsNotNone(layout_match)
+        self.assertIsNotNone(fastapi_match)
+        self.assertIsNotNone(health_match)
+        self.assertEqual(
+            {
+                package["version"],
+                package_lock["version"],
+                package_lock["packages"][""]["version"],
+                layout_match.group(1),
+                fastapi_match.group(1),
+                health_match.group(1),
+            },
+            {expected},
+        )
+
     def test_research_environment_runs_phase_one_agents_concurrently(self):
         env = ResearchEnvironment(max_steps=1, delay=0, max_workers=5)
         env.agents = {
