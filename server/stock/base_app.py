@@ -684,7 +684,8 @@ def industry(top: int = Query(20, ge=5, le=50)):
         return {"data": hit[1]}
     try:
         data = astock.industry_comparison(top_n=top)
-        _DC_CACHE[key] = (_time.time(), data)
+        if data.get("top") and data.get("bottom"):
+            _DC_CACHE[key] = (_time.time(), data)
         return {"data": data}
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"行业排名异常：{e}") from e

@@ -72,6 +72,32 @@ class QuantApiContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             quant_service.compute_backtest({"universe": ["51030X"], "strategies": ["momentum"]})
 
+    def test_factor_rank_backtest_uses_one_precomputed_strategy(self):
+        from quant.backtest import build_factor_rank_strategy
+
+        frames = {
+            "510300": price_frame(1.0),
+            "510500": price_frame(1.1),
+            "159915": price_frame(0.95),
+        }
+        payload = {
+            "universe": list(frames),
+            "strategies": ["factor_rank"],
+            "start": "2025-01-01",
+            "end": "2025-05-20",
+            "rebalance": "D",
+            "top_n": 2,
+        }
+
+        with patch("quant.data.get_batch_ohlcv", return_value=frames), patch(
+            "quant.backtest.build_factor_rank_strategy",
+            wraps=build_factor_rank_strategy,
+        ) as build:
+            result = quant_service.compute_backtest(payload)
+
+        build.assert_called_once()
+        self.assertEqual(["factor_rank"], [row["strategy"] for row in result["strategies"]])
+
     def test_single_symbol_can_use_default_top_n(self):
         normalized = quant_service.normalize_backtest_request(
             {"universe": ["510300"], "strategies": ["momentum"]}

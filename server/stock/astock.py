@@ -815,22 +815,45 @@ def investor_qa(code: str, page_size: int = 30) -> list[dict]:
 
 
 def industry_comparison(top_n: int = 20) -> dict:
-    """全行业涨跌幅排名（东财行业板块，~100 个行业）：板块级涨跌 / 涨跌家数 / 领涨。"""
-    params = {"pn": "1", "pz": "100", "po": "1", "np": "1", "fltt": "2", "invt": "2",
+    """全板块涨跌幅排名（东财行业/概念板块）：分别取真实领涨、领跌尾部。"""
+    params = {"pn": "1", "pz": str(top_n), "po": "1", "np": "1", "fltt": "2", "invt": "2",
               "fid": "f3",  # fid=f3 + po=1：按涨跌幅降序，否则 top/bottom 切片非涨幅序（a-stock-data §3.7）
               "fs": "m:90+t:2", "fields": "f2,f3,f4,f12,f13,f14,f104,f105,f128,f136,f140,f141,f207"}
-    try:
-        d = em_get("https://push2.eastmoney.com/api/qt/clist/get",
-                   params=params, headers={"User-Agent": UA}, timeout=15).json()
-    except Exception:
+
+    def fetch_tail(order: str) -> tuple[list[dict], int]:
+        request_params = {**params, "po": order}
+        for host in ("push2.eastmoney.com", "push2delay.eastmoney.com"):
+            try:
+                data = em_get(f"https://{host}/api/qt/clist/get",
+                              params=request_params, headers={"User-Agent": UA}, timeout=15).json().get("data") or {}
+                candidate = data.get("diff") or []
+                if isinstance(candidate, dict):
+                    candidate = list(candidate.values())
+                if candidate:
+                    return candidate, int(data.get("total") or len(candidate))
+            except Exception:
+                continue
+        return [], 0
+
+    top_items, total = fetch_tail("1")
+    if not top_items:
         return {"top": [], "bottom": [], "total": 0}
-    items = d.get("data", {}).get("diff", [])
-    if isinstance(items, dict):
-        items = list(items.values())
-    if not items:
-        return {"top": [], "bottom": [], "total": 0}
-    rows = [{
-        "rank": i + 1, "name": it.get("f14", ""), "change_pct": it.get("f3", 0),
-        "code": it.get("f12", ""), "up_count": it.get("f104", 0), "down_count": it.get("f105", 0),
-    } for i, it in enumerate(items)]
-    return {"top": rows[:top_n], "bottom": rows[-top_n:], "total": len(rows)}
+
+    if total <= len(top_items):
+        # 响应已覆盖全集时沿用降序契约；前端会把 bottom 反转为领跌由强到弱。
+        bottom_items = top_items
+    else:
+        ascending, bottom_total = fetch_tail("0")
+        bottom_items = list(reversed(ascending))
+        total = max(total, bottom_total)
+
+    def row(it: dict, rank: int) -> dict:
+        return {
+            "rank": rank, "name": it.get("f14", ""), "change_pct": _numf(it.get("f3")) or 0,
+            "code": it.get("f12", ""), "up_count": it.get("f104", 0), "down_count": it.get("f105", 0),
+        }
+
+    top = [row(it, i + 1) for i, it in enumerate(top_items)]
+    bottom_start = max(total - len(bottom_items), 0)
+    bottom = [row(it, bottom_start + i + 1) for i, it in enumerate(bottom_items)]
+    return {"top": top, "bottom": bottom, "total": total}
