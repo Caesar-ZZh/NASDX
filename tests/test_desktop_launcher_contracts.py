@@ -1,5 +1,6 @@
 import json
 import os
+import socket
 import tempfile
 import subprocess
 import sys
@@ -196,6 +197,17 @@ base_url = "example.invalid"
 
         self.assertIsInstance(port, int)
         self.assertGreater(port, 0)
+
+    def test_free_port_selection_skips_a_listening_port(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind((DEFAULT_HOST, 0))
+            listener.listen()
+            occupied_port = int(listener.getsockname()[1])
+
+            selected_port = find_free_port(DEFAULT_HOST, preferred=occupied_port)
+
+        self.assertNotEqual(occupied_port, selected_port)
+        self.assertGreater(selected_port, 0)
 
     def test_dry_run_is_non_destructive_and_mentions_no_config_write(self):
         config_path = ROOT / "config.toml"

@@ -51,7 +51,6 @@ def find_project_root(start: Path | None = None) -> Path:
 def find_free_port(host: str = DEFAULT_HOST, preferred: int = DEFAULT_PORT) -> int:
     """Return preferred when free, otherwise ask the OS for an available port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind((host, preferred))
             return int(sock.getsockname()[1])
