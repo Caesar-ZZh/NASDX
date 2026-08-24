@@ -1,6 +1,6 @@
 // 实时驾驶舱：盘中一屏看全市场。
-// 模块：① 大盘指数 KPI + 涨跌家数环图  ② 板块热力（treemap）  ③ 自选股实时报价表。
-// 数据全部走既有后端接口（/indices、/market/overview、/industry、/quote），零后端改动。
+// 模块：① 大盘指数 KPI + Lieflat Tick Donut  ② 板块热力（treemap）  ③ 自选股实时报价表。
+// 数据走既有后端接口（/indices、/market/overview、/industry、/quote）。
 // 轮询复用 useMarketPulse（5s，交易时段 + 页面可见才跑）与 useLiveQuotes（3s，自选股）。
 
 import { useMemo, useState } from "react";
@@ -8,11 +8,11 @@ import { AlertCircle, RefreshCw, Star, LayoutGrid, Gauge } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { EChart } from "@/components/ui/EChart";
+import { MarketBreadthField } from "@/components/charts/MarketBreadthField";
 import { Disclaimer } from "@/components/ui/Disclaimer";
 import { useMarketPulse } from "@/hooks/useMarketPulse";
 import { useLiveQuotes, isTradingHours } from "@/hooks/useLiveQuotes";
 import { loadWatch } from "@/lib/watchlist";
-import { useDarkMode } from "@/hooks/useDarkMode";
 import { chartColors } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
 import type { EChartsOption } from "echarts";
@@ -27,8 +27,14 @@ function fmtTime(ts: number | null): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
+function sectorHeatColor(value: number, bound: number): string {
+  const strength = Math.min(Math.abs(value) / Math.max(bound, 0.01), 1);
+  if (value > 0) return `hsl(0 68% ${32 + strength * 20}%)`;
+  if (value < 0) return `hsl(153 55% ${28 + strength * 20}%)`;
+  return "hsl(215 18% 32%)";
+}
+
 export function Cockpit() {
-  const { dark } = useDarkMode();
   const pulse = useMarketPulse(true);
   const [watch] = useState<string[]>(() => loadWatch());
   const live = useLiveQuotes(watch, true);
@@ -36,62 +42,22 @@ export function Cockpit() {
   const c = chartColors();
   const sentiment = pulse.overview?.sentiment;
 
-  // ---- 涨跌家数环图 ----
-  const breadthOption = useMemo<EChartsOption>(() => {
-    const up = sentiment?.up ?? 0;
-    const down = sentiment?.down ?? 0;
-    const flat = sentiment?.flat ?? 0;
-    const total = up + down + flat;
-    return {
-      tooltip: { trigger: "item", formatter: "{b}: {c} 家 ({d}%)" },
-      legend: { bottom: 0, left: "center", textStyle: { color: c.muted }, itemWidth: 10, itemHeight: 10 },
-      title: {
-        text: `${total}`, subtext: "全市场",
-        left: "center", top: "32%",
-        textAlign: "center",
-        textStyle: { color: c.foreground, fontSize: 22, fontWeight: "bold" },
-        subtextStyle: { color: c.muted, fontSize: 11 },
-      },
-      series: [
-        {
-          type: "pie",
-          radius: ["54%", "76%"],
-          center: ["50%", "44%"],
-          avoidLabelOverlap: true,
-          label: { show: false },
-          itemStyle: { borderColor: c.grid, borderWidth: 2 },
-          data: [
-            { name: "上涨", value: up, itemStyle: { color: c.up } },
-            { name: "下跌", value: down, itemStyle: { color: c.down } },
-            { name: "平盘", value: flat, itemStyle: { color: c.muted } },
-          ],
-        },
-      ],
-    };
-  }, [sentiment, c, dark]);
-
   // ---- 板块热力（treemap，面积均一、按 change_pct 着色）----
   const sectorOption = useMemo<EChartsOption>(() => {
-    const rows = (pulse.industry?.top ?? []).slice(0, 28);
+    const leaders = (pulse.industry?.top ?? []).slice(0, 14);
+    const laggards = (pulse.industry?.bottom ?? []).slice(-14);
+    const rows = [...leaders, ...laggards].filter(
+      (row, index, all) => all.findIndex((candidate) => candidate.name === row.name) === index,
+    );
     if (!rows.length) return {};
     const vals = rows.map((r) => r.change_pct);
-    let min = Math.min(...vals);
-    let max = Math.max(...vals);
-    if (min === max) max = min + 1;
+    const bound = Math.max(...vals.map(Math.abs), 0.01);
     return {
       tooltip: {
         formatter: (p: any) => {
           const v = p.data.value[1] as number;
           return `${p.name}<br/>${v > 0 ? "+" : ""}${v}%`;
         },
-      },
-      visualMap: {
-        type: "continuous",
-        min,
-        max,
-        dimension: 1,
-        show: false,
-        inRange: { color: [c.down, "hsl(48 70% 50%)", c.up] },
       },
       series: [
         {
@@ -105,18 +71,22 @@ export function Cockpit() {
           itemStyle: { borderColor: c.grid, borderWidth: 2, gapWidth: 2 },
           label: {
             show: true,
-            color: c.foreground,
+            color: "#ffffff",
             fontSize: 11,
             formatter: (p: any) => {
               const v = p.data.value[1] as number;
               return `${p.name}\n${v > 0 ? "+" : ""}${v}%`;
             },
           },
-          data: rows.map((r) => ({ name: r.name, value: [1, r.change_pct] })),
+          data: rows.map((r) => ({
+            name: r.name,
+            value: [1, r.change_pct],
+            itemStyle: { color: sectorHeatColor(r.change_pct, bound) },
+          })),
         },
       ],
     };
-  }, [pulse.industry, c, dark]);
+  }, [pulse.industry, c]);
 
   const refreshAll = () => {
     pulse.refresh();
@@ -125,7 +95,8 @@ export function Cockpit() {
 
   const liveState = pulse.polling ? "实时刷新中" : isTradingHours() ? "已暂停" : "已收盘";
   const topSector = pulse.industry?.top?.[0];
-  const bottomSector = pulse.industry?.bottom?.[0];
+  const bottomRows = pulse.industry?.bottom ?? [];
+  const bottomSector = bottomRows[bottomRows.length - 1];
 
   return (
     <div>
@@ -181,7 +152,7 @@ export function Cockpit() {
             <Gauge className="h-4 w-4 text-primary" />
             <h3 className="text-sm font-bold">涨跌家数</h3>
           </div>
-          {sentiment ? <EChart option={breadthOption} height={236} /> : (
+          {sentiment ? <MarketBreadthField sentiment={sentiment} /> : (
             <p className="flex h-[236px] items-center justify-center text-sm text-muted-foreground">
               {pulse.loading ? "涨跌家数加载中…" : pulse.error ? "涨跌家数加载超时，可点上方重试" : "涨跌家数暂无数据"}
             </p>

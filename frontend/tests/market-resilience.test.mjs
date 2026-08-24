@@ -24,6 +24,20 @@ test("market pulse keeps partial successes instead of coupling all panels", asyn
   assert.match(hook, /Promise\.allSettled\(/);
   assert.doesNotMatch(hook, /Promise\.all\(\[/);
   assert.match(hook, /loading:/);
+  assert.match(hook, /industryFromOverview/);
+  assert.match(hook, /ind\.value\.total > 0/);
+});
+
+test("cockpit uses the Lieflat Tick Donut and both heatmap tails", async () => {
+  const cockpit = await source("pages/Cockpit.tsx");
+  const field = await source("components/charts/MarketBreadthField.tsx");
+
+  assert.match(cockpit, /MarketBreadthField/);
+  assert.match(cockpit, /pulse\.industry\?\.bottom/);
+  assert.match(cockpit, /sectorHeatColor/);
+  assert.match(field, /TICK DONUT/);
+  assert.match(field, /one tick = one percent/i);
+  assert.match(field, /onClick/);
 });
 
 test("daily review and cockpit expose timeout retry states", async () => {

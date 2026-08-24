@@ -12,6 +12,26 @@ import { isTradingHours } from "@/hooks/useLiveQuotes";
 export const PULSE_INTERVAL_MS = 5000;
 const MAX_BACKOFF_MS = 30_000;
 
+function industryFromOverview(overview: MarketOverview | null): IndustryData | null {
+  const sectors = (overview?.sectors ?? [])
+    .filter((sector) => sector.name && Number.isFinite(sector.pct))
+    .map((sector, index) => ({
+      rank: index + 1,
+      name: sector.name,
+      change_pct: sector.pct,
+      code: "",
+      up_count: 0,
+      down_count: 0,
+    }));
+  if (!sectors.length) return null;
+  const descending = [...sectors].sort((a, b) => b.change_pct - a.change_pct);
+  return {
+    top: descending.slice(0, 30),
+    bottom: descending.slice(-30),
+    total: sectors.length,
+  };
+}
+
 export interface MarketPulseState {
   indices: IndexQuote[] | null;
   overview: MarketOverview | null;
@@ -48,8 +68,15 @@ export function useMarketPulse(enabled: boolean): MarketPulseState {
       ]);
       let successes = 0;
       if (idx.status === "fulfilled") { setIndices(idx.value); successes += 1; }
-      if (ov.status === "fulfilled") { setOverview(ov.value); successes += 1; }
-      if (ind.status === "fulfilled") { setIndustry(ind.value); successes += 1; }
+      const overviewValue = ov.status === "fulfilled" ? ov.value : null;
+      if (overviewValue) { setOverview(overviewValue); successes += 1; }
+      const industryValue = ind.status === "fulfilled"
+        && ind.value.total > 0
+        && ind.value.top.length > 0
+        && ind.value.bottom.length > 0
+        ? ind.value
+        : industryFromOverview(overviewValue);
+      if (industryValue) { setIndustry(industryValue); successes += 1; }
       if (successes > 0) setUpdatedAt(Date.now());
       if (successes === 3) {
         setError(null);
