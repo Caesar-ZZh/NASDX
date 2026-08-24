@@ -922,3 +922,41 @@ def strategy_factor_rank(date, price_data: dict, top_n: int = 5) -> dict:
 
     top = ranking.head(top_n)["code"].tolist()
     return {c: 1.0 / top_n for c in top}
+
+
+def build_factor_rank_strategy(price_data: dict[str, pd.DataFrame], top_n: int = 5) -> Callable:
+    """为日频回测预计算无前视的因子矩阵，并返回兼容的信号函数。
+
+    原始 ``strategy_factor_rank`` 仍保留给独立调用；回测整段已知行情时，
+    每只标的只计算一次滚动因子。每个交易日读取严格早于执行日的最后一行，
+    数值与对应历史前缀逐次调用 ``compute_alpha158`` 的结果在浮点精度内一致。
+    """
+    from quant.factors import compute_alpha158_causal, multi_factor_score
+
+    matrices = {
+        code: compute_alpha158_causal(frame)
+        for code, frame in price_data.items()
+        if len(frame) >= 60
+    }
+
+    def signal(date, past_data: dict) -> dict:
+        factor_data = {}
+        for code, past in past_data.items():
+            if len(past) < 60:
+                continue
+            matrix = matrices.get(code)
+            if matrix is None or matrix.empty:
+                continue
+            visible = matrix[matrix.index < date]
+            if not visible.empty:
+                factor_data[code] = visible.tail(1)
+
+        if not factor_data:
+            return {}
+        ranking = multi_factor_score(factor_data)
+        if ranking.empty:
+            return {}
+        top = ranking.head(top_n)["code"].tolist()
+        return {code: 1.0 / top_n for code in top}
+
+    return signal

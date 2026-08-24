@@ -159,6 +159,7 @@ def compute_backtest(payload: dict) -> dict:
 
     from quant.backtest import (
         Backtester,
+        build_factor_rank_strategy,
         strategy_factor_rank,
         strategy_mean_reversion,
         strategy_momentum,
@@ -196,9 +197,18 @@ def compute_backtest(payload: dict) -> dict:
     }
     rows = []
     effective_top_n = min(config["top_n"], len(price_data))
+    precomputed_factor_signal = (
+        build_factor_rank_strategy(price_data, top_n=effective_top_n)
+        if "factor_rank" in config["strategies"]
+        else None
+    )
     for strategy_name in config["strategies"]:
         backtester = Backtester(initial_capital=config["initial_capital"])
-        signal = partial(strategy_functions[strategy_name], top_n=effective_top_n)
+        signal = (
+            precomputed_factor_signal
+            if strategy_name == "factor_rank"
+            else partial(strategy_functions[strategy_name], top_n=effective_top_n)
+        )
         result = backtester.run(price_data, signal, rebalance_freq=config["rebalance"])
         curve = [
             {"date": pd.Timestamp(index).strftime("%Y-%m-%d"), "equity": _finite(value)}
