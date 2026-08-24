@@ -59,12 +59,12 @@ class BacktestFactorContractsTest(unittest.TestCase):
         self.assertEqual(first, second)
 
     def test_causal_factor_matrix_matches_each_legacy_prefix(self):
-        from quant.factors import compute_alpha158, compute_alpha158_causal
+        import quant.factors as factors_mod
 
         frame = _price_frame(110)
-        causal = compute_alpha158_causal(frame)
+        causal = factors_mod.compute_alpha158_causal(frame)
         for length in (60, 75, 100):
-            legacy = compute_alpha158(frame.iloc[:length])
+            legacy = factors_mod.compute_alpha158(frame.iloc[:length])
             expected = legacy.iloc[-1]
             actual = causal.loc[frame.index[length - 1]]
             # expanding 使用稳定的在线方差算法；常数列与逐前缀 std 仅有约 1e-5
