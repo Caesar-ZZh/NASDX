@@ -11,6 +11,7 @@ import { api, ApiError, type RadarData, type Industry, type Announcement, type N
 import { loadWatch } from "@/lib/watchlist";
 import { hasLlm, chatStream } from "@/lib/llm";
 import { cn } from "@/lib/utils";
+import { loadIntelView, saveIntelView } from "@/lib/workspaceState";
 
 const TABS = [
   { key: "events", label: "事件概率", icon: TrendingUp, integrated: false, desc: "全球宏观预期概率（公开数据、免登录只读），后续接入" },
@@ -22,9 +23,10 @@ const TABS = [
 interface Digest { loading?: boolean; text?: string; err?: string; needKey?: boolean }
 
 function InvestmentNewsPanel() {
+  const [{ sector: savedSector }] = useState(loadIntelView);
   const [data, setData] = useState<RadarData | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [active, setActive] = useState("ai");
+  const [active, setActive] = useState(savedSector);
   const [refreshing, setRefreshing] = useState(false);
   const [digests, setDigests] = useState<Record<string, Digest>>({});
   const [bulk, setBulk] = useState<{ running: boolean; done: number; total: number }>({ running: false, done: 0, total: 0 });
@@ -43,6 +45,17 @@ function InvestmentNewsPanel() {
   const industries: Industry[] = data?.industries || [];
   const cur = industries.find((i) => i.key === active) || industries[0];
   const hasData = !!data?.generated_at;
+
+  useEffect(() => {
+    if (!industries.length || industries.some((industry) => industry.key === active)) return;
+    setActive(industries[0].key);
+    saveIntelView({ sector: industries[0].key });
+  }, [data, active, industries]);
+
+  const selectSector = (sector: string) => {
+    setActive(sector);
+    saveIntelView({ sector });
+  };
 
   const genDigest = async (ind: Industry) => {
     if (!hasLlm()) { setDigests((d) => ({ ...d, [ind.key]: { needKey: true } })); return; }
@@ -112,7 +125,7 @@ function InvestmentNewsPanel() {
           {/* 赛道筛选 —— 暖橙边框 pill */}
           <div className="mb-4 flex flex-wrap gap-2">
             {industries.map((ind) => (
-              <button key={ind.key} onClick={() => setActive(ind.key)}
+              <button key={ind.key} onClick={() => selectSector(ind.key)}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
                   active === ind.key
@@ -298,8 +311,14 @@ function WatchlistFeed({ kind }: { kind: "filings" | "news" }) {
 }
 
 export function Intel() {
-  const [tab, setTab] = useState("investment-news");
+  const [{ tab: savedTab }] = useState(loadIntelView);
+  const [tab, setTab] = useState(savedTab);
   const cur = TABS.find((t) => t.key === tab)!;
+
+  const selectTab = (nextTab: string) => {
+    setTab(nextTab);
+    saveIntelView({ tab: nextTab });
+  };
 
   return (
     <div>
@@ -307,7 +326,7 @@ export function Intel() {
 
       <div className="mb-4 flex flex-wrap gap-2">
         {TABS.map(({ key, label, icon: Icon, integrated }) => (
-          <button key={key} onClick={() => setTab(key)}
+          <button key={key} onClick={() => selectTab(key)}
             className={cn("inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors",
               tab === key ? "bg-primary/15 font-medium text-primary shadow-glow" : "text-muted-foreground hover:bg-muted/50")}>
             <Icon className="h-4 w-4" /> {label}

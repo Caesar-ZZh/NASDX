@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Search, FileText, Newspaper, Loader2, AlertCircle, LineChart, BarChart3, Megaphone,
   Wallet, Trophy, CalendarClock, Boxes, MessageSquare,
@@ -15,6 +15,7 @@ import {
   type GlobalStock, type HkCashflow,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { loadLastStockCode, saveLastStockCode } from "@/lib/workspaceState";
 
 // 金额格式化（后端资金单位：元 / 万元）
 const yi = (v: number) => `${(v / 1e8).toFixed(2)} 亿`;
@@ -78,7 +79,7 @@ function ValBand({ label, m }: { label: string; m: ValMetric }) {
 }
 
 export function StockData() {
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(loadLastStockCode);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [val, setVal] = useState<Valuation | null>(null);
@@ -102,10 +103,12 @@ export function StockData() {
   const [gstock, setGStock] = useState<GlobalStock | null>(null);  // 美股 / 港股
   const [cashflow, setCashflow] = useState<HkCashflow | null>(null);  // 港股现金流量表（仅港股）
   const runIdRef = useRef(0);
+  const autoLoadRef = useRef(false);
 
-  const run = async () => {
-    const c = code.trim().toUpperCase();
+  const run = async (requestedCode?: string) => {
+    const c = (requestedCode ?? code).trim().toUpperCase();
     if (!c) { setErr("请输入代码"); return; }
+    setCode(c);
     const rid = ++runIdRef.current;
     setLoading(true); setErr(null); setDepNote(null); setVal(null); setReports([]); setNews([]); setPctl(null); setFin(null); setAnns([]);
     setMargin([]); setBlockT([]); setHolders([]); setDividend([]); setFundFlow([]); setDt(null); setLockup(null); setBlocks(null); setHotCon([]); setQa([]);
@@ -117,7 +120,10 @@ export function StockData() {
       api.hkCashflow(c).then((cf) => { if (rid === runIdRef.current) setCashflow(cf); }).catch(() => { if (rid === runIdRef.current) setCashflow(null); });
       try {
         const g = await api.globalStock(c);
-        if (rid === runIdRef.current) setGStock(g);
+        if (rid === runIdRef.current) {
+          setGStock(g);
+          saveLastStockCode(c);
+        }
       } catch (e) {
         if (rid === runIdRef.current) setErr(e instanceof ApiError ? e.message : "查询失败");
       } finally {
@@ -153,6 +159,7 @@ export function StockData() {
       setPctl(p);
       setFin(f);
       setAnns(a);
+      saveLastStockCode(c);
       try {
         const n = await api.news(c);
         if (rid === runIdRef.current) setNews(n);
@@ -166,6 +173,12 @@ export function StockData() {
       if (rid === runIdRef.current) setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (autoLoadRef.current || !code) return;
+    autoLoadRef.current = true;
+    void run(code);
+  }, []);
 
   const metrics = val ? [
     { k: "现价", v: fmt(val.price) },
@@ -225,7 +238,7 @@ export function StockData() {
           className="w-80 rounded-lg border border-border bg-black/20 px-3 py-2 text-sm outline-none focus:border-primary/50"
         />
         <button
-          onClick={run}
+          onClick={() => run()}
           disabled={loading}
           className="inline-flex items-center gap-1.5 rounded-lg bg-primary/15 px-4 py-2 text-sm font-medium text-primary shadow-glow hover:bg-primary/25 disabled:opacity-50"
         >
@@ -591,7 +604,7 @@ export function StockData() {
         </>
       )}
 
-      {!val && !err && !loading && (
+      {!val && !gstock && !err && !loading && (
         <GlassCard>
           <div className="py-10 text-center text-sm text-muted-foreground">
             输入一个 6 位股票代码，拉取它的行情、估值、研报与新闻。<br />
