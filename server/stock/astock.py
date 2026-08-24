@@ -840,7 +840,8 @@ def industry_comparison(top_n: int = 20) -> dict:
         return {"top": [], "bottom": [], "total": 0}
 
     if total <= len(top_items):
-        bottom_items = list(reversed(top_items))
+        # 响应已覆盖全集时沿用降序契约；前端会把 bottom 反转为领跌由强到弱。
+        bottom_items = top_items
     else:
         ascending, bottom_total = fetch_tail("0")
         bottom_items = list(reversed(ascending))

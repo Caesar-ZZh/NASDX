@@ -48,6 +48,20 @@ class IndustryHeatmapResilienceTests(unittest.TestCase):
 
         self.assertIn('if data.get("top") and data.get("bottom"):', source)
 
+    def test_complete_small_response_keeps_bottom_in_descending_contract_order(self):
+        items = [
+            {"f3": 3.0, "f12": "BK1", "f14": "强涨"},
+            {"f3": 1.0, "f12": "BK2", "f14": "小涨"},
+            {"f3": -2.0, "f12": "BK3", "f14": "领跌"},
+        ]
+        response = _Response({"data": {"total": 3, "diff": items}})
+
+        with patch.object(astock, "em_get", return_value=response) as request:
+            result = astock.industry_comparison(top_n=5)
+
+        request.assert_called_once()
+        self.assertEqual([3.0, 1.0, -2.0], [row["change_pct"] for row in result["bottom"]])
+
 
 if __name__ == "__main__":
     unittest.main()
