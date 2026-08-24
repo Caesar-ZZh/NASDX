@@ -1,21 +1,19 @@
 // 实时驾驶舱：盘中一屏看全市场。
-// 模块：① 大盘指数 KPI + Lieflat Tick Donut  ② 板块热力（treemap）  ③ 自选股实时报价表。
+// 模块：① 大盘指数 KPI + Lieflat Tick Donut  ② 板块双榜热力矩阵  ③ 自选股实时报价表。
 // 数据走既有后端接口（/indices、/market/overview、/industry、/quote）。
 // 轮询复用 useMarketPulse（5s，交易时段 + 页面可见才跑）与 useLiveQuotes（3s，自选股）。
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { AlertCircle, RefreshCw, Star, LayoutGrid, Gauge } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
-import { EChart } from "@/components/ui/EChart";
 import { MarketBreadthField } from "@/components/charts/MarketBreadthField";
+import { SectorHeatBoard } from "@/components/charts/SectorHeatBoard";
 import { Disclaimer } from "@/components/ui/Disclaimer";
 import { useMarketPulse } from "@/hooks/useMarketPulse";
 import { useLiveQuotes, isTradingHours } from "@/hooks/useLiveQuotes";
 import { loadWatch } from "@/lib/watchlist";
-import { chartColors } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
-import type { EChartsOption } from "echarts";
 
 const pctClass = (p: number) =>
   p > 0 ? "text-danger" : p < 0 ? "text-success" : "text-muted-foreground";
@@ -27,66 +25,12 @@ function fmtTime(ts: number | null): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-function sectorHeatColor(value: number, bound: number): string {
-  const strength = Math.min(Math.abs(value) / Math.max(bound, 0.01), 1);
-  if (value > 0) return `hsl(0 68% ${32 + strength * 20}%)`;
-  if (value < 0) return `hsl(153 55% ${28 + strength * 20}%)`;
-  return "hsl(215 18% 32%)";
-}
-
 export function Cockpit() {
   const pulse = useMarketPulse(true);
   const [watch] = useState<string[]>(() => loadWatch());
   const live = useLiveQuotes(watch, true);
 
-  const c = chartColors();
   const sentiment = pulse.overview?.sentiment;
-
-  // ---- 板块热力（treemap，面积均一、按 change_pct 着色）----
-  const sectorOption = useMemo<EChartsOption>(() => {
-    const leaders = (pulse.industry?.top ?? []).slice(0, 14);
-    const laggards = (pulse.industry?.bottom ?? []).slice(-14);
-    const rows = [...leaders, ...laggards].filter(
-      (row, index, all) => all.findIndex((candidate) => candidate.name === row.name) === index,
-    );
-    if (!rows.length) return {};
-    const vals = rows.map((r) => r.change_pct);
-    const bound = Math.max(...vals.map(Math.abs), 0.01);
-    return {
-      tooltip: {
-        formatter: (p: any) => {
-          const v = p.data.value[1] as number;
-          return `${p.name}<br/>${v > 0 ? "+" : ""}${v}%`;
-        },
-      },
-      series: [
-        {
-          type: "treemap",
-          visualDimension: 1,
-          roam: false,
-          nodeClick: false,
-          breadcrumb: { show: false },
-          width: "100%",
-          height: "100%",
-          itemStyle: { borderColor: c.grid, borderWidth: 2, gapWidth: 2 },
-          label: {
-            show: true,
-            color: "#ffffff",
-            fontSize: 11,
-            formatter: (p: any) => {
-              const v = p.data.value[1] as number;
-              return `${p.name}\n${v > 0 ? "+" : ""}${v}%`;
-            },
-          },
-          data: rows.map((r) => ({
-            name: r.name,
-            value: [1, r.change_pct],
-            itemStyle: { color: sectorHeatColor(r.change_pct, bound) },
-          })),
-        },
-      ],
-    };
-  }, [pulse.industry, c]);
 
   const refreshAll = () => {
     pulse.refresh();
@@ -188,14 +132,13 @@ export function Cockpit() {
               )}
             </div>
           </div>
-          {(pulse.industry?.top?.length ?? 0) > 0 ? <EChart option={sectorOption} height={300} /> : (
+          {(pulse.industry?.top?.length ?? 0) > 0 && (pulse.industry?.bottom?.length ?? 0) > 0 ? (
+            <SectorHeatBoard industry={pulse.industry!} />
+          ) : (
             <p className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
               {pulse.loading ? "板块热力加载中…" : pulse.error ? "板块热力加载超时，可点上方重试" : "板块热力暂无数据"}
             </p>
           )}
-          <p className="mt-1 text-center text-xs text-muted-foreground/60">
-            共 {pulse.industry?.total ?? 0} 个板块 · 颜色越红越强、越绿越弱
-          </p>
         </GlassCard>
       </div>
 
