@@ -48,4 +48,12 @@ jobs:
       - name: Run final delivery audit (release gate)
         shell: pwsh
         run: |
-          python run_final_audit.py
+          python scripts/run_final_audit.py
+
+      # 契约测试回归门（#124 收尾）：scripts/ 迁移后 13 个契约测试曾因路径失效
+      # 静默通过 final-audit，这里补一道 pytest 硬门，路径失效/导入回归立即红灯。
+      # pytest 在 requirements-dev.txt 中；pyproject 已配置 pythonpath=["scripts"]。
+      - name: Run contract tests (regression gate)
+        shell: pwsh
+        run: |
+          python -m pytest -q
