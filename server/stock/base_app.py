@@ -28,6 +28,7 @@ import myreports as mr
 import newsradar
 import portfolio as pf
 import reflection as reflect_layer
+import ios_api  # NASDX iOS 专用契约层（/api/v1/ios/*）
 
 app = FastAPI(title="Cosmos API", version="0.2.0")
 
@@ -680,3 +681,10 @@ def industry(top: int = Query(20, ge=5, le=50)):
         return {"data": data}
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"行业排名异常：{e}") from e
+
+
+# ---------------------------------------------------------------------------
+# NASDX iOS 专用契约层（/api/v1/ios/*）
+# 复用本模块已有的 astock/market/portfolio 数据，重塑为移动端友好 JSON。
+# ---------------------------------------------------------------------------
+app.include_router(ios_api.router)

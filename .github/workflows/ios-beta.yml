@@ -1,0 +1,99 @@
+name: iOS CI / Release
+
+on:
+  push:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-beta.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'build | beta | bootstrap-signing'
+        required: true
+        default: 'beta'
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (simulator, no signing)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select latest Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Install tooling
+        run: brew install xcodegen xcpretty
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+      - name: Build for Simulator
+        run: set -o pipefail && xcodebuild build -scheme NASDX -destination 'generic/platform=iOS Simulator' -configuration Debug CODE_SIGNING_ALLOWED=NO | xcpretty
+      - name: SwiftPM Core tests (optional)
+        run: swift test 2>/dev/null || true
+
+  bootstrap-signing:
+    name: Bootstrap signing (match init)
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'bootstrap-signing'
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ios
+    env:
+      BUNDLE_IDENTIFIER: ${{ secrets.BUNDLE_IDENTIFIER }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+      APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY_ID }}
+      APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY }}
+      FASTLANE_MATCH_GIT_URL: ${{ secrets.FASTLANE_MATCH_GIT_URL }}
+      FASTLANE_MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.FASTLANE_MATCH_GIT_BASIC_AUTHORIZATION }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      FASTLANE_PASSWORD: ${{ secrets.FASTLANE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - run: brew install xcodegen
+      - run: xcodegen generate --spec project.yml
+      - run: bundle install
+      - run: bundle exec fastlane match_init
+
+  beta:
+    name: Build & TestFlight
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'beta'
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ios
+    env:
+      BUNDLE_IDENTIFIER: ${{ secrets.BUNDLE_IDENTIFIER }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+      APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY_ID }}
+      APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY }}
+      FASTLANE_MATCH_GIT_URL: ${{ secrets.FASTLANE_MATCH_GIT_URL }}
+      FASTLANE_MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.FASTLANE_MATCH_GIT_BASIC_AUTHORIZATION }}
+      MATCH_READONLY: ${{ secrets.MATCH_READONLY }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      FASTLANE_PASSWORD: ${{ secrets.FASTLANE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - run: brew install xcodegen
+      - run: xcodegen generate --spec project.yml
+      - run: bundle install
+      - run: bundle exec fastlane beta

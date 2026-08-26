@@ -1,0 +1,5 @@
+# fastlane Appfile — NASDX iOS
+app_identifier(ENV.fetch("BUNDLE_IDENTIFIER", "com.nasdx.ios"))
+apple_id(ENV["APPLE_ID"])
+team_id(ENV["TEAM_ID"])
+itc_team_id(ENV["TEAM_ID"])

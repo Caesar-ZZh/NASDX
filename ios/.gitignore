@@ -1,0 +1,19 @@
+# XcodeGen 生成物（CI 每次重新生成，不提交）
+NASDX.xcodeproj
+NASDX.xcworkspace
+
+# fastlane
+vendor/
+fastlane/Preview.html
+fastlane/report.xml
+fastlane/test_output/
+
+# 描述文件 / 密钥
+*.mobileprovision
+*.p8
+fastlane/.env
+fastlane/Appfile.local
+
+# 构建缓存
+DerivedData/
+.build/
