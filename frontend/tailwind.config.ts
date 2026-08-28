@@ -22,7 +22,7 @@ export default {
       fontFamily: {
         sans: ["Inter", "Noto Sans SC", "system-ui", "-apple-system", "Segoe UI", "Microsoft YaHei", "sans-serif"],
         display: ["Inter", "Noto Sans SC", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "monospace"],
+        mono: ["Roboto Mono", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       borderRadius: { lg: "var(--radius)", md: "calc(var(--radius) - 4px)", sm: "calc(var(--radius) - 8px)" },
       boxShadow: {

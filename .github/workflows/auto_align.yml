@@ -1,11 +1,9 @@
 name: Auto-Align Audit (read-only)
 
-# 触发周期：每 4 小时（UTC 整点）。GitHub cron 为 UTC，
-# 即北京时间 08:00 / 12:00 / 16:00 / 20:00 / 00:00 / 04:00。
-# 也可在 Actions 页面手动 Run workflow（可指定 issue 号）。
+# 2026-08-27 起停用定时触发（连续 12 次失败：仓库 secrets 未配置 LLM 凭据，
+# 每 4 小时空跑一次）。需要时在 Actions 页面手动 Run workflow（可指定 issue 号）；
+# 恢复定时前先给仓库配置 LLM_* / NASDX_* secrets。
 on:
-  schedule:
-    - cron: "0 */4 * * *"
   workflow_dispatch:
     inputs:
       issue:

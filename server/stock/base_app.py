@@ -139,9 +139,14 @@ def _check_llm(llm: LLMConfig) -> dict:
             raise HTTPException(400, f"未检测到「{kind}」对应的本机命令。请先安装并登录该 CLI，或改用「API 接入」。")
         return cfg
 
-    # API 接入：请求体缺配置时用服务端统一配置补齐
-    if not (cfg.get("model") and cfg.get("apiKey") and cfg.get("baseURL")):
+    # API 接入：总是经服务端 merge 统一 apiKey 策略——
+    #   服务端配置存在时：Agnes 的 key 无条件锁定服务端（前端传假 key 也无效）；
+    #   前端自带 key 且换成其它 provider 时才放行前端 key；
+    #   换了 baseURL 却不带 key → 400（防内置 key 被定向发往任意 URL）。
+    try:
         cfg = llm_cfg.merge_llm_cfg(cfg, llm_cfg.default_llm_cfg())
+    except llm_cfg.LlmConfigError as e:
+        raise HTTPException(400, str(e)) from e
 
     if not cfg.get("model"):
         raise HTTPException(400, "缺少模型配置，请先在「接入 AI」里选择")
