@@ -33,6 +33,7 @@ htmlcov/
 !requirements_nasdx.txt
 !requirements-dev.txt
 !requirements_desktop.txt
+!server/requirements.txt
 !packaging/windows/constraints-win.txt
 nasdx_*.txt
 fetch_log.txt
@@ -75,3 +76,7 @@ deliverables/
 # 运行期缓存与本地数据（不入库）
 .cache/
 .data/
+# 本地验证用的完整仓库副本（含 .git，绝不入库）
+.validation/
+# 前端构建残留（npm run build 前 rename 出的旧 dist）
+frontend/dist_old/

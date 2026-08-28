@@ -11,7 +11,7 @@ from desktop.doctor import FAIL, PASS, WARN, run_doctor
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "run_desktop_doctor.py"
+SCRIPT = ROOT / "scripts" / "run_desktop_doctor.py"
 
 
 class DesktopDoctorContractsTest(unittest.TestCase):

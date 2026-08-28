@@ -1,0 +1,28 @@
+# NASDX Cosmos Web Service (React 模式, 8901)
+# 安装：sudo cp nasdx.service /etc/systemd/system/ && sudo systemctl daemon-reload
+# 启用：sudo systemctl enable --now nasdx
+
+[Unit]
+Description=NASDX Cosmos Web Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 按实际部署路径修改（示例 /opt/nasdx）
+WorkingDirectory=/opt/nasdx
+# NASDX_CONFIG_FILE 可省略：脚本默认读取 deploy/cloud/config.toml
+Environment=NASDX_CONFIG_FILE=/opt/nasdx/deploy/cloud/config.toml
+Environment=PORT=8901
+ExecStart=/opt/nasdx/deploy/cloud/start_nasdx.sh
+Restart=always
+RestartSec=5
+# 建议用独立低权限账号运行，不要用 root
+User=nasdx
+Group=nasdx
+# 基础安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

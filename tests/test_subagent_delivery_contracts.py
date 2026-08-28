@@ -41,7 +41,7 @@ class SubagentDeliveryContractsTest(unittest.TestCase):
         self.assertIn("不写入文件", text)
 
     def test_product_readiness_runner_is_importable_and_safe(self):
-        path = ROOT / "run_product_readiness.py"
+        path = ROOT / "scripts" / "run_product_readiness.py"
         self.assertTrue(path.exists(), "missing product readiness runner")
         text = path.read_text(encoding="utf-8")
         self.assertNotRegex(text, r"sk-[A-Za-z0-9_-]{20,}")

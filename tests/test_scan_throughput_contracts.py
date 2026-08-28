@@ -22,9 +22,9 @@ import pandas as pd
 from nasdx.fast_market import RateLimiter, bounded_map
 
 ROOT = Path(__file__).resolve().parents[1]
-FETCH_SCRIPT = ROOT / "fetch_stock_data.py"
-SCAN_SCRIPT = ROOT / "scan_stocks_full.py"
-ETF_SCRIPT = ROOT / "scan_etf50.py"
+FETCH_SCRIPT = ROOT / "scripts" / "fetch_stock_data.py"
+SCAN_SCRIPT = ROOT / "scripts" / "scan_stocks_full.py"
+ETF_SCRIPT = ROOT / "scripts" / "scan_etf50.py"
 
 # 逐标的固定 sleep 的典型写法：time.sleep(0.2) / sleep(0.4)
 _SLEEP_CALL = re.compile(r"(?<![\w.])(?:time\.)?sleep\s*\(", re.MULTILINE)

@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "run_desktop_release_evidence.py"
+SCRIPT = ROOT / "scripts" / "run_desktop_release_evidence.py"
 
 
 def create_clean_package(package_dir: Path, *, name: str = "NASDX-Desktop-check") -> None:

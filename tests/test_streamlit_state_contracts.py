@@ -49,7 +49,7 @@ class StreamlitStateContractsTest(unittest.TestCase):
         self.assertIn("take_task_result as _take_task_result", source)
 
     def test_final_audit_checks_persistent_task_registry_module(self):
-        source = (ROOT / "run_final_audit.py").read_text(encoding="utf-8")
+        source = (ROOT / "scripts" / "run_final_audit.py").read_text(encoding="utf-8")
 
         self.assertNotIn('"RUNNING_TASKS",', source)
         self.assertIn('ROOT / "nasdx" / "ui_tasks.py"', source)
@@ -70,7 +70,7 @@ class StreamlitStateContractsTest(unittest.TestCase):
         self.assertNotIn('with st.spinner("扫描中，约 5 分钟...")', source)
 
     def test_selector_scan_exposes_limit_timeout_without_session_thread(self):
-        source = (ROOT / "selector_page.py").read_text(encoding="utf-8")
+        source = (ROOT / "scripts" / "selector_page.py").read_text(encoding="utf-8")
 
         self.assertIn('"--limit"', source)
         self.assertIn('"selector_timeout"', source)
@@ -79,7 +79,7 @@ class StreamlitStateContractsTest(unittest.TestCase):
 
     def test_scan_actions_surface_subprocess_results_without_start_rerun(self):
         app_source = (ROOT / "app.py").read_text(encoding="utf-8")
-        selector_source = (ROOT / "selector_page.py").read_text(encoding="utf-8")
+        selector_source = (ROOT / "scripts" / "selector_page.py").read_text(encoding="utf-8")
 
         self.assertIn('"etf50_scan_result"', app_source)
         self.assertIn('"stocks60_scan_result"', app_source)
@@ -108,7 +108,7 @@ class StreamlitStateContractsTest(unittest.TestCase):
 
     def test_navigation_uses_callbacks_without_explicit_rerun(self):
         app_source = (ROOT / "app.py").read_text(encoding="utf-8")
-        selector_source = (ROOT / "selector_page.py").read_text(encoding="utf-8")
+        selector_source = (ROOT / "scripts" / "selector_page.py").read_text(encoding="utf-8")
         route_start = app_source.index("def _nav_to")
         route_end = app_source.index("# ═", route_start)
         route_source = app_source[route_start:route_end]
@@ -128,7 +128,7 @@ class StreamlitStateContractsTest(unittest.TestCase):
 
     def test_background_task_polling_preserves_streamlit_session(self):
         app_source = (ROOT / "app.py").read_text(encoding="utf-8")
-        selector_source = (ROOT / "selector_page.py").read_text(encoding="utf-8")
+        selector_source = (ROOT / "scripts" / "selector_page.py").read_text(encoding="utf-8")
         combined = app_source + "\n" + selector_source
 
         self.assertNotIn("window.parent.location.reload()", combined)
@@ -170,7 +170,7 @@ class StreamlitStateContractsTest(unittest.TestCase):
         self.assertNotIn('key=f"q_{sector}_{code}"', picker_source)
 
     def test_quant_page_defers_dataframe_imports_until_chart_rendering(self):
-        source = (ROOT / "quant_page.py").read_text(encoding="utf-8")
+        source = (ROOT / "scripts" / "quant_page.py").read_text(encoding="utf-8")
         render_start = source.index("def render_quant_page")
         startup_end = source.index("# ── 启动时", render_start)
         startup_source = source[render_start:startup_end]

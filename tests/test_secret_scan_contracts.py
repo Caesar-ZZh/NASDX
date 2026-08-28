@@ -25,7 +25,7 @@ SECURITY_WORKFLOW = ROOT / ".github" / "workflows" / "security.yml"
 GITLEAKS_CONFIG = ROOT / ".gitleaks.toml"
 GITLEAKS_IGNORE = ROOT / ".gitleaksignore"
 ALLOWLIST_FILE = ROOT / "security" / "secret_scan_allowlist.toml"
-SECURITY_SCRIPT = ROOT / "run_security_checks.py"
+SECURITY_SCRIPT = ROOT / "scripts" / "run_security_checks.py"
 
 # Fragments -> fake credentials. Kept split so the literals never form a token.
 _BODY = "Kq7fT2mZ9wB4nD8xR1vC5hJ3pL6yG0sA"
@@ -268,7 +268,7 @@ class SecurityGateWiringTest(unittest.TestCase):
     """Acceptance criteria 5 & 6: the gate cannot regress to one regex."""
 
     def test_legacy_single_regex_gate_is_gone(self):
-        for script in (SECURITY_SCRIPT, ROOT / "run_final_audit.py"):
+        for script in (SECURITY_SCRIPT, ROOT / "scripts" / "run_final_audit.py"):
             text = script.read_text(encoding="utf-8")
             with self.subTest(script=script.name):
                 self.assertNotIn('SECRET_RE = re.compile(r"sk-', text)

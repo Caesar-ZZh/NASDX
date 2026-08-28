@@ -693,7 +693,7 @@ class DesktopPackagingContractsTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, "installer output should be ignored under dist/")
 
     def test_final_audit_ignores_packaging_outputs(self):
-        audit_source = (ROOT / "run_final_audit.py").read_text(encoding="utf-8")
+        audit_source = (ROOT / "scripts" / "run_final_audit.py").read_text(encoding="utf-8")
 
         for marker in ['"dist"', '"build"', '"wheelhouse"', '".pytest_cache"', '".ruff_cache"']:
             self.assertIn(marker, audit_source)
