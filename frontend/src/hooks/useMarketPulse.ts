@@ -12,12 +12,33 @@ import { isTradingHours } from "@/hooks/useLiveQuotes";
 export const PULSE_INTERVAL_MS = 5000;
 const MAX_BACKOFF_MS = 30_000;
 
+function industryFromOverview(overview: MarketOverview | null): IndustryData | null {
+  const sectors = (overview?.sectors ?? [])
+    .filter((sector) => sector.name && Number.isFinite(sector.pct))
+    .map((sector, index) => ({
+      rank: index + 1,
+      name: sector.name,
+      change_pct: sector.pct,
+      code: "",
+      up_count: 0,
+      down_count: 0,
+    }));
+  if (!sectors.length) return null;
+  const descending = [...sectors].sort((a, b) => b.change_pct - a.change_pct);
+  return {
+    top: descending.slice(0, 30),
+    bottom: descending.slice(-30),
+    total: sectors.length,
+  };
+}
+
 export interface MarketPulseState {
   indices: IndexQuote[] | null;
   overview: MarketOverview | null;
   industry: IndustryData | null;
   updatedAt: number | null;
   polling: boolean;
+  loading: boolean;
   error: string | null;
   refresh: () => void;
 }
@@ -28,6 +49,7 @@ export function useMarketPulse(enabled: boolean): MarketPulseState {
   const [industry, setIndustry] = useState<IndustryData | null>(null);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [polling, setPolling] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const failuresRef = useRef(0);
@@ -37,25 +59,39 @@ export function useMarketPulse(enabled: boolean): MarketPulseState {
   const fetchOnce = useCallback(async (): Promise<boolean> => {
     if (inFlightRef.current) return true;
     inFlightRef.current = true;
+    setLoading(true);
     try {
-      const [idx, ov, ind] = await Promise.all([
+      const [idx, ov, ind] = await Promise.allSettled([
         api.indices(),
         api.marketOverview(),
         api.industry(30),
       ]);
-      setIndices(idx);
-      setOverview(ov);
-      setIndustry(ind);
-      setUpdatedAt(Date.now());
-      setError(null);
-      failuresRef.current = 0;
-      return true;
-    } catch {
+      let successes = 0;
+      if (idx.status === "fulfilled") { setIndices(idx.value); successes += 1; }
+      const overviewValue = ov.status === "fulfilled" ? ov.value : null;
+      if (overviewValue) { setOverview(overviewValue); successes += 1; }
+      const industryValue = ind.status === "fulfilled"
+        && ind.value.total > 0
+        && ind.value.top.length > 0
+        && ind.value.bottom.length > 0
+        ? ind.value
+        : industryFromOverview(overviewValue);
+      if (industryValue) { setIndustry(industryValue); successes += 1; }
+      if (successes > 0) setUpdatedAt(Date.now());
+      if (successes === 3) {
+        setError(null);
+        failuresRef.current = 0;
+        return true;
+      }
       failuresRef.current += 1;
-      if (failuresRef.current >= 2) setError("市场数据获取失败，正在重试…");
+      const timedOut = [idx, ov, ind].some(
+        (result) => result.status === "rejected" && String(result.reason).includes("超时"),
+      );
+      setError(timedOut ? "部分市场数据加载超时，可点击重试" : "部分市场数据获取失败，可点击重试");
       return false;
     } finally {
       inFlightRef.current = false;
+      setLoading(false);
     }
   }, []);
   fetchRef.current = fetchOnce;
@@ -119,5 +155,5 @@ export function useMarketPulse(enabled: boolean): MarketPulseState {
     };
   }, [enabled, fetchOnce]);
 
-  return { indices, overview, industry, updatedAt, polling, error, refresh };
+  return { indices, overview, industry, updatedAt, polling, loading, error, refresh };
 }

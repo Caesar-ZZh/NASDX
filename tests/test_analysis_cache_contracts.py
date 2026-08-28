@@ -293,7 +293,9 @@ class TestAnalysisCacheContract(unittest.TestCase):
 
 class TestIntradayIncrementalPerformance(unittest.TestCase):
     def setUp(self):
-        self.fake = _FakeLLMClient(call_sleep=0.012)
+        # 给被测 LLM 调用留出足够主导权，避免 Windows 文件系统调度噪声
+        # 盖过缓存路径的真实收益，导致墙钟比例断言偶发抖动。
+        self.fake = _FakeLLMClient(call_sleep=0.02)
         LLMClient._instance = self.fake
         reset_llm_counters()
         self.cache_dir = tempfile.mkdtemp(prefix="nasdx_intraday_test_")

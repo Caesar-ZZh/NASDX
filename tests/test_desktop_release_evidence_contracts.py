@@ -68,7 +68,7 @@ class DesktopReleaseEvidenceContractsTest(unittest.TestCase):
                 [
                     sys.executable,
                     "-B",
-                    "run_desktop_release_evidence.py",
+                    "scripts/run_desktop_release_evidence.py",
                     "--json",
                     "--package-dir",
                     str(package_dir),
@@ -118,7 +118,7 @@ class DesktopReleaseEvidenceContractsTest(unittest.TestCase):
                 [
                     sys.executable,
                     "-B",
-                    "run_desktop_release_evidence.py",
+                    "scripts/run_desktop_release_evidence.py",
                     "--json",
                     "--package-dir",
                     str(package_dir),
@@ -158,7 +158,7 @@ class DesktopReleaseEvidenceContractsTest(unittest.TestCase):
             )
 
             proc = subprocess.run(
-                [sys.executable, "-B", "run_desktop_release_evidence.py", "--json", "--package-dir", str(package_dir)],
+                [sys.executable, "-B", "scripts/run_desktop_release_evidence.py", "--json", "--package-dir", str(package_dir)],
                 cwd=str(ROOT),
                 text=True,
                 encoding="utf-8",
@@ -192,7 +192,7 @@ class DesktopReleaseEvidenceContractsTest(unittest.TestCase):
                 [
                     sys.executable,
                     "-B",
-                    "run_desktop_release_evidence.py",
+                    "scripts/run_desktop_release_evidence.py",
                     "--json",
                     "--package-dir",
                     str(package_dir),
@@ -225,7 +225,7 @@ class DesktopReleaseEvidenceContractsTest(unittest.TestCase):
                 [
                     sys.executable,
                     "-B",
-                    "run_desktop_release_evidence.py",
+                    "scripts/run_desktop_release_evidence.py",
                     "--write",
                     "--output",
                     str(output_path),

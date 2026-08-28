@@ -51,36 +51,50 @@ export async function downloadReport(id: string, name: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-async function request<T>(path: string, method: "GET" | "POST" | "DELETE" = "GET", body?: unknown): Promise<T> {
-  let resp: Response;
+async function request<T>(
+  path: string,
+  method: "GET" | "POST" | "DELETE" = "GET",
+  body?: unknown,
+  timeoutMs = 30_000,
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   const headers: Record<string, string> = { ...authHeaders() };
-  const opts: RequestInit = { method };
+  const opts: RequestInit = { method, signal: controller.signal };
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
   if (Object.keys(headers).length > 0) opts.headers = headers;
   try {
-    resp = await fetch(`/api${path}`, opts);
-  } catch {
-    throw new ApiError("连接不到后端，请先启动 backend（uvicorn app:app --port 8900）", 0);
-  }
-  let payload: any = null;
-  try {
-    payload = await resp.json();
-  } catch {
-    /* 非 JSON 响应 */
-  }
-  if (!resp.ok) {
-    if (resp.status === 401) {
-      throw new ApiError("后端开启了访问鉴权（VR_API_KEY）：请在「接入 AI」页底部填写后端访问密钥", 401);
+    const resp = await fetch(`/api${path}`, opts);
+    let payload: any = null;
+    try {
+      payload = await resp.json();
+    } catch {
+      /* 非 JSON 响应 */
     }
-    throw new ApiError(payload?.detail || `HTTP ${resp.status}`, resp.status);
+    if (!resp.ok) {
+      if (resp.status === 401) {
+        throw new ApiError("后端开启了访问鉴权（VR_API_KEY）：请在「接入 AI」页底部填写后端访问密钥", 401);
+      }
+      throw new ApiError(payload?.detail || `HTTP ${resp.status}`, resp.status);
+    }
+    return (payload?.data ?? payload) as T;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    if (controller.signal.aborted) {
+      throw new ApiError("请求超时，请刷新重试", 0);
+    }
+    throw new ApiError("连接不到后端，请先启动 backend（uvicorn server.main:app --port 8900）", 0);
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-  return (payload?.data ?? payload) as T;
 }
 
-const get = <T>(path: string) => request<T>(path, "GET");
+const QUANT_BACKTEST_TIMEOUT_MS = 65_000;
+
+const get = <T>(path: string, timeoutMs = 30_000) => request<T>(path, "GET", undefined, timeoutMs);
 
 export interface Quote {
   name: string; price: number; last_close: number; change_pct: number;
@@ -243,17 +257,69 @@ export interface HkCashflow {
   currency: string | null; item_order: string[]; periods: HkCashflowPeriod[];
 }
 
+export interface QuantBacktestRequest {
+  universe: string[];
+  strategies: Array<"momentum" | "mean_reversion" | "factor_rank">;
+  start: string;
+  end: string;
+  initial_capital: number;
+  rebalance: string;
+  top_n: number;
+}
+export interface QuantMetrics {
+  total_return: number | null;
+  annual_return: number | null;
+  sharpe_ratio: number | null;
+  max_drawdown: number | null;
+  win_rate: number | null;
+  completed_trades: number;
+}
+export interface QuantStrategyResult {
+  strategy: string;
+  label: string;
+  metrics: QuantMetrics;
+  equity_curve: Array<{ date: string; equity: number }>;
+}
+export interface QuantBacktestResult {
+  result_type: "objective_calculation";
+  notice: string;
+  parameters: QuantBacktestRequest;
+  coverage: { requested: number; available: number; missing: string[] };
+  strategies: QuantStrategyResult[];
+}
+export interface EtfQuantRow {
+  code: string;
+  name: string;
+  category: string;
+  quant_score: number;
+  factor_rank: number;
+  roc20: number;
+  rsi14: number;
+  has_data: boolean;
+}
+export interface Etf50QuantResult {
+  result_type: "objective_calculation";
+  notice: string;
+  datetime: string;
+  days: number;
+  total: number;
+  success: number;
+  coverage: number;
+  missing_codes: string[];
+  results: EtfQuantRow[];
+}
+
 export const api = {
   health: () => get<{ ok: boolean }>("/health"),
-  indices: () => get<IndexQuote[]>("/indices"),
-  marketOverview: () => get<MarketOverview>("/market/overview"),
-  emotion: () => get<ShortTermEmotion>("/market/emotion"),
-  turnoverTop: () => get<TurnoverTop>("/market/turnover-top"),
-  globalIndices: () => get<GlobalIndex[]>("/global/indices"),
+  indices: () => get<IndexQuote[]>("/indices", 15_000),
+  marketOverview: () => get<MarketOverview>("/market/overview", 15_000),
+  emotion: () => get<ShortTermEmotion>("/market/emotion", 15_000),
+  turnoverTop: () => get<TurnoverTop>("/market/turnover-top", 15_000),
+  globalIndices: () => get<GlobalIndex[]>("/global/indices", 15_000),
   globalStock: (symbol: string) => get<GlobalStock>(`/global/stock?symbol=${encodeURIComponent(symbol)}`),
   hkCashflow: (symbol: string) => get<HkCashflow>(`/global/hk/cashflow?symbol=${encodeURIComponent(symbol)}`),
   radar: () => get<RadarData>("/radar"),
-  radarRefresh: () => request<RadarData>("/radar/refresh", "POST"),
+  radarRefresh: () => request<RadarData>("/radar/refresh", "POST", undefined, 60_000),
   portfolio: () => get<PortfolioData>("/portfolio"),
   addHolding: (code: string, shares: number, cost: number) => request<PortfolioData>("/portfolio/holding", "POST", { code, shares, cost }),
   removeHolding: (code: string) => request<PortfolioData>(`/portfolio/holding?code=${code}`, "DELETE"),
@@ -278,7 +344,11 @@ export const api = {
   blocks: (code: string) => get<Blocks>(`/blocks?code=${code}`),
   hotConcepts: (code: string) => get<HotConcept[]>(`/hot-concepts?code=${code}`),
   investorQa: (code: string) => get<QaRow[]>(`/investor-qa?code=${code}`),
-  industry: (top = 20) => get<IndustryData>(`/industry?top=${top}`),
+  industry: (top = 20) => get<IndustryData>(`/industry?top=${top}`, 15_000),
+  quantBacktest: (payload: QuantBacktestRequest) =>
+    request<QuantBacktestResult>("/quant/backtest", "POST", payload, QUANT_BACKTEST_TIMEOUT_MS),
+  quantEtf50: (days = 252, topN = 5, rebalance = "W") =>
+    get<Etf50QuantResult>(`/quant/etf50?days=${days}&top_n=${topN}&rebalance=${encodeURIComponent(rebalance)}`, 50_000),
   myReports: () => get<MyReport[]>("/myreports"),
   uploadReport: (name: string, contentB64: string) =>
     request<MyReport>("/myreports", "POST", { name, content_b64: contentB64 }),

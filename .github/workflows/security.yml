@@ -49,7 +49,7 @@ jobs:
 
       - name: Run NASDX secret scan (working tree + full history)
         run: |
-          python -B run_security_checks.py --skip-optional --history
+          python -B scripts/run_security_checks.py --skip-optional --history
 
       - name: Install pinned gitleaks
         run: |

@@ -10,6 +10,9 @@ interface Props {
   height?: number;
 }
 
+// 图表 canvas 不继承页面 CSS：统一注入与全局一致的字体栈，避免中文回退宋体
+const CHART_FONT = '"Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif';
+
 export function EChart({ option, className, height = 280 }: Props) {
   const elRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
@@ -30,7 +33,10 @@ export function EChart({ option, className, height = 280 }: Props) {
 
   // option 变化（数据刷新 / 主题切换）即重绘，notMerge 保证彻底替换。
   useEffect(() => {
-    chartRef.current?.setOption(option, { notMerge: true });
+    chartRef.current?.setOption(
+      { textStyle: { fontFamily: CHART_FONT }, ...option },
+      { notMerge: true }
+    );
   }, [option]);
 
   return <div ref={elRef} className={className} style={{ width: "100%", height }} />;

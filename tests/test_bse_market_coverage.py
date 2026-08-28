@@ -165,8 +165,8 @@ class BseMarketCoverageTest(unittest.TestCase):
         self.assertEqual(["600000"], [stock["code"] for stock in filtered])
 
     def test_selector_report_and_ui_surface_exchange_coverage(self):
-        runner = Path("run_stock_selector.py").read_text(encoding="utf-8")
-        page = Path("selector_page.py").read_text(encoding="utf-8")
+        runner = Path("scripts/run_stock_selector.py").read_text(encoding="utf-8")
+        page = Path("scripts/selector_page.py").read_text(encoding="utf-8")
 
         self.assertIn('"universe_coverage": universe_coverage', runner)
         self.assertIn('coverage.get("complete"', page)

@@ -35,10 +35,11 @@ export function Settings() {
   };
 
   const saveApi = () => {
-    if (!baseURL.trim() || !apiKey.trim() || !modelName.trim()) {
-      toast.error("请填完 Base URL、API Key、Model");
+    if (!baseURL.trim() || !modelName.trim()) {
+      toast.error("请填完 Base URL、Model");
       return;
     }
+    // API Key 可选：留空则使用服务端内置 key（Agnes），key 不落本地、不可见
     saveLlm({ provider: providerOf(apiId), baseURL: baseURL.trim(), apiKey: apiKey.trim(), model: modelName.trim() });
     toast.success("已保存到本地，全站「问 AI / 复盘」现在可用");
   };
@@ -165,9 +166,10 @@ export function Settings() {
                 className="w-full rounded-lg border border-border bg-black/20 px-3 py-2 text-sm outline-none focus:border-primary/50" />
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">API Key</label>
-              <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-…"
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">API Key（可选）</label>
+              <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="留空则使用服务端内置 key（Agnes）"
                 className="w-full rounded-lg border border-border bg-black/20 px-3 py-2 text-sm outline-none focus:border-primary/50" />
+              <p className="mt-1 text-[11px] text-muted-foreground">服务端已内置 Agnes key（不可见、不可修改）。留空即用内置；填了则用你自己的 key 调用所选模型。</p>
             </div>
 
             <div className="flex items-center gap-2">

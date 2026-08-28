@@ -4,13 +4,13 @@ import {
   Activity, Radar, LayoutGrid, Wallet, Settings, Search, NotebookPen,
   Moon, Sun, ChevronsLeft, ChevronsRight, LineChart, Github, UserRound,
   Cog, Cpu, Database, Cable, Rocket, FlaskConical, Star, FileText, Swords,
-  Gauge,
+  BarChart3, Gauge,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { storageGet, storageSet } from "@/lib/storage";
 
-const APP_VERSION = "v0.2.0";
+const APP_VERSION = "v0.3.0";
 const REPO_URL = "https://github.com/Caesar-ZZh/cosmos";
 // 作者联系方式
 const X_URL = "https://github.com/Caesar-ZZh";
@@ -24,6 +24,7 @@ const NAV = [
   { to: "/debate", icon: Swords, label: "多空辩论" },
   { to: "/watchlist", icon: Star, label: "自选股" },
   { to: "/cockpit", icon: Gauge, label: "实时驾驶舱" },
+  { to: "/strategy-lab", icon: BarChart3, label: "策略实验室" },
   { to: "/portfolio", icon: Wallet, label: "我的持仓" },
   { to: "/my-reports", icon: FileText, label: "我的研报" },
   { to: "/notes", icon: NotebookPen, label: "研究记录" },

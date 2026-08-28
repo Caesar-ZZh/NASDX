@@ -171,7 +171,7 @@ def render_selector_page(st_module, root_path=None, task_helpers=None):
         def _run_selector():
             command = [
                 sys.executable,
-                str(root / "run_stock_selector.py"),
+                str(root / "scripts" / "run_stock_selector.py"),
                 "--top",
                 "20",
                 "--limit",

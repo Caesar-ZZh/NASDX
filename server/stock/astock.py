@@ -17,6 +17,7 @@ import random
 import re
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -193,24 +194,41 @@ def _akshare():
         raise DependencyMissing("akshare 未安装：pip install akshare") from e
 
 
+_AKSHARE_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="cosmos-akshare")
+
+
+def _call_akshare(function_name: str, *args, timeout: float = 8.0, **kwargs):
+    """在专用有界线程池中调用 AkShare，避免同步 API 被上游永久挂住。
+
+    超时只终止本次等待；运行中的第三方调用可能稍后自行返回，但线程池最多占用 4 个
+    worker，排队任务会在超时后取消，不会为每个请求无限创建新线程。
+    """
+    function = getattr(_akshare(), function_name)
+    future = _AKSHARE_EXECUTOR.submit(function, *args, **kwargs)
+    try:
+        return future.result(timeout=timeout)
+    except FutureTimeoutError as exc:
+        future.cancel()
+        raise TimeoutError(f"AkShare 调用超时：{function_name}（{timeout:g}s）") from exc
+
+
 def profit_forecast(code: str) -> list[dict]:
     """机构一致预期 EPS（同花顺）。"""
-    ak = _akshare()
-    df = ak.stock_profit_forecast_ths(symbol=code, indicator="预测年报每股收益")
+    df = _call_akshare(
+        "stock_profit_forecast_ths", symbol=code, indicator="预测年报每股收益"
+    )
     return df.to_dict("records") if df is not None and not df.empty else []
 
 
 def stock_news(code: str, limit: int = 20) -> list[dict]:
     """个股新闻（东财）。"""
-    ak = _akshare()
-    df = ak.stock_news_em(symbol=code)
+    df = _call_akshare("stock_news_em", symbol=code)
     return df.head(limit).to_dict("records") if df is not None and not df.empty else []
 
 
 def individual_info(code: str) -> dict:
     """个股基本面（东财）：行业 / 总股本 / 上市时间等。"""
-    ak = _akshare()
-    df = ak.stock_individual_info_em(symbol=code)
+    df = _call_akshare("stock_individual_info_em", symbol=code)
     if df is None or df.empty:
         return {}
     return {str(row["item"]): row["value"] for _, row in df.iterrows()}
@@ -218,9 +236,10 @@ def individual_info(code: str) -> dict:
 
 def disclosure(code: str) -> list[dict]:
     """巨潮公告全文列表（akshare cninfo，本环境不稳，保留作备用）。"""
-    ak = _akshare()
     market = "沪市" if code.startswith("6") else ("北交所" if code.startswith("8") else "深市")
-    df = ak.stock_zh_a_disclosure_report_cninfo(symbol=code, market=market)
+    df = _call_akshare(
+        "stock_zh_a_disclosure_report_cninfo", symbol=code, market=market
+    )
     return df.head(30).to_dict("records") if df is not None and not df.empty else []
 
 
@@ -299,8 +318,9 @@ def financials(code: str) -> dict:
 
     注：mootdx finance() 的营收/净利数值不可靠(实测放大数倍)，故财务摘要走此源。
     """
-    ak = _akshare()
-    df = ak.stock_financial_abstract_ths(symbol=code, indicator="按报告期")
+    df = _call_akshare(
+        "stock_financial_abstract_ths", symbol=code, indicator="按报告期"
+    )
     if df is None or df.empty:
         return {}
     row = df.iloc[-1].to_dict()  # 最新报告期（按报告期升序，取末行）
@@ -324,8 +344,6 @@ def valuation_percentile(code: str, period: str = "近五年") -> dict:
 
     只表达"处于历史什么位置"，不划买卖线（理杏仁式中立呈现）。
     """
-    ak = _akshare()
-
     def _q(vals: list, p: float) -> float:
         if not vals:
             return 0.0
@@ -339,7 +357,9 @@ def valuation_percentile(code: str, period: str = "近五年") -> dict:
     metrics = {}
     for key, ind in (("pe_ttm", "市盈率(TTM)"), ("pb", "市净率")):
         try:
-            df = ak.stock_zh_valuation_baidu(symbol=code, indicator=ind, period=period)
+            df = _call_akshare(
+                "stock_zh_valuation_baidu", symbol=code, indicator=ind, period=period
+            )
             raw = df.iloc[:, 1].dropna().astype(float).tolist()
             if not raw:
                 continue
@@ -795,22 +815,45 @@ def investor_qa(code: str, page_size: int = 30) -> list[dict]:
 
 
 def industry_comparison(top_n: int = 20) -> dict:
-    """全行业涨跌幅排名（东财行业板块，~100 个行业）：板块级涨跌 / 涨跌家数 / 领涨。"""
-    params = {"pn": "1", "pz": "100", "po": "1", "np": "1", "fltt": "2", "invt": "2",
+    """全板块涨跌幅排名（东财行业/概念板块）：分别取真实领涨、领跌尾部。"""
+    params = {"pn": "1", "pz": str(top_n), "po": "1", "np": "1", "fltt": "2", "invt": "2",
               "fid": "f3",  # fid=f3 + po=1：按涨跌幅降序，否则 top/bottom 切片非涨幅序（a-stock-data §3.7）
               "fs": "m:90+t:2", "fields": "f2,f3,f4,f12,f13,f14,f104,f105,f128,f136,f140,f141,f207"}
-    try:
-        d = em_get("https://push2.eastmoney.com/api/qt/clist/get",
-                   params=params, headers={"User-Agent": UA}, timeout=15).json()
-    except Exception:
+
+    def fetch_tail(order: str) -> tuple[list[dict], int]:
+        request_params = {**params, "po": order}
+        for host in ("push2.eastmoney.com", "push2delay.eastmoney.com"):
+            try:
+                data = em_get(f"https://{host}/api/qt/clist/get",
+                              params=request_params, headers={"User-Agent": UA}, timeout=15).json().get("data") or {}
+                candidate = data.get("diff") or []
+                if isinstance(candidate, dict):
+                    candidate = list(candidate.values())
+                if candidate:
+                    return candidate, int(data.get("total") or len(candidate))
+            except Exception:
+                continue
+        return [], 0
+
+    top_items, total = fetch_tail("1")
+    if not top_items:
         return {"top": [], "bottom": [], "total": 0}
-    items = d.get("data", {}).get("diff", [])
-    if isinstance(items, dict):
-        items = list(items.values())
-    if not items:
-        return {"top": [], "bottom": [], "total": 0}
-    rows = [{
-        "rank": i + 1, "name": it.get("f14", ""), "change_pct": it.get("f3", 0),
-        "code": it.get("f12", ""), "up_count": it.get("f104", 0), "down_count": it.get("f105", 0),
-    } for i, it in enumerate(items)]
-    return {"top": rows[:top_n], "bottom": rows[-top_n:], "total": len(rows)}
+
+    if total <= len(top_items):
+        # 响应已覆盖全集时沿用降序契约；前端会把 bottom 反转为领跌由强到弱。
+        bottom_items = top_items
+    else:
+        ascending, bottom_total = fetch_tail("0")
+        bottom_items = list(reversed(ascending))
+        total = max(total, bottom_total)
+
+    def row(it: dict, rank: int) -> dict:
+        return {
+            "rank": rank, "name": it.get("f14", ""), "change_pct": _numf(it.get("f3")) or 0,
+            "code": it.get("f12", ""), "up_count": it.get("f104", 0), "down_count": it.get("f105", 0),
+        }
+
+    top = [row(it, i + 1) for i, it in enumerate(top_items)]
+    bottom_start = max(total - len(bottom_items), 0)
+    bottom = [row(it, bottom_start + i + 1) for i, it in enumerate(bottom_items)]
+    return {"top": top, "bottom": bottom, "total": total}

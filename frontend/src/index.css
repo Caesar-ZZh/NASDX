@@ -6,7 +6,9 @@
    - Color：主色冰蓝 HSL 215°（OKLCH ≈ L0.70 C0.12 H220），背景明度 8%（非死黑，
      降低长时阅屏压抑）；不用紫蓝渐变（hue 250–290 禁）、不用奶油白（暗色主题）。
    - Type：Inter（正文/UI，贴合 visual-direction-os 的 Aptos/Segoe 干净无衬线）
-     + Noto Sans SC（中文协调）+ JetBrains Mono（数字/表格）。
+     + Noto Sans SC（中文协调）+ Roboto Mono（数字/表格；0 为椭圆无斜杠，避免 JetBrains Mono 的
+     斜杠零影响观感）。全站统一 font-sans，表单控件强制 inherit，图表（canvas）由 EChart 封装
+     注入同一 fontFamily，杜绝宋体/系统字体回退。
    - Grid break：保持数据网格（产品本质），以层级/留白/对比做变化。
    - Motion：保持克制（hover/tab/流式生成），不新增滚动动效。
    - Reflex check：避"深色+紫蓝+玻璃+Inter"与"近黑+琥珀终端感"两个 AI 默认。
@@ -22,9 +24,9 @@
 @import "@fontsource/noto-sans-sc/400.css";
 @import "@fontsource/noto-sans-sc/500.css";
 @import "@fontsource/noto-sans-sc/700.css";
-@import "@fontsource/jetbrains-mono/400.css";
-@import "@fontsource/jetbrains-mono/500.css";
-@import "@fontsource/jetbrains-mono/700.css";
+@import "@fontsource/roboto-mono/400.css";
+@import "@fontsource/roboto-mono/500.css";
+@import "@fontsource/roboto-mono/700.css";
 
 @tailwind base;
 @tailwind components;
@@ -105,12 +107,24 @@
   body {
     @apply bg-background text-foreground;
     font-family: "Inter", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     /* 纵深冷光晕（顶青蓝 + 右下蓝紫，弱化、偏冷，别留死黑） */
     background-color: hsl(var(--background));
     background-image:
       radial-gradient(1100px 620px at 12% -12%, hsl(215 85% 60% / 0.09), transparent 60%),
       radial-gradient(980px 720px at 108% 112%, hsl(230 55% 50% / 0.06), transparent 55%);
     background-attachment: fixed;
+  }
+
+  /* 标题字距微收紧：深色 UI 下更精致 */
+  h1, h2, h3, h4 {
+    letter-spacing: -0.01em;
+  }
+
+  /* 表单控件强制继承正文字体：杜绝 Windows 下 input/select/button 回退到宋体 */
+  input, select, textarea, button, optgroup {
+    font-family: inherit;
   }
 
   .light body {

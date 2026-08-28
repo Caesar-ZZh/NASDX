@@ -60,7 +60,7 @@ class DesktopCompletionAuditContractsTest(unittest.TestCase):
         env["NASDX_API_KEY"] = secret
 
         proc = subprocess.run(
-            [sys.executable, "-B", "run_desktop_completion_audit.py", "--json"],
+            [sys.executable, "-B", "scripts/run_desktop_completion_audit.py", "--json"],
             cwd=str(ROOT),
             env=env,
             text=True,

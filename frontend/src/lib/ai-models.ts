@@ -5,6 +5,7 @@
 // key 一律只存本地浏览器、随请求发给你自己的后端；不上传、不进仓库。
 
 export type ProviderId =
+  | "agnes"
   | "deepseek"
   | "silicon"
   | "openai"
@@ -34,6 +35,7 @@ export const isCliProvider = (p: ProviderId): boolean => p.startsWith("cli-");
 
 // 各 API provider 的默认接口地址（OpenAI 兼容）。选中即自动填 baseURL，用户只需填 key。
 export const PROVIDER_BASE: Partial<Record<ProviderId, string>> = {
+  agnes: "https://apihub.agnes-ai.com/v1",
   deepseek: "https://api.deepseek.com",
   silicon: "https://api.siliconflow.cn/v1",
   openai: "https://api.openai.com/v1",
@@ -55,6 +57,7 @@ export const aiModels: ModelConfig[] = [
   { id: "cursor-agent", name: "Cursor Agent", description: "Cursor Agent 订阅", provider: "cli-cursor", comingSoon: true },
   { id: "kimi", name: "Kimi", description: "Kimi 订阅", provider: "cli-kimi", comingSoon: true },
   // —— API 版（填自己的 key）——
+  { id: "agnes-2.5-flash", name: "Agnes 2.5 Flash", description: "Apihub Agnes · 快而省 · 默认推荐", provider: "agnes" },
   { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", description: "DeepSeek 官方 · 快而省 · 思考/非思考双模", provider: "deepseek" },
   { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", description: "DeepSeek 官方 · 旗舰 · 最强推理", provider: "deepseek" },
   { id: "deepseek-ai/DeepSeek-V3", name: "SiliconFlow · DeepSeek V3", description: "硅基流动", provider: "silicon" },

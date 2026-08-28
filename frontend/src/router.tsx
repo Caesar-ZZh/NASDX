@@ -12,6 +12,7 @@ import { MyReports } from "@/pages/MyReports";
 import { Notes } from "@/pages/Notes";
 import { Settings } from "@/pages/Settings";
 import { Cockpit } from "@/pages/Cockpit";
+import { StrategyLab } from "@/pages/StrategyLab";
 
 export const router = createBrowserRouter([
   {
@@ -30,6 +31,7 @@ export const router = createBrowserRouter([
       { path: "/notes", element: <Notes /> },
       { path: "/settings", element: <Settings /> },
       { path: "/cockpit", element: <Cockpit /> },
+      { path: "/strategy-lab", element: <StrategyLab /> },
     ],
   },
 ]);

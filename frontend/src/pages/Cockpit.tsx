@@ -1,21 +1,19 @@
 // 实时驾驶舱：盘中一屏看全市场。
-// 模块：① 大盘指数 KPI + 涨跌家数环图  ② 板块热力（treemap）  ③ 自选股实时报价表。
-// 数据全部走既有后端接口（/indices、/market/overview、/industry、/quote），零后端改动。
+// 模块：① 大盘指数 KPI + Lieflat Tick Donut  ② 板块双榜热力矩阵  ③ 自选股实时报价表。
+// 数据走既有后端接口（/indices、/market/overview、/industry、/quote）。
 // 轮询复用 useMarketPulse（5s，交易时段 + 页面可见才跑）与 useLiveQuotes（3s，自选股）。
 
-import { useMemo, useState } from "react";
-import { RefreshCw, Star, LayoutGrid, Gauge } from "lucide-react";
+import { useState } from "react";
+import { AlertCircle, RefreshCw, Star, LayoutGrid, Gauge } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
-import { EChart } from "@/components/ui/EChart";
+import { MarketBreadthField } from "@/components/charts/MarketBreadthField";
+import { SectorHeatBoard } from "@/components/charts/SectorHeatBoard";
 import { Disclaimer } from "@/components/ui/Disclaimer";
 import { useMarketPulse } from "@/hooks/useMarketPulse";
 import { useLiveQuotes, isTradingHours } from "@/hooks/useLiveQuotes";
 import { loadWatch } from "@/lib/watchlist";
-import { useDarkMode } from "@/hooks/useDarkMode";
-import { chartColors } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
-import type { EChartsOption } from "echarts";
 
 const pctClass = (p: number) =>
   p > 0 ? "text-danger" : p < 0 ? "text-success" : "text-muted-foreground";
@@ -28,95 +26,11 @@ function fmtTime(ts: number | null): string {
 }
 
 export function Cockpit() {
-  const { dark } = useDarkMode();
   const pulse = useMarketPulse(true);
   const [watch] = useState<string[]>(() => loadWatch());
   const live = useLiveQuotes(watch, true);
 
-  const c = chartColors();
   const sentiment = pulse.overview?.sentiment;
-
-  // ---- 涨跌家数环图 ----
-  const breadthOption = useMemo<EChartsOption>(() => {
-    const up = sentiment?.up ?? 0;
-    const down = sentiment?.down ?? 0;
-    const flat = sentiment?.flat ?? 0;
-    const total = up + down + flat;
-    return {
-      tooltip: { trigger: "item", formatter: "{b}: {c} 家 ({d}%)" },
-      legend: { bottom: 0, left: "center", textStyle: { color: c.muted }, itemWidth: 10, itemHeight: 10 },
-      title: {
-        text: `${total}`, subtext: "全市场",
-        left: "center", top: "32%",
-        textAlign: "center",
-        textStyle: { color: c.foreground, fontSize: 22, fontWeight: "bold" },
-        subtextStyle: { color: c.muted, fontSize: 11 },
-      },
-      series: [
-        {
-          type: "pie",
-          radius: ["54%", "76%"],
-          center: ["50%", "44%"],
-          avoidLabelOverlap: true,
-          label: { show: false },
-          itemStyle: { borderColor: c.grid, borderWidth: 2 },
-          data: [
-            { name: "上涨", value: up, itemStyle: { color: c.up } },
-            { name: "下跌", value: down, itemStyle: { color: c.down } },
-            { name: "平盘", value: flat, itemStyle: { color: c.muted } },
-          ],
-        },
-      ],
-    };
-  }, [sentiment, c, dark]);
-
-  // ---- 板块热力（treemap，面积均一、按 change_pct 着色）----
-  const sectorOption = useMemo<EChartsOption>(() => {
-    const rows = (pulse.industry?.top ?? []).slice(0, 28);
-    if (!rows.length) return {};
-    const vals = rows.map((r) => r.change_pct);
-    let min = Math.min(...vals);
-    let max = Math.max(...vals);
-    if (min === max) max = min + 1;
-    return {
-      tooltip: {
-        formatter: (p: any) => {
-          const v = p.data.value[1] as number;
-          return `${p.name}<br/>${v > 0 ? "+" : ""}${v}%`;
-        },
-      },
-      visualMap: {
-        type: "continuous",
-        min,
-        max,
-        dimension: 1,
-        show: false,
-        inRange: { color: [c.down, "hsl(48 70% 50%)", c.up] },
-      },
-      series: [
-        {
-          type: "treemap",
-          visualDimension: 1,
-          roam: false,
-          nodeClick: false,
-          breadcrumb: { show: false },
-          width: "100%",
-          height: "100%",
-          itemStyle: { borderColor: c.grid, borderWidth: 2, gapWidth: 2 },
-          label: {
-            show: true,
-            color: c.foreground,
-            fontSize: 11,
-            formatter: (p: any) => {
-              const v = p.data.value[1] as number;
-              return `${p.name}\n${v > 0 ? "+" : ""}${v}%`;
-            },
-          },
-          data: rows.map((r) => ({ name: r.name, value: [1, r.change_pct] })),
-        },
-      ],
-    };
-  }, [pulse.industry, c, dark]);
 
   const refreshAll = () => {
     pulse.refresh();
@@ -125,7 +39,8 @@ export function Cockpit() {
 
   const liveState = pulse.polling ? "实时刷新中" : isTradingHours() ? "已暂停" : "已收盘";
   const topSector = pulse.industry?.top?.[0];
-  const bottomSector = pulse.industry?.bottom?.[0];
+  const bottomRows = pulse.industry?.bottom ?? [];
+  const bottomSector = bottomRows[bottomRows.length - 1];
 
   return (
     <div>
@@ -148,6 +63,13 @@ export function Cockpit() {
         }
       />
 
+      {pulse.error && (
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
+          <span className="flex items-center gap-2"><AlertCircle className="h-4 w-4" />{pulse.error}</span>
+          <button onClick={pulse.refresh} className="text-xs font-medium underline underline-offset-2">重试</button>
+        </div>
+      )}
+
       {/* ① 大盘指数 KPI */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
         {(pulse.indices ?? []).map((i) => (
@@ -161,7 +83,9 @@ export function Cockpit() {
           </GlassCard>
         ))}
         {!pulse.indices && (
-          <div className="col-span-full text-sm text-muted-foreground">大盘指数加载中…</div>
+          <div className="col-span-full text-sm text-muted-foreground">
+            {pulse.loading ? "大盘指数加载中…" : pulse.error ? "大盘指数加载超时，可点上方重试" : "大盘指数暂无数据"}
+          </div>
         )}
       </div>
 
@@ -172,8 +96,12 @@ export function Cockpit() {
             <Gauge className="h-4 w-4 text-primary" />
             <h3 className="text-sm font-bold">涨跌家数</h3>
           </div>
-          <EChart option={breadthOption} height={236} />
-          <div className="mt-1 grid grid-cols-2 gap-2 text-center text-xs">
+          {sentiment ? <MarketBreadthField sentiment={sentiment} /> : (
+            <p className="flex h-[236px] items-center justify-center text-sm text-muted-foreground">
+              {pulse.loading ? "涨跌家数加载中…" : pulse.error ? "涨跌家数加载超时，可点上方重试" : "涨跌家数暂无数据"}
+            </p>
+          )}
+          {sentiment && <div className="mt-1 grid grid-cols-2 gap-2 text-center text-xs">
             <div className="rounded-lg bg-danger/10 py-1.5">
               <div className="font-mono text-base font-bold text-danger">{(sentiment?.zt ?? 0)}</div>
               <div className="text-muted-foreground">涨停</div>
@@ -182,7 +110,7 @@ export function Cockpit() {
               <div className="font-mono text-base font-bold text-success">{(sentiment?.dt ?? 0)}</div>
               <div className="text-muted-foreground">跌停</div>
             </div>
-          </div>
+          </div>}
         </GlassCard>
 
         <GlassCard className="lg:col-span-2">
@@ -204,10 +132,13 @@ export function Cockpit() {
               )}
             </div>
           </div>
-          <EChart option={sectorOption} height={300} />
-          <p className="mt-1 text-center text-xs text-muted-foreground/60">
-            共 {pulse.industry?.total ?? 0} 个板块 · 颜色越红越强、越绿越弱
-          </p>
+          {(pulse.industry?.top?.length ?? 0) > 0 && (pulse.industry?.bottom?.length ?? 0) > 0 ? (
+            <SectorHeatBoard industry={pulse.industry!} />
+          ) : (
+            <p className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
+              {pulse.loading ? "板块热力加载中…" : pulse.error ? "板块热力加载超时，可点上方重试" : "板块热力暂无数据"}
+            </p>
+          )}
         </GlassCard>
       </div>
 

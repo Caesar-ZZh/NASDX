@@ -1,11 +1,11 @@
 import time
-import importlib
+import json
 import os
+import re
+import subprocess
 import sys
 import unittest
 from pathlib import Path
-
-import requests
 
 from nasdx.environments.research import ResearchEnvironment
 from nasdx.schema import AnalysisResult
@@ -33,6 +33,34 @@ class SleepingAgent:
 
 
 class ArchitectureContractTests(unittest.TestCase):
+    def test_cosmos_release_version_is_synchronized(self):
+        expected = "0.3.0"
+        package = json.loads((ROOT / "frontend" / "package.json").read_text(encoding="utf-8"))
+        package_lock = json.loads((ROOT / "frontend" / "package-lock.json").read_text(encoding="utf-8"))
+        layout_source = (ROOT / "frontend" / "src" / "components" / "layout" / "Layout.tsx").read_text(
+            encoding="utf-8"
+        )
+        api_source = (ROOT / "server" / "stock" / "base_app.py").read_text(encoding="utf-8")
+
+        layout_match = re.search(r'APP_VERSION = "v([^"]+)"', layout_source)
+        fastapi_match = re.search(r'FastAPI\(title="Cosmos API", version="([^"]+)"\)', api_source)
+        health_match = re.search(r'"service": "cosmos-api", "version": "([^"]+)"', api_source)
+
+        self.assertIsNotNone(layout_match)
+        self.assertIsNotNone(fastapi_match)
+        self.assertIsNotNone(health_match)
+        self.assertEqual(
+            {
+                package["version"],
+                package_lock["version"],
+                package_lock["packages"][""]["version"],
+                layout_match.group(1),
+                fastapi_match.group(1),
+                health_match.group(1),
+            },
+            {expected},
+        )
+
     def test_research_environment_runs_phase_one_agents_concurrently(self):
         env = ResearchEnvironment(max_steps=1, delay=0, max_workers=5)
         env.agents = {
@@ -60,29 +88,28 @@ class ArchitectureContractTests(unittest.TestCase):
 
     def test_data_modules_do_not_patch_requests_or_proxy_env_on_import(self):
         proxy_keys = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"]
-        original_get = requests.get
-        original_session_get = requests.Session.get
-        original_env = {key: os.environ.get(key) for key in proxy_keys}
-        sentinel_env = {key: "http://127.0.0.1:9000" for key in proxy_keys}
-
-        try:
-            os.environ.update(sentinel_env)
-            for module_name in ("fetch_stock_data", "quant.data", "quant.patch_requests"):
-                sys.modules.pop(module_name, None)
-                importlib.import_module(module_name)
-
-            self.assertIs(requests.get, original_get)
-            self.assertIs(requests.Session.get, original_session_get)
-            for key, expected in sentinel_env.items():
-                self.assertEqual(os.environ.get(key), expected)
-        finally:
-            requests.get = original_get
-            requests.Session.get = original_session_get
-            for key, value in original_env.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
+        sentinel = "http://127.0.0.1:9000"
+        env = os.environ.copy()
+        env.update({key: sentinel for key in proxy_keys})
+        probe = (
+            "import importlib, os, requests; "
+            "before=(requests.get, requests.Session.get); "
+            "[importlib.import_module(name) for name in "
+            "('scripts.fetch_stock_data','quant.data','quant.patch_requests')]; "
+            "assert before == (requests.get, requests.Session.get); "
+            f"assert all(os.environ.get(key) == {sentinel!r} for key in {proxy_keys!r})"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-B", "-c", probe],
+            cwd=str(ROOT),
+            env=env,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            timeout=30,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
 
 if __name__ == "__main__":

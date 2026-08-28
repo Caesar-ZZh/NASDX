@@ -331,7 +331,7 @@ class CrossScriptSemanticsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.scan = _load_script_definitions(SCAN_SCRIPT, "scan_stocks_full_defs_cross")
-        cls.fetch = importlib.import_module("fetch_stock_data")
+        cls.fetch = importlib.import_module("scripts.fetch_stock_data")
 
     def test_both_scripts_delegate_to_the_shared_resolver(self):
         self.assertIs(self.scan.resolve_batch_history, resolve_batch_history)

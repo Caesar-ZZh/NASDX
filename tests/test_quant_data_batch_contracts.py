@@ -43,6 +43,19 @@ def _standard_frame() -> pd.DataFrame:
 
 
 class QuantDataBatchContractsTest(unittest.TestCase):
+    def test_batch_can_skip_slow_legacy_fallback(self):
+        with patch("nasdx.fast_market.fetch_histories", return_value={"600000": (None, None)}):
+            with patch("quant.data.get_ohlcv") as legacy_mock:
+                result = get_batch_ohlcv(
+                    ["600000"],
+                    days=30,
+                    verbose=False,
+                    fallback_missing=False,
+                )
+
+        self.assertEqual({}, result)
+        legacy_mock.assert_not_called()
+
     def test_batch_uses_fast_history_service_once_and_standardizes_results(self):
         stock_raw = _history_frame("600000")
         etf_raw = _history_frame("510300")

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Sparkles, Loader2, AlertCircle, RefreshCw, Gauge, ArrowDownUp, TrendingUp, TrendingDown, Plus, X, Flame, BarChart3, Globe } from "lucide-react";
+import { Sparkles, Loader2, AlertCircle, RefreshCw, Gauge, ArrowDownUp, TrendingUp, TrendingDown, Plus, X, Flame, BarChart3, Globe, Clock } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -11,6 +11,7 @@ import { api, ApiError, type IndexQuote, type Quote, type MarketOverview, type S
 import { hasLlm, chatStream } from "@/lib/llm";
 import { SaveNoteButton } from "@/components/ui/SaveNoteButton";
 import { loadWatch, saveWatch, addCodes } from "@/lib/watchlist";
+import { isTradingHours } from "@/hooks/useLiveQuotes";
 import { cn } from "@/lib/utils";
 
 // A股红涨绿跌。全球市场（美股/港股指数）**也沿用红涨**——与整个看板及东财等中国平台一致，
@@ -40,20 +41,42 @@ export function DailyReview() {
   const [ovDone, setOvDone] = useState(false);
   const [emoDone, setEmoDone] = useState(false);
   const [toDone, setToDone] = useState(false);
+  const [ovError, setOvError] = useState<string | null>(null);
+  const [emoError, setEmoError] = useState<string | null>(null);
+  const [toError, setToError] = useState<string | null>(null);
 
-  const loadIndices = () => {
-    api.indices().then(setIndices).catch(() => setIdxErr(true));
-    api.globalIndices().then(setGlobalIdx).catch(() => {});
-    api.marketOverview().then(setOverview).catch(() => {}).finally(() => setOvDone(true));
-    api.emotion().then(setEmotion).catch(() => {}).finally(() => setEmoDone(true));
-    api.turnoverTop().then(setTurnover).catch(() => {}).finally(() => setToDone(true));
+  const dataError = (error: unknown) => error instanceof ApiError ? error.message : "数据获取失败";
+
+  const loadOverview = () => {
+    setOvDone(false); setOvError(null);
+    api.marketOverview().then(setOverview).catch((e) => setOvError(dataError(e))).finally(() => setOvDone(true));
   };
 
-  // 数据块占位：请求没回来 = 加载中；回来了但为空 = 数据源暂不可用（别让用户干等）
-  const pending = (done: boolean) => (
-    <p className="py-4 text-center text-sm text-muted-foreground/60">
-      {done ? "暂无数据：可能是非交易时段或数据源暂时不可用，可点「大盘指数」旁的刷新重试" : "加载中…"}
-    </p>
+  const loadEmotion = () => {
+    setEmoDone(false); setEmoError(null);
+    api.emotion().then(setEmotion).catch((e) => setEmoError(dataError(e))).finally(() => setEmoDone(true));
+  };
+
+  const loadTurnover = () => {
+    setToDone(false); setToError(null);
+    api.turnoverTop().then(setTurnover).catch((e) => setToError(dataError(e))).finally(() => setToDone(true));
+  };
+
+  const loadIndices = () => {
+    setIdxErr(false);
+    api.indices().then(setIndices).catch(() => setIdxErr(true));
+    api.globalIndices().then(setGlobalIdx).catch(() => {});
+    loadOverview();
+    loadEmotion();
+    loadTurnover();
+  };
+
+  // 数据块占位：加载中 / 失败或超时 / 已返回但为空，三态明确可重试。
+  const pending = (done: boolean, error: string | null, retry: () => void) => (
+    <div className="py-4 text-center text-sm text-muted-foreground/60">
+      <p>{!done ? "加载中…" : error ? (error.includes("超时") ? "加载超时，请重试" : "加载失败，请重试") : "暂无数据：可能是非交易时段或数据源暂时不可用"}</p>
+      {done && <button onClick={retry} className="mt-2 text-xs text-primary hover:underline">重试</button>}
+    </div>
   );
 
   const refreshWatch = (codes: string[]) => {
@@ -119,6 +142,55 @@ export function DailyReview() {
     { k: "真实跌停", v: sentiment.dt_real, up: false },
     { k: "活跃度", v: sentiment.active, up: null },
   ] : [];
+
+  // overview 共享空状态：市场情绪 / 板块资金趋势 / 资金轮动 共用，按原因区分图标/标题/描述
+  const renderOverviewEmpty = () => {
+    const trading = isTradingHours();
+    const isLoading = !ovDone;
+    const reason: "loading" | "offhour" | "error" | "empty" = isLoading
+      ? "loading"
+      : ovError
+      ? "error"
+      : trading
+      ? "empty"
+      : "offhour";
+    const Icon = reason === "loading" ? Loader2 : reason === "offhour" ? Clock : reason === "error" ? AlertCircle : Gauge;
+    const now = new Date();
+    const fmtNow = now.toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit", month: "numeric", day: "numeric", weekday: "short" });
+    // 下一交易日开盘时间（跳过周末；不考虑节假日——A 股每年交易日历需另行维护）
+    const nextOpen = (() => {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+      d.setHours(9, 30, 0, 0);
+      return d.toLocaleString("zh-CN", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" });
+    })();
+    const title =
+      reason === "loading" ? "市场情绪加载中…"
+      : reason === "offhour" ? "非交易时段"
+      : reason === "error" ? "数据源暂不可用"
+      : "暂无市场情绪数据";
+    const desc =
+      reason === "loading" ? "正在拉取今日涨跌家数 / 涨停跌停 / 大盘宽度…"
+      : reason === "offhour" ? `当前 ${fmtNow}，下一交易日开盘（${nextOpen}）后自动更新`
+      : reason === "error" ? "可点击下方按钮重试，或参考下方「短线情绪」"
+      : "可点击下方按钮重试";
+    return (
+      <div className="grid place-items-center py-10 text-center">
+        <Icon className={cn("mb-3 h-10 w-10", reason === "loading" ? "animate-spin text-primary" : "text-muted-foreground/40")} />
+        <p className="text-sm font-medium text-foreground">{title}</p>
+        <p className="mt-1 max-w-xs text-xs text-muted-foreground/70">{desc}</p>
+        {ovDone && (
+          <button
+            onClick={loadOverview}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-primary/15 px-4 py-2 text-xs font-medium text-primary hover:bg-primary/25"
+          >
+            <RefreshCw className="h-3 w-3" /> 重试
+          </button>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div>
@@ -259,33 +331,85 @@ export function DailyReview() {
       <div className="mb-3 flex items-center gap-2">
         <h3 className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground"><Gauge className="h-4 w-4" /> 市场情绪</h3>
         {sentiment?.date && <span className="text-[11px] text-muted-foreground/50">{sentiment.date}</span>}
+        {overview?.updated && <span className="text-[11px] text-muted-foreground/40">· 更新 {overview.updated.slice(11, 16)}</span>}
+        <button
+          onClick={loadOverview}
+          className="ml-auto inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+          title="刷新市场情绪"
+        >
+          <RefreshCw className="h-3 w-3" /> 刷新
+        </button>
       </div>
       <GlassCard className="mb-6">
         {!sentiment?.breadth ? (
-          pending(ovDone)
+          renderOverviewEmpty()
         ) : (
-          <>
-            <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-5">
+            {/* 中部：两个温度计横排（大盘宽度 + 题材投机），指针带平滑过渡 */}
+            <div className="grid gap-5 sm:grid-cols-2">
               {[
-                { k: "大盘宽度", v: sentiment.breadth, hint: "冰点 / 偏弱 / 中性 / 偏强 / 普涨" },
-                { k: "题材投机", v: sentiment.speculation, hint: "冰点 / 普通 / 活跃 / 亢奋" },
-              ].map((m) => (
-                <div key={m.k} className="rounded-lg bg-muted/25 p-4">
-                  <p className="text-xs text-muted-foreground">{m.k}</p>
-                  <p className="mt-1 text-2xl font-bold text-primary">{m.v}</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground/60">{m.hint}</p>
-                </div>
-              ))}
+                {
+                  label: "大盘宽度",
+                  value: sentiment.breadth,
+                  stages: ["冰点", "偏弱", "中性", "偏强", "普涨"],
+                  gradient: "bg-gradient-to-r from-teal-400/20 via-stone-400/25 to-rose-400/35",
+                },
+                {
+                  label: "题材投机",
+                  value: sentiment.speculation,
+                  stages: ["冰点", "普通", "活跃", "亢奋"],
+                  gradient: "bg-gradient-to-r from-indigo-400/20 via-violet-400/25 to-fuchsia-400/35",
+                },
+              ].map((t) => {
+                const idx = Math.max(0, t.stages.indexOf(t.value));
+                const pct = t.stages.length > 1 ? (idx / (t.stages.length - 1)) * 100 : 0;
+                return (
+                  <div key={t.label}>
+                    <div className="mb-2 flex items-baseline justify-between">
+                      <span className="text-xs font-medium text-muted-foreground">{t.label}</span>
+                      <span className="text-xl font-bold text-primary tabular-nums">{t.value}</span>
+                    </div>
+                    <div className="relative h-3 overflow-visible rounded-full bg-muted/40">
+                      <div className={"absolute inset-0 rounded-full " + t.gradient} />
+                      <div
+                        className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 transition-all duration-700 ease-out"
+                        style={{ left: `${pct}%` }}
+                      >
+                        {/* 中空双层圆环指针（扁平化，无阴影） */}
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full border border-foreground/40 bg-foreground/10">
+                          <div className="h-2 w-2 rounded-full border border-foreground/60" />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex justify-between">
+                      {t.stages.map((s) => (
+                        <span
+                          key={s}
+                          className={cn(
+                            "text-[10px] transition-colors duration-500",
+                            s === t.value ? "font-semibold text-foreground" : "text-muted-foreground/50"
+                          )}
+                        >
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <div className="mt-3 grid grid-cols-4 gap-2">
-              {sentCells.map((c) => (
-                <div key={c.k} className="rounded-lg bg-muted/20 p-2 text-center">
-                  <p className="truncate text-[11px] text-muted-foreground">{c.k}</p>
-                  <p className={cn("mt-0.5 font-mono text-sm font-bold", c.up === null ? "text-foreground" : c.up ? "text-danger" : "text-success")}>{c.v}</p>
-                </div>
-              ))}
+            {/* 分隔线下：8 个客观数据 */}
+            <div className="border-t border-border/30 pt-1">
+              <div className="grid grid-cols-4 gap-2">
+                {sentCells.map((c) => (
+                  <div key={c.k} className="rounded-lg bg-muted/20 p-2 text-center">
+                    <p className="truncate text-[11px] text-muted-foreground">{c.k}</p>
+                    <p className={cn("mt-0.5 font-mono text-sm font-bold", c.up === null ? "text-foreground" : c.up ? "text-danger" : "text-success")}>{c.v}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-          </>
+          </div>
         )}
       </GlassCard>
 
@@ -297,7 +421,7 @@ export function DailyReview() {
       </div>
       <GlassCard className="mb-6">
         {!emotion || emotion.zt_count === undefined ? (
-          pending(emoDone)
+          pending(emoDone, emoError, loadEmotion)
         ) : (
           <>
             {/* 关键计数 */}
@@ -374,7 +498,7 @@ export function DailyReview() {
       </div>
       <GlassCard className="mb-6">
         {!turnover || turnover.stocks.length === 0 ? (
-          pending(toDone)
+          pending(toDone, toError, loadTurnover)
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -412,7 +536,7 @@ export function DailyReview() {
       </div>
       <GlassCard className="mb-6">
         {sectors.length === 0 ? (
-          pending(ovDone)
+          renderOverviewEmpty()
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -453,7 +577,7 @@ export function DailyReview() {
           <GlassCard key={col.title}>
             <h4 className={cn("mb-3 flex items-center gap-1.5 text-sm font-semibold", col.color)}><col.icon className="h-4 w-4" /> {col.title}</h4>
             {col.rows.length === 0 ? (
-              pending(ovDone)
+              renderOverviewEmpty()
             ) : (
               <div className="space-y-1.5">
                 {col.rows.map((s, i) => (

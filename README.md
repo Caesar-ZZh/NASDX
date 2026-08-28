@@ -34,7 +34,7 @@
 | **投研闭环** | 一键串联行情刷新 → ETF / 个股扫描 → 深度分析 → 组合路线 → 投资简报 |
 | **决策与风控** | 保守 / 均衡 / 进取三档仓位纪律、数据质量闸门、候选证据核查、建议漂移追踪与结果复盘 |
 | **桌面化** | Windows 桌面控制面板、便携包、安装器，复用现有 Streamlit UI |
-| **React 股票站** | 个股全景（估值分位带 / 财报 / 研报 / 公告 / 资金筹码 / 龙虎榜 / 解禁 / 互动易）、自选股实时报价、板块中心、持仓盈亏、每日复盘、多空辩论（与 Streamlit 双轨并存，`启动NASDX桌面React.bat` 一键桌面启动） |
+| **React 股票站** | 个股全景、自选股、板块中心、持仓、每日复盘、多空辩论，以及只读的策略实验室（历史回测对比 + ETF50 客观评分）；与 Streamlit 双轨并存，`启动NASDX桌面React.bat` 一键桌面启动 |
 | **历史与复盘** | SQLite 历史库、真实账户复盘（成交 CSV）、复盘快照包、盘前 / 盘中 / 盘后执行队列 |
 
 > 无 API Key 时自动生成同结构的规则深度报告，仍进入组合路线与最终简报；有 Key 时升级为 LLM 结构化分析。
@@ -239,9 +239,9 @@ python -m pip install -r requirements-dev.txt
 python -m pytest
 python -m ruff check --no-cache .
 python -B -m unittest discover -s tests
-python -B run_security_checks.py --skip-optional
-python -B run_desktop_doctor.py
-python -B run_desktop_release_check.py
+python -B scripts/run_security_checks.py --skip-optional
+python -B scripts/run_desktop_doctor.py
+python -B scripts/run_desktop_release_check.py
 ```
 
 可选安装本地提交前检查：
@@ -251,7 +251,7 @@ pre-commit install
 pre-commit run --all-files
 ```
 
-轻量安全检查默认只扫描可入库文本文件里的疑似密钥；加 `--history` 可扫描所有 ref 可达的历史 blob（覆盖"提交后又删掉"）；若已安装 `pip-audit` / `bandit` / `detect-secrets`，可显式运行 `python -B run_security_checks.py --run-optional`。
+轻量安全检查默认只扫描可入库文本文件里的疑似密钥；加 `--history` 可扫描所有 ref 可达的历史 blob（覆盖"提交后又删掉"）；若已安装 `pip-audit` / `bandit` / `detect-secrets`，可显式运行 `python -B scripts/run_security_checks.py --run-optional`。
 
 CI 侧的安全门禁：`security.yml`（自研多供应商扫描 + 固定版本 gitleaks，当前树与全历史）、`codeql.yml`（Python SAST，PR / push / 每周定时）、`dependabot.yml`（依赖与 Actions 升级 PR）。所有 workflow 显式声明最小权限，官方 Action 全部固定到 commit SHA。
 
@@ -272,7 +272,7 @@ CI 侧的安全门禁：`security.yml`（自研多供应商扫描 + 固定版本
 python -B desktop\control_panel.py                 # 桌面控制面板
 .\启动NASDX桌面.bat --dry-run --page plan           # 验证批处理入口
 python -B desktop\launcher.py --page plan           # 打开投资路线页
-python -B run_desktop_release_check.py --write-evidence   # 桌面发布前聚合检查
+python -B scripts/run_desktop_release_check.py --write-evidence   # 桌面发布前聚合检查
 ```
 
 原生桌面窗口体验（可选 WebView2 / pywebview）：

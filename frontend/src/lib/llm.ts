@@ -30,8 +30,8 @@ export function loadLlm(): LlmConfig | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const c = JSON.parse(raw) as LlmConfig;
-    // 订阅(CLI)：有 model 即可，免 key；API：需 baseURL + key + model。
-    const ok = c.model && (isCliProvider(c.provider) || (c.baseURL && c.apiKey));
+    // 订阅(CLI)：有 model 即可，免 key；API：需 baseURL + model，key 可选（留空=服务端内置）。
+    const ok = c.model && (isCliProvider(c.provider) || c.baseURL);
     return ok ? c : null;
   } catch {
     return null;
