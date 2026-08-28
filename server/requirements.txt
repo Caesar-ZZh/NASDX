@@ -3,5 +3,5 @@
 # akshare / mootdx / openai 为惰性依赖，缺失时对应端点返回 501 并优雅降级，不阻塞启动。
 fastapi>=0.110
 uvicorn[standard]>=0.27
-pydantic>=2.5
+pydantic>=2.13.4
 requests>=2.31
