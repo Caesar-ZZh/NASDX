@@ -273,7 +273,7 @@ function Remove-PackageExcludedArtifacts {
 }
 
 # The desktop allow-list keeps launcher.py, control_panel.py, and desktop\exe_launcher.py together.
-foreach ($dir in @("nasdx", "quant", "desktop", "static", "docs")) {
+foreach ($dir in @("nasdx", "quant", "desktop", "static", "docs", "scripts")) {
     Copy-DirectoryAllowList -Name $dir
 }
 

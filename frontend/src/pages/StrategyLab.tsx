@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { AlertCircle, BarChart3, FlaskConical, Loader2, Play, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertCircle, BarChart3, FlaskConical, Loader2, Play, RefreshCw, Save, Trash2 } from "lucide-react";
 import type { EChartsOption } from "echarts";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -10,12 +10,19 @@ import {
   ApiError,
   type Etf50QuantResult,
   type QuantBacktestResult,
-  type QuantBacktestRequest,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+  deleteStrategyPreset,
+  loadStrategyPresets,
+  loadStrategyWorkspace,
+  saveStrategyPresets,
+  saveStrategyWorkspace,
+  upsertStrategyPreset,
+  type StrategyDraft,
+  type StrategyKey,
+} from "@/lib/workspaceState";
 
-
-type StrategyKey = QuantBacktestRequest["strategies"][number];
 
 const STRATEGIES: Array<{ key: StrategyKey; label: string; note: string }> = [
   { key: "momentum", label: "动量策略", note: "按过去 20 日相对涨幅排序" },
@@ -24,13 +31,26 @@ const STRATEGIES: Array<{ key: StrategyKey; label: string; note: string }> = [
 ];
 const COLORS = ["#52d3ff", "#8b7cff", "#35d0a0"];
 
-const isoDay = (date: Date) => date.toISOString().slice(0, 10);
+const isoDay = (value: Date) => {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 const defaultEnd = isoDay(new Date());
 const defaultStart = (() => {
   const day = new Date();
   day.setFullYear(day.getFullYear() - 1);
   return isoDay(day);
 })();
+const DEFAULT_DRAFT: StrategyDraft = {
+  universe: "510300, 510500, 159915, 588000, 512100",
+  strategies: ["momentum", "mean_reversion"],
+  start: defaultStart,
+  end: defaultEnd,
+  rebalance: "W",
+  topN: 2,
+};
 const percent = (value: number | null) => value == null ? "—" : `${(value * 100).toFixed(2)}%`;
 const number = (value: number | null) => value == null ? "—" : value.toFixed(2);
 const errorText = (error: unknown) => {
@@ -40,23 +60,72 @@ const errorText = (error: unknown) => {
 
 
 export function StrategyLab() {
-  const [universe, setUniverse] = useState("510300, 510500, 159915, 588000, 512100");
-  const [strategies, setStrategies] = useState<StrategyKey[]>(["momentum", "mean_reversion"]);
-  const [start, setStart] = useState(defaultStart);
-  const [end, setEnd] = useState(defaultEnd);
-  const [rebalance, setRebalance] = useState("W");
-  const [topN, setTopN] = useState(2);
-  const [backtest, setBacktest] = useState<QuantBacktestResult | null>(null);
+  const [initialWorkspace] = useState(() => loadStrategyWorkspace(DEFAULT_DRAFT));
+  const [draft, setDraft] = useState(initialWorkspace.draft);
+  const [backtest, setBacktest] = useState<QuantBacktestResult | null>(initialWorkspace.result);
+  const [restoredResult, setRestoredResult] = useState(Boolean(initialWorkspace.result));
+  const [presets, setPresets] = useState(() => loadStrategyPresets(DEFAULT_DRAFT));
+  const [selectedPreset, setSelectedPreset] = useState("");
+  const [presetName, setPresetName] = useState("");
+  const [presetMessage, setPresetMessage] = useState<string | null>(null);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestError, setBacktestError] = useState<string | null>(null);
   const [etf, setEtf] = useState<Etf50QuantResult | null>(null);
   const [etfLoading, setEtfLoading] = useState(false);
   const [etfError, setEtfError] = useState<string | null>(null);
+  const { universe, strategies, start, end, rebalance, topN } = draft;
+
+  useEffect(() => {
+    saveStrategyWorkspace(draft, backtest);
+  }, [draft, backtest]);
+
+  const updateDraft = (patch: Partial<StrategyDraft>) => {
+    setDraft((current) => ({ ...current, ...patch }));
+    setBacktest(null);
+    setRestoredResult(false);
+    setBacktestError(null);
+  };
 
   const toggleStrategy = (key: StrategyKey) => {
-    setStrategies((current) => current.includes(key)
-      ? current.filter((item) => item !== key)
-      : [...current, key]);
+    updateDraft({
+      strategies: strategies.includes(key)
+        ? strategies.filter((item) => item !== key)
+        : [...strategies, key],
+    });
+  };
+
+  const savePreset = () => {
+    if (!presetName.trim()) {
+      setPresetMessage("请先填写组合名称");
+      return;
+    }
+    const next = upsertStrategyPreset(presets, presetName, draft);
+    saveStrategyPresets(next);
+    setPresets(next);
+    setSelectedPreset(next[0]?.id ?? "");
+    setPresetName(next[0]?.name ?? presetName.trim());
+    setPresetMessage("组合已保存到本机");
+  };
+
+  const loadPreset = (id: string) => {
+    setSelectedPreset(id);
+    const preset = presets.find((item) => item.id === id);
+    if (!preset) return;
+    setDraft(preset.draft);
+    setBacktest(null);
+    setRestoredResult(false);
+    setPresetName(preset.name);
+    setPresetMessage(`已载入「${preset.name}」`);
+  };
+
+  const removePreset = () => {
+    if (!selectedPreset) return;
+    const next = deleteStrategyPreset(presets, selectedPreset);
+    saveStrategyPresets(next);
+    setPresets(next);
+    setSelectedPreset("");
+    setPresetName("");
+    setPresetMessage("组合已从本机删除");
   };
 
   const runBacktest = async () => {
@@ -68,7 +137,7 @@ export function StrategyLab() {
     const codes = universe.split(/[\s,，;；]+/).map((item) => item.trim()).filter(Boolean);
     setBacktestLoading(true);
     try {
-      setBacktest(await api.quantBacktest({
+      const result = await api.quantBacktest({
         universe: codes,
         strategies,
         start,
@@ -76,7 +145,9 @@ export function StrategyLab() {
         initial_capital: 100_000,
         rebalance,
         top_n: topN,
-      }));
+      });
+      setBacktest(result);
+      setRestoredResult(false);
     } catch (error) {
       setBacktestError(errorText(error));
     } finally {
@@ -102,8 +173,8 @@ export function StrategyLab() {
     )).sort();
     return {
       tooltip: { trigger: "axis" },
-      legend: { data: backtest?.strategies.map((row) => row.label) ?? [], textStyle: { color: "#94a3b8" } },
-      grid: { left: 56, right: 20, top: 44, bottom: 38 },
+      legend: { data: backtest?.strategies.map((row) => row.label) ?? [], bottom: 0, left: "center", textStyle: { color: "#94a3b8" } },
+      grid: { left: 56, right: 20, top: 24, bottom: 72 },
       xAxis: { type: "category", data: dates, axisLabel: { color: "#64748b", hideOverlap: true } },
       yAxis: { type: "value", scale: true, axisLabel: { color: "#64748b" }, splitLine: { lineStyle: { color: "rgba(148,163,184,.12)" } } },
       series: (backtest?.strategies ?? []).map((row, index) => {
@@ -114,6 +185,7 @@ export function StrategyLab() {
           showSymbol: false,
           smooth: 0.2,
           data: dates.map((day) => values.get(day) ?? null),
+          itemStyle: { color: COLORS[index % COLORS.length] },
           lineStyle: { color: COLORS[index % COLORS.length], width: 2 },
         };
       }),
@@ -149,16 +221,43 @@ export function StrategyLab() {
           <BarChart3 className="h-4 w-4 text-primary" />
           <h2 className="font-bold">策略回测对比</h2>
         </div>
+        <div className="mb-4 grid gap-2 rounded-lg border border-border/60 bg-background/30 p-3 md:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_auto_auto]">
+          <select
+            value={selectedPreset}
+            onChange={(event) => loadPreset(event.target.value)}
+            className="rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+            aria-label="已保存的策略组合"
+          >
+            <option value="">选择已保存组合</option>
+            {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+          </select>
+          <input
+            value={presetName}
+            onChange={(event) => { setPresetName(event.target.value.slice(0, 40)); setPresetMessage(null); }}
+            placeholder="组合名称，例如：核心ETF周频"
+            className="rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+          />
+          <button onClick={savePreset} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-primary/40 px-3 py-2 text-sm text-primary hover:bg-primary/10">
+            <Save className="h-4 w-4" />保存组合
+          </button>
+          <button disabled={!selectedPreset} onClick={removePreset} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground hover:border-destructive/50 hover:text-destructive disabled:opacity-40">
+            <Trash2 className="h-4 w-4" />删除组合
+          </button>
+          <div className="text-xs text-muted-foreground md:col-span-4">
+            自动保存上次使用 · 本机最多 20 个组合
+            {presetMessage && <span className="ml-2 text-primary">{presetMessage}</span>}
+          </div>
+        </div>
         <div className="grid gap-4 lg:grid-cols-2">
           <label className="text-sm text-muted-foreground">
             股票池 / ETF 池（1–12 个六位代码）
-            <input value={universe} onChange={(event) => setUniverse(event.target.value)} className="mt-1 w-full rounded-lg border border-border bg-background/50 px-3 py-2 text-foreground outline-none focus:border-primary" />
+            <input value={universe} onChange={(event) => updateDraft({ universe: event.target.value })} className="mt-1 w-full rounded-lg border border-border bg-background/50 px-3 py-2 text-foreground outline-none focus:border-primary" />
           </label>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <label className="text-sm text-muted-foreground">开始日期<input type="date" value={start} onChange={(event) => setStart(event.target.value)} className="mt-1 w-full rounded-lg border border-border bg-background/50 px-2 py-2 text-foreground" /></label>
-            <label className="text-sm text-muted-foreground">结束日期<input type="date" value={end} onChange={(event) => setEnd(event.target.value)} className="mt-1 w-full rounded-lg border border-border bg-background/50 px-2 py-2 text-foreground" /></label>
-            <label className="text-sm text-muted-foreground">调仓频率<select value={rebalance} onChange={(event) => setRebalance(event.target.value)} className="mt-1 w-full rounded-lg border border-border bg-background/50 px-2 py-2 text-foreground"><option value="W">每周</option><option value="M">每月</option><option value="D">每日</option></select></label>
-            <label className="text-sm text-muted-foreground">持仓数量<input type="number" min={1} max={10} value={topN} onChange={(event) => setTopN(Number(event.target.value))} className="mt-1 w-full rounded-lg border border-border bg-background/50 px-2 py-2 text-foreground" /></label>
+            <label className="text-sm text-muted-foreground">开始日期<input type="date" value={start} onChange={(event) => updateDraft({ start: event.target.value })} className="mt-1 w-full rounded-lg border border-border bg-background/50 px-2 py-2 text-foreground" /></label>
+            <label className="text-sm text-muted-foreground">结束日期<input type="date" value={end} onChange={(event) => updateDraft({ end: event.target.value })} className="mt-1 w-full rounded-lg border border-border bg-background/50 px-2 py-2 text-foreground" /></label>
+            <label className="text-sm text-muted-foreground">调仓频率<select value={rebalance} onChange={(event) => updateDraft({ rebalance: event.target.value })} className="mt-1 w-full rounded-lg border border-border bg-background/50 px-2 py-2 text-foreground"><option value="W">每周</option><option value="M">每月</option><option value="D">每日</option></select></label>
+            <label className="text-sm text-muted-foreground">持仓数量<input type="number" min={1} max={10} value={topN} onChange={(event) => updateDraft({ topN: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-border bg-background/50 px-2 py-2 text-foreground" /></label>
           </div>
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -181,7 +280,10 @@ export function StrategyLab() {
       {backtest && (
         <GlassCard className="mb-6">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-bold">净值曲线</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold">净值曲线</h3>
+              {restoredResult && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary">已从本机恢复</span>}
+            </div>
             <span className="text-xs text-muted-foreground">行情覆盖 {backtest.coverage.available}/{backtest.coverage.requested}</span>
           </div>
           <EChart option={backtestOption} height={330} />

@@ -97,7 +97,7 @@ class DeliveryAssetsContractsTest(unittest.TestCase):
         )
 
     def test_final_audit_checks_delivery_assets(self):
-        audit_source = (ROOT / "run_final_audit.py").read_text(encoding="utf-8")
+        audit_source = (ROOT / "scripts" / "run_final_audit.py").read_text(encoding="utf-8")
         self.assertIn("check_delivery_assets", audit_source)
         self.assertIn("check_desktop_delivery_assets", audit_source)
         self.assertIn("依赖清单", audit_source)

@@ -343,8 +343,8 @@ class RuntimeMarketReliabilityTest(unittest.TestCase):
         self.assertNotIn("stock_zh_market_alerts_em", source)
 
     def test_web_scans_default_to_fast_bounded_runtime(self):
-        selector_source = Path("selector_page.py").read_text(encoding="utf-8")
-        etf_source = Path("scan_etf50.py").read_text(encoding="utf-8")
+        selector_source = Path("scripts/selector_page.py").read_text(encoding="utf-8")
+        etf_source = Path("scripts/scan_etf50.py").read_text(encoding="utf-8")
         app_source = Path("app.py").read_text(encoding="utf-8")
 
         self.assertIn('"selector_limit", 50', selector_source)

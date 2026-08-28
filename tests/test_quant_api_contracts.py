@@ -54,12 +54,13 @@ class QuantApiContractTests(unittest.TestCase):
             "top_n": 2,
         }
 
-        with patch("quant.data.get_batch_ohlcv", return_value=frames):
+        with patch("quant.data.get_batch_ohlcv", return_value=frames) as batch:
             result = quant_service.compute_backtest(payload)
 
         self.assertEqual(["momentum", "mean_reversion"], [row["strategy"] for row in result["strategies"]])
         self.assertEqual(3, result["coverage"]["available"])
         self.assertTrue(all(row["equity_curve"] for row in result["strategies"]))
+        self.assertFalse(batch.call_args.kwargs["fallback_missing"])
         self.assertEqual("objective_calculation", result["result_type"])
         rendered = json.dumps(result, ensure_ascii=False)
         self.assertNotIn("recommendation", rendered.lower())
@@ -70,6 +71,32 @@ class QuantApiContractTests(unittest.TestCase):
             quant_service.compute_backtest({"universe": ["510300"], "strategies": ["future_oracle"]})
         with self.assertRaises(ValueError):
             quant_service.compute_backtest({"universe": ["51030X"], "strategies": ["momentum"]})
+
+    def test_factor_rank_backtest_uses_one_precomputed_strategy(self):
+        from quant.backtest import build_factor_rank_strategy
+
+        frames = {
+            "510300": price_frame(1.0),
+            "510500": price_frame(1.1),
+            "159915": price_frame(0.95),
+        }
+        payload = {
+            "universe": list(frames),
+            "strategies": ["factor_rank"],
+            "start": "2025-01-01",
+            "end": "2025-05-20",
+            "rebalance": "D",
+            "top_n": 2,
+        }
+
+        with patch("quant.data.get_batch_ohlcv", return_value=frames), patch(
+            "quant.backtest.build_factor_rank_strategy",
+            wraps=build_factor_rank_strategy,
+        ) as build:
+            result = quant_service.compute_backtest(payload)
+
+        build.assert_called_once()
+        self.assertEqual(["factor_rank"], [row["strategy"] for row in result["strategies"]])
 
     def test_single_symbol_can_use_default_top_n(self):
         normalized = quant_service.normalize_backtest_request(
@@ -82,6 +109,29 @@ class QuantApiContractTests(unittest.TestCase):
         with self.assertRaises(TimeoutError):
             quant_service.run_guarded("slow-test", lambda: time.sleep(0.15), timeout=0.02)
         self.assertLess(time.perf_counter() - started, 0.1)
+
+    def test_timeout_keeps_singleflight_and_retry_can_receive_background_result(self):
+        calls = 0
+
+        def finish_after_first_wait():
+            nonlocal calls
+            calls += 1
+            time.sleep(0.08)
+            return {"ok": True}
+
+        with self.assertRaises(TimeoutError):
+            quant_service.run_guarded("slow-then-ready", finish_after_first_wait, timeout=0.02)
+
+        result = quant_service.run_guarded("slow-then-ready", finish_after_first_wait, timeout=1)
+
+        self.assertEqual({"ok": True}, result)
+        self.assertEqual(1, calls, "重试必须复用仍在运行的同键任务，不能重复提交计算")
+
+    def test_backtest_wait_window_covers_normal_cold_data_fetch(self):
+        with patch.object(quant_service, "run_guarded", return_value={}) as guarded:
+            quant_service.get_backtest({"universe": ["510300"], "strategies": ["momentum"]})
+
+        self.assertGreaterEqual(guarded.call_args.kwargs["timeout"], 60.0)
 
     def test_failures_are_negative_cached(self):
         calls = 0

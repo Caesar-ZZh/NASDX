@@ -69,10 +69,10 @@ class AppImportSmokeTest(unittest.TestCase):
         self.assertIsNotNone(self._load_with_stub("app"))
 
     def test_quant_page_imports(self):
-        self.assertIsNotNone(self._load_with_stub("quant_page"))
+        self.assertIsNotNone(self._load_with_stub("scripts.quant_page"))
 
     def test_confidence_page_imports(self):
-        self.assertIsNotNone(self._load_with_stub("confidence_page"))
+        self.assertIsNotNone(self._load_with_stub("scripts.confidence_page"))
 
 
 if __name__ == "__main__":

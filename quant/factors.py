@@ -9,9 +9,9 @@ import pandas as pd
 from typing import Optional
 
 
-def compute_alpha158(df: pd.DataFrame) -> pd.DataFrame:
+def _compute_alpha158_raw(df: pd.DataFrame) -> pd.DataFrame:
     """
-    计算 QLib Alpha158 因子集（简化版 80 个核心因子）
+    计算未标准化的 QLib Alpha158 因子集（简化版 80 个核心因子）
     输入: OHLCV DataFrame（index=date, 列=open/high/low/close/volume）
     输出: 因子 DataFrame
     """
@@ -84,10 +84,32 @@ def compute_alpha158(df: pd.DataFrame) -> pd.DataFrame:
     factors["MOM5_REVERSAL"]  = -factors["ROC5"]   # 5日反转
     factors["MOM20_MOMENTUM"] = factors["ROC20"]   # 20日动量
 
-    # ── 标准化（截面 z-score）─────────────────────────
-    factors = factors.apply(lambda col: (col - col.mean()) / (col.std() + 1e-9))
+    return factors
 
-    return factors.dropna(how="all")
+
+def compute_alpha158(df: pd.DataFrame) -> pd.DataFrame:
+    """计算因子并按传入历史窗口做 z-score；保留原有公开口径。"""
+    factors = _compute_alpha158_raw(df)
+    if factors.empty:
+        return factors
+    normalized = factors.apply(lambda col: (col - col.mean()) / (col.std() + 1e-9))
+    return normalized.dropna(how="all")
+
+
+def compute_alpha158_causal(df: pd.DataFrame) -> pd.DataFrame:
+    """一次生成各交易日仅使用当时历史的因子矩阵。
+
+    每一行使用截至该行的 expanding mean/std 做 z-score，因此该行数值与
+    ``compute_alpha158(df.iloc[:position + 1]).iloc[-1]`` 在浮点精度内等价，同时避免
+    日频回测为每个历史前缀重复计算全部滚动因子。
+    """
+    factors = _compute_alpha158_raw(df)
+    if factors.empty:
+        return factors
+    mean = factors.expanding().mean()
+    std = factors.expanding().std()
+    normalized = (factors - mean) / (std + 1e-9)
+    return normalized.dropna(how="all")
 
 
 def rank_stocks(

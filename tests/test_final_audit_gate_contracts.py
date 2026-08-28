@@ -1,4 +1,4 @@
-"""Release-gate integrity for ``run_final_audit.py`` (#88).
+"""Release-gate integrity for ``scripts/run_final_audit.py`` (#88).
 
 These tests enforce the contract described in issue #88:
 
@@ -19,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import run_final_audit  # noqa: E402
+from scripts import run_final_audit  # noqa: E402
 
 
 def _read_real_readme() -> str:

@@ -22,6 +22,7 @@ _IN_FLIGHT: dict[str, Future] = {}
 _CACHE_LOCK = Lock()
 _TTL = 300.0
 _NEGATIVE_TTL = 60.0
+_BACKTEST_TIMEOUT = 60.0
 _CODE_RE = re.compile(r"^\d{6}$")
 _STRATEGY_LABELS = {
     "momentum": "动量策略",
@@ -39,9 +40,29 @@ def clear_caches() -> None:
         _IN_FLIGHT.clear()
 
 
+def _complete_run(key: str, future: Future) -> None:
+    """Publish a shared task result even if its first waiter already timed out."""
+    try:
+        value = future.result()
+    except BaseException as exc:
+        with _CACHE_LOCK:
+            if _IN_FLIGHT.get(key) is not future:
+                return
+            _ERROR_CACHE[key] = (time.time(), exc)
+            _IN_FLIGHT.pop(key, None)
+    else:
+        with _CACHE_LOCK:
+            if _IN_FLIGHT.get(key) is not future:
+                return
+            _CACHE[key] = (time.time(), value)
+            _ERROR_CACHE.pop(key, None)
+            _IN_FLIGHT.pop(key, None)
+
+
 def run_guarded(key: str, fn: Callable[[], object], *, timeout: float) -> object:
     """同键单飞 + 硬等待上限 + 失败短缓存。"""
     now = time.time()
+    created = False
     with _CACHE_LOCK:
         hit = _CACHE.get(key)
         if hit and now - hit[0] < _TTL:
@@ -50,33 +71,20 @@ def run_guarded(key: str, fn: Callable[[], object], *, timeout: float) -> object
         if failed and now - failed[0] < _NEGATIVE_TTL:
             raise failed[1]
         future = _IN_FLIGHT.get(key)
-        owner = future is None
-        if owner:
+        if future is None:
             future = _EXECUTOR.submit(fn)
             _IN_FLIGHT[key] = future
+            created = True
+
+    if created:
+        future.add_done_callback(partial(_complete_run, key))
 
     try:
-        value = future.result(timeout=timeout)
+        return future.result(timeout=timeout)
     except FutureTimeoutError as exc:
-        future.cancel()
-        error = TimeoutError(f"量化计算超时（{timeout:g}s）")
-        with _CACHE_LOCK:
-            _ERROR_CACHE[key] = (time.time(), error)
-        raise error from exc
-    except BaseException as exc:
-        with _CACHE_LOCK:
-            _ERROR_CACHE[key] = (time.time(), exc)
-        raise
-    else:
-        with _CACHE_LOCK:
-            _CACHE[key] = (time.time(), value)
-            _ERROR_CACHE.pop(key, None)
-        return value
-    finally:
-        if owner:
-            with _CACHE_LOCK:
-                if _IN_FLIGHT.get(key) is future:
-                    _IN_FLIGHT.pop(key, None)
+        if future.done():
+            raise
+        raise TimeoutError(f"量化计算超时（{timeout:g}s）") from exc
 
 
 def _iso_day(value: object, fallback: date) -> date:
@@ -151,6 +159,7 @@ def compute_backtest(payload: dict) -> dict:
 
     from quant.backtest import (
         Backtester,
+        build_factor_rank_strategy,
         strategy_factor_rank,
         strategy_mean_reversion,
         strategy_momentum,
@@ -169,6 +178,7 @@ def compute_backtest(payload: dict) -> dict:
         use_cache=True,
         cache_ttl_seconds=600,
         request_timeout=8,
+        fallback_missing=False,
     )
     price_data = {}
     for code in config["universe"]:
@@ -187,9 +197,18 @@ def compute_backtest(payload: dict) -> dict:
     }
     rows = []
     effective_top_n = min(config["top_n"], len(price_data))
+    precomputed_factor_signal = (
+        build_factor_rank_strategy(price_data, top_n=effective_top_n)
+        if "factor_rank" in config["strategies"]
+        else None
+    )
     for strategy_name in config["strategies"]:
         backtester = Backtester(initial_capital=config["initial_capital"])
-        signal = partial(strategy_functions[strategy_name], top_n=effective_top_n)
+        signal = (
+            precomputed_factor_signal
+            if strategy_name == "factor_rank"
+            else partial(strategy_functions[strategy_name], top_n=effective_top_n)
+        )
         result = backtester.run(price_data, signal, rebalance_freq=config["rebalance"])
         curve = [
             {"date": pd.Timestamp(index).strftime("%Y-%m-%d"), "equity": _finite(value)}
@@ -228,7 +247,7 @@ def compute_backtest(payload: dict) -> dict:
 def get_backtest(payload: dict) -> dict:
     config = normalize_backtest_request(payload)
     key = "backtest:" + json.dumps(config, ensure_ascii=False, sort_keys=True)
-    return run_guarded(key, lambda: compute_backtest(config), timeout=30.0)
+    return run_guarded(key, lambda: compute_backtest(config), timeout=_BACKTEST_TIMEOUT)
 
 
 def compute_etf50(*, days: int, top_n: int, rebalance: str) -> dict:

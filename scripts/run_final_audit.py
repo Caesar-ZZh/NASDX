@@ -14,15 +14,14 @@ _ROOT_DIR = str(Path(__file__).resolve().parents[1])
 if _ROOT_DIR not in sys.path:
     sys.path.insert(0, _ROOT_DIR)
 import ast
-import importlib
 import json
 import os
-import requests
 import subprocess
 import sys
 import tempfile
 import time
 import zipfile
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -35,6 +34,31 @@ from nasdx.secret_scan import format_findings, scan_text  # noqa: E402
 
 
 def main() -> int:
+    """Run the release gate against an isolated deterministic runtime fixture."""
+    with tempfile.TemporaryDirectory(prefix="nasdx-final-audit-") as tmp:
+        runtime_root = Path(tmp)
+        data_dir = runtime_root / "data"
+        reports_dir = runtime_root / "reports"
+        env_updates = {
+            "NASDX_RUNTIME_DIR": str(runtime_root),
+            "NASDX_DATA_DIR": str(data_dir),
+            "NASDX_REPORTS_DIR": str(reports_dir),
+            "NASDX_HISTORY_DB": str(runtime_root / "nasdx_history.db"),
+        }
+        previous = {key: os.environ.get(key) for key in env_updates}
+        try:
+            os.environ.update(env_updates)
+            _seed_audit_runtime(data_dir, reports_dir)
+            return _run_audit_checks()
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+
+def _run_audit_checks() -> int:
     checks: list[tuple[str, Callable[[], str]]] = [
         ("Python 语法", check_python_syntax),
         ("硬编码 API Key", check_no_hardcoded_api_keys),
@@ -82,6 +106,116 @@ def main() -> int:
             print(f"- {name}: {detail}")
         return 1
     return 0
+
+
+def _seed_audit_runtime(data_dir: Path, reports_dir: Path) -> None:
+    """Create the minimum fresh market/report inputs required by the gate."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    now = datetime.now()
+    stamp = now.strftime("%Y%m%d")
+    generated_at = now.isoformat(timespec="seconds")
+
+    stocks = [
+        _audit_instrument("603501", "韦尔股份", "半导体", 104.5),
+        _audit_instrument("600000", "浦发银行", "银行", 10.5),
+        _audit_instrument("000001", "平安银行", "银行", 11.8),
+    ]
+    etfs = [
+        _audit_instrument("510300", "沪深300ETF", "宽基", 4.1),
+        _audit_instrument("512890", "红利低波ETF", "红利", 1.2),
+        _audit_instrument("159915", "创业板ETF", "成长", 2.4),
+    ]
+    market_payload = {
+        "date": stamp,
+        "generated_at": generated_at,
+        "sectors": [
+            {"name": "审计样本", "stocks": stocks, "etfs": etfs},
+        ],
+    }
+    (data_dir / f"stock_data_{stamp}.json").write_text(
+        json.dumps(market_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    def scan_payload(rows: list[dict]) -> dict:
+        return {
+            "date": stamp,
+            "generated_at": generated_at,
+            "expected_total": len(rows),
+            "valid_count": len(rows),
+            "no_data": 0,
+            "total": len(rows),
+            "bullish": len(rows),
+            "neutral": 0,
+            "bearish": 0,
+            "results": rows,
+        }
+
+    etf_rows = [
+        {"code": item["code"], "name": item["name"], "category": item["sector_name"], "score": 82 - i, "signal": "bullish", "reasons": ["确定性审计夹具"]}
+        for i, item in enumerate(etfs)
+    ]
+    stock_rows = [
+        {"code": item["code"], "name": item["name"], "sector": item["sector_name"], "score": 80 - i, "signal": "bullish", "reasons": ["确定性审计夹具"]}
+        for i, item in enumerate(stocks)
+    ]
+    (reports_dir / f"etf50_{stamp}_1200.json").write_text(
+        json.dumps(scan_payload(etf_rows), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (reports_dir / f"stocks60_{stamp}_1200.json").write_text(
+        json.dumps(scan_payload(stock_rows), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    for code, name in (("510300", "沪深300ETF"), ("603501", "韦尔股份")):
+        report = {
+            "stock_code": code,
+            "stock_name": name,
+            "date": stamp,
+            "generated_at": generated_at,
+            "final_signal": "bullish",
+            "bullish_pct": 72.0,
+            "decision_plan": {
+                "action": "观察试错",
+                "position_band": "0%-5%",
+                "confidence": 0.72,
+                "risk_flags": [],
+            },
+        }
+        (reports_dir / f"report_{code}_{stamp}.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+
+def _audit_instrument(code: str, name: str, sector: str, close: float) -> dict:
+    return {
+        "code": code,
+        "name": name,
+        "sector_name": sector,
+        "industry": sector,
+        "data_source": "deterministic-final-audit-fixture",
+        "indicators": {
+            "close": close,
+            "change_pct": 1.0,
+            "ma5": close * 0.99,
+            "ma20": close * 0.97,
+            "ma60": close * 0.94,
+            "macd_bar": 0.05,
+            "rsi": 55.0,
+            "vol_ratio": 1.1,
+        },
+        "fund_flow": [
+            {
+                "日期": datetime.now().strftime("%Y-%m-%d"),
+                "涨跌幅": 1.0,
+                "主力净流入-净额": 1000000.0,
+                "主力净流入-净占比": 2.0,
+            }
+        ],
+    }
 
 
 def check_python_syntax() -> str:
@@ -509,7 +643,13 @@ def check_desktop_delivery_assets() -> str:
 
 
 def check_market_data_contract() -> str:
-    files = sorted(ROOT.glob("stock_data_*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    from nasdx.paths import get_market_data_dir
+
+    files = sorted(
+        get_market_data_dir().glob("stock_data_*.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
     if not files:
         raise AssertionError("缺少 stock_data_YYYYMMDD.json")
     data = json.loads(_read_text(files[0]))
@@ -581,30 +721,30 @@ def check_architecture_optimization_contract() -> str:
     if found:
         raise AssertionError("app.py 仍存在全局 requests monkey patch: " + ", ".join(found))
 
-    data_modules = ("fetch_stock_data", "quant.data", "quant.patch_requests")
+    data_modules = ("scripts.fetch_stock_data", "quant.data", "quant.patch_requests")
     proxy_keys = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"]
-    original_get = requests.get
-    original_session_get = requests.Session.get
-    original_env = {key: os.environ.get(key) for key in proxy_keys}
-    sentinel_env = {key: "http://127.0.0.1:9000" for key in proxy_keys}
-    try:
-        os.environ.update(sentinel_env)
-        for module_name in data_modules:
-            sys.modules.pop(module_name, None)
-            importlib.import_module(module_name)
-        if requests.get is not original_get or requests.Session.get is not original_session_get:
-            raise AssertionError("数据模块导入时修改了 requests 全局方法")
-        changed = [key for key, expected in sentinel_env.items() if os.environ.get(key) != expected]
-        if changed:
-            raise AssertionError("数据模块导入时修改了代理环境变量: " + ", ".join(changed))
-    finally:
-        requests.get = original_get
-        requests.Session.get = original_session_get
-        for key, value in original_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
+    sentinel = "http://127.0.0.1:9000"
+    probe_env = os.environ.copy()
+    probe_env.update({key: sentinel for key in proxy_keys})
+    probe = (
+        "import importlib, os, requests; "
+        "before=(requests.get, requests.Session.get); "
+        f"[importlib.import_module(name) for name in {data_modules!r}]; "
+        "assert before == (requests.get, requests.Session.get); "
+        f"assert all(os.environ.get(key) == {sentinel!r} for key in {proxy_keys!r})"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-B", "-c", probe],
+        cwd=str(ROOT),
+        env=probe_env,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        timeout=30,
+    )
+    if proc.returncode != 0:
+        raise AssertionError("数据模块导入隔离失败: " + (proc.stdout + proc.stderr).strip()[:300])
     return f"5 Agent 并发耗时 {elapsed:.3f}s，HTTP导入隔离已验证"
 
 
@@ -768,7 +908,8 @@ def check_portfolio_contract() -> str:
 
 
 def check_investment_brief_contract() -> str:
-    from nasdx.investment_brief import build_investment_brief, format_investment_brief
+    from nasdx.investment_brief import build_and_save_investment_brief, format_investment_brief
+    from nasdx.paths import get_reports_dir
 
     required_fields = {
         "primary_bias",
@@ -785,7 +926,13 @@ def check_investment_brief_contract() -> str:
         "data_evidence",
         "disclaimer",
     }
-    brief = build_investment_brief(risk_profile="balanced")
+    brief, _paths = build_and_save_investment_brief(risk_profile="balanced")
+    prior = json.loads(json.dumps({key: value for key, value in brief.items() if key != "markdown"}))
+    prior["generated_at"] = (datetime.now() - timedelta(days=1)).isoformat(timespec="seconds")
+    (get_reports_dir() / "investment_brief_20000101_0000.json").write_text(
+        json.dumps(prior, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     missing = required_fields - set(brief)
     if missing:
         raise AssertionError("最终简报缺少字段: " + ", ".join(sorted(missing)))
