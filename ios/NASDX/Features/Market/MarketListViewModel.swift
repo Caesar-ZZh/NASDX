@@ -17,7 +17,11 @@ final class MarketListViewModel {
         defer { isLoading = false }
         do {
             let res: QuoteResponse = try await APIClient.shared.send(.watchlist(codes: defaultCodes))
-            watchlist = res.quotes
+            // /watchlist 返回的是完整 Quote，列表只需要 WatchlistQuote 这几个字段。
+            watchlist = res.quotes.map {
+                WatchlistQuote(code: $0.code, name: $0.name, price: $0.price,
+                               changePct: $0.changePct, changeAmt: $0.changeAmt)
+            }
             let quotes = res.quotes.map {
                 Quote(code: $0.code, name: $0.name, price: $0.price, lastClose: 0,
                       open: 0, changeAmt: $0.changeAmt, changePct: $0.changePct,

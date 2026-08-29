@@ -35,6 +35,18 @@ async def serve_spa(full_path: str):
     if full_path.startswith("api/"):
         raise HTTPException(status_code=404, detail="not found")
 
+    # 路径归一化防穿越：URL 里的 ../（含 %2e%2e 编码变体）与绝对路径注入，
+    # 解析后必须仍落在 dist 内；越界一律 404，绝不回退 index.html 掩盖攻击面。
+    #
+    # 必须排在 dist 存在性检查之前：否则前端未构建（CI、全新克隆）时越界请求
+    # 会先拿到 200 的「尚未构建」提示，防护形同虚设，安全性随构建状态漂移。
+    try:
+        candidate = (_DIST / full_path).resolve()
+    except OSError:
+        candidate = None
+    if candidate is None or not candidate.is_relative_to(_DIST):
+        raise HTTPException(status_code=404, detail="not found")
+
     if not _DIST.exists():
         return JSONResponse(
             status_code=200,
@@ -44,14 +56,6 @@ async def serve_spa(full_path: str):
             },
         )
 
-    # 路径归一化防穿越：URL 里的 ../（含 %2e%2e 编码变体）与绝对路径注入，
-    # 解析后必须仍落在 dist 内；越界一律 404，绝不回退 index.html 掩盖攻击面。
-    try:
-        candidate = (_DIST / full_path).resolve()
-    except OSError:
-        candidate = None
-    if candidate is None or not candidate.is_relative_to(_DIST):
-        raise HTTPException(status_code=404, detail="not found")
     if candidate.is_file():
         return FileResponse(str(candidate))
     # 非文件请求（如 /stock-data/600519）回退到 index.html，交由 React Router 处理
