@@ -96,6 +96,18 @@ class MergeLlmCfgContracts(unittest.TestCase):
         self.assertEqual(llm_cfg.merge_llm_cfg(req, None), req)
 
 
+try:
+    import fastapi  # noqa: F401  仅探测服务端依赖是否就位
+except ModuleNotFoundError:  # pragma: no cover - 取决于环境
+    _FASTAPI_AVAILABLE = False
+else:
+    _FASTAPI_AVAILABLE = True
+
+
+@unittest.skipUnless(
+    _FASTAPI_AVAILABLE,
+    "serve_spa 契约需要 fastapi/uvicorn，见 server/requirements.txt",
+)
 class SpaTraversalContracts(unittest.TestCase):
     """serve_spa 路径穿越防护。"""
 

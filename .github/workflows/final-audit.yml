@@ -44,6 +44,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
+          # server/ 下的契约测试（SPA 路径穿越防护、内置 LLM key 锁定等）
+          # 需要 fastapi/uvicorn。只装 requirements-dev.txt 会让这些测试以
+          # ModuleNotFoundError 红灯，掩盖真实回归。测试内另做了 skip 兜底，
+          # 但不该依赖兜底来跑这道门。
+          python -m pip install -r server/requirements.txt
 
       - name: Run final delivery audit (release gate)
         shell: pwsh
