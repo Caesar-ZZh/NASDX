@@ -36,7 +36,7 @@ function ResearchBlock({ name, result }: { name: string; result: any }) {
           </span>
         )}
       </div>
-      {result?.conclusion && <p className="text-sm leading-relaxed text-foreground/90">{result.conclusion}</p>}
+      {result?.conclusion && <p className="whitespace-pre-line text-sm leading-relaxed text-foreground/90">{result.conclusion}</p>}
       {Array.isArray(result?.key_points) && result.key_points.length > 0 && (
         <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
           {result.key_points.map((k: string, i: number) => (
@@ -56,7 +56,7 @@ function VoteRow({ v }: { v: AnalysisVote }) {
       <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium", sig.cls)}>
         <sig.Icon className="h-3 w-3" /> {sig.label}
       </span>
-      <p className="flex-1 text-xs leading-relaxed text-muted-foreground">{v.reasoning}</p>
+      <p className="whitespace-pre-line flex-1 text-xs leading-relaxed text-muted-foreground">{v.reasoning}</p>
     </div>
   );
 }
@@ -178,24 +178,47 @@ export function DeepAnalysis() {
                 </span>
                 <div className="text-right">
                   <p className="text-xs text-muted-foreground">辩论看多比例</p>
-                  <p className="font-mono text-lg font-bold text-danger">{Math.round(report.bullish_pct * 100)}%</p>
+                  <p className="font-mono text-lg font-bold text-danger">{Math.round(report.bullish_pct)}%</p>
                 </div>
               </div>
             </div>
             {report.summary && (
-              <p className="mt-4 border-t border-border/30 pt-3 text-sm leading-relaxed text-foreground/90">
+              <p className="mt-4 whitespace-pre-line border-t border-border/30 pt-3 text-sm leading-relaxed text-foreground/90">
                 {report.summary}
               </p>
             )}
           </GlassCard>
 
-          {/* 操作建议 + 决策计划 */}
+          {/* 操作建议：每行 "标题：内容" 格式，拆成定义列表让结构一目了然 */}
           {report.operation_advice && (
             <GlassCard className="mb-5 p-4">
               <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
                 <Swords className="h-4 w-4 text-primary" /> 操作建议
               </h3>
-              <p className="text-sm leading-relaxed text-foreground/90">{report.operation_advice}</p>
+              <dl className="space-y-1.5 text-sm leading-relaxed">
+                {report.operation_advice
+                  .split(/\r?\n/)
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+                  .map((line, i) => {
+                    const idx = line.indexOf("：");
+                    if (idx > 0 && idx < 12) {
+                      const label = line.slice(0, idx).trim();
+                      const value = line.slice(idx + 1).trim();
+                      return (
+                        <div key={i} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                          <dt className="shrink-0 font-medium text-primary">{label}</dt>
+                          <dd className="min-w-0 flex-1 text-foreground/90">{value}</dd>
+                        </div>
+                      );
+                    }
+                    return (
+                      <p key={i} className="text-foreground/90">
+                        {line}
+                      </p>
+                    );
+                  })}
+              </dl>
             </GlassCard>
           )}
 
