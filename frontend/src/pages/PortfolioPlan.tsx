@@ -151,11 +151,26 @@ export function PortfolioPlanPage() {
           <div className="mb-5 grid gap-3 md:grid-cols-3">
             <GlassCard className="p-4">
               <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><GitBranch className="h-4 w-4 text-primary" /> 未来情景推演</h4>
-              <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
-                {plan.future_scenarios.map((s, i) => (
-                  <li key={i}>{s}</li>
+              {/* API 返回的是 dict 数组 {scenario, trigger, action, position_rule}，按字段结构化渲染 */}
+              <div className="space-y-3 text-xs">
+                {plan.future_scenarios.map((s: any, i: number) => (
+                  <div key={i} className="space-y-1">
+                    {s.scenario && <div className="font-medium text-primary">{s.scenario}</div>}
+                    {s.trigger && (
+                      <div className="text-muted-foreground">
+                        <span className="opacity-60">触发：</span>
+                        {s.trigger}
+                      </div>
+                    )}
+                    {s.action && (
+                      <div className="text-foreground/90">
+                        <span className="opacity-60">行动：</span>
+                        {s.action}
+                      </div>
+                    )}
+                  </div>
                 ))}
-              </ul>
+              </div>
             </GlassCard>
             <GlassCard className="p-4">
               <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><ListChecks className="h-4 w-4 text-primary" /> 执行规则</h4>
