@@ -464,24 +464,28 @@ export function DailyReview() {
                 <p className="text-xs text-muted-foreground/50">今日无 2 板以上个股</p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-xs sm:text-sm">
                     <thead>
-                      <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
+                      <tr className="border-b border-border/50 text-left text-[11px] text-muted-foreground sm:text-xs">
                         {["名称", "连板", "现价", "涨停%", "成交额", "流通市值", "概念"].map((h) => (
-                          <th key={h} className="whitespace-nowrap px-2 py-2 font-medium">{h}</th>
+                          <th key={h} className="whitespace-nowrap px-1.5 py-2 font-medium sm:px-2">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {emotion.lianban_stocks.map((s) => (
                         <tr key={s.code} className="border-b border-border/30">
-                          <td className="px-2 py-2"><span className="font-medium">{s.name}</span> <span className="text-xs text-muted-foreground/50">{s.code}</span></td>
-                          <td className="whitespace-nowrap px-2 py-2 font-mono font-bold text-primary">{s.boards} 板</td>
-                          <td className="px-2 py-2 font-mono">{s.price}</td>
-                          <td className="px-2 py-2 font-mono text-danger">+{s.pct}%</td>
-                          <td className="whitespace-nowrap px-2 py-2 font-mono text-muted-foreground">{yi(s.amount)}</td>
-                          <td className="whitespace-nowrap px-2 py-2 font-mono text-muted-foreground">{yi(s.float_cap)}</td>
-                          <td className="whitespace-nowrap px-2 py-2 text-xs text-muted-foreground">{s.industry}</td>
+                          {/* 名称+代码用 inline-block + whitespace-nowrap 锁住，避免 6 位代码也按数字断行 */}
+                          <td className="whitespace-nowrap px-1.5 py-2 sm:px-2">
+                            <span className="font-medium">{s.name}</span>{" "}
+                            <span className="text-xs text-muted-foreground/50">{s.code}</span>
+                          </td>
+                          <td className="whitespace-nowrap px-1.5 py-2 font-mono font-bold text-primary sm:px-2">{s.boards} 板</td>
+                          <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums sm:px-2">{s.price}</td>
+                          <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums text-danger sm:px-2">+{s.pct}%</td>
+                          <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums text-muted-foreground sm:px-2">{yi(s.amount)}</td>
+                          <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums text-muted-foreground sm:px-2">{yi(s.float_cap)}</td>
+                          <td className="whitespace-nowrap px-1.5 py-2 text-xs text-muted-foreground sm:px-2">{s.industry}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -504,26 +508,30 @@ export function DailyReview() {
           pending(toDone, toError, loadTurnover)
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs sm:text-sm">
               <thead>
-                <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
+                <tr className="border-b border-border/50 text-left text-[11px] text-muted-foreground sm:text-xs">
                   {["#", "名称", "现价", "涨跌%", "成交额", "总市值", "行业"].map((h) => (
-                    <th key={h} className="whitespace-nowrap px-2 py-2 font-medium">{h}</th>
+                    <th key={h} className="whitespace-nowrap px-1.5 py-2 font-medium sm:px-2">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {turnover.stocks.map((s, i) => (
                   <tr key={s.code} className="border-b border-border/30">
-                    <td className="px-2 py-2 font-mono text-xs text-muted-foreground/50">{i + 1}</td>
-                    <td className="px-2 py-2"><span className="font-medium">{s.name}</span> <span className="text-xs text-muted-foreground/50">{s.code}</span></td>
-                    <td className="px-2 py-2 font-mono">{s.price ?? "—"}</td>
-                    <td className={cn("px-2 py-2 font-mono", s.pct == null ? "text-muted-foreground" : pctColor(s.pct))}>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-mono text-xs text-muted-foreground/50 tabular-nums sm:px-2">{i + 1}</td>
+                    {/* 名称+代码用 whitespace-nowrap 锁住，避免 6 位代码按数字断行 */}
+                    <td className="whitespace-nowrap px-1.5 py-2 sm:px-2">
+                      <span className="font-medium">{s.name}</span>{" "}
+                      <span className="text-xs text-muted-foreground/50">{s.code}</span>
+                    </td>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums sm:px-2">{s.price ?? "—"}</td>
+                    <td className={cn("whitespace-nowrap px-1.5 py-2 font-mono tabular-nums sm:px-2", s.pct == null ? "text-muted-foreground" : pctColor(s.pct))}>
                       {s.pct == null ? "—" : `${s.pct > 0 ? "+" : ""}${s.pct}%`}
                     </td>
-                    <td className="whitespace-nowrap px-2 py-2 font-mono">{yi(s.amount)}</td>
-                    <td className="whitespace-nowrap px-2 py-2 font-mono text-muted-foreground">{yi(s.mcap)}</td>
-                    <td className="whitespace-nowrap px-2 py-2 text-xs text-muted-foreground">{s.industry}</td>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums sm:px-2">{yi(s.amount)}</td>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums text-muted-foreground sm:px-2">{yi(s.mcap)}</td>
+                    <td className="whitespace-nowrap px-1.5 py-2 text-xs text-muted-foreground sm:px-2">{s.industry}</td>
                   </tr>
                 ))}
               </tbody>
