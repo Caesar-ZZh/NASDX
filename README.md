@@ -2,17 +2,33 @@
 
 # NASDX — A 股多智能体量化分析系统
 
-> 基于 [FinGenius](https://github.com/HuaYaoAI/FinGenius) 架构构建，无需付费行情 API，使用 AkShare / 腾讯行情免费数据源，支持任意 OpenAI 兼容接口。
+> 基于 [FinGenius](https://github.com/HuaYaoAI/FinGenius) 架构构建，无需付费行情 API，使用 AkShare / 腾讯行情免费数据源，支持任意 OpenAI 兼容接口。Web（React）与桌面（Windows）双端可用，附带 iOS 客户端雏形。
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.59.2-ff4b4b.svg)](https://streamlit.io/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Data](https://img.shields.io/badge/Data-AkShare%20%2F%20Tencent-blueviolet.svg)](https://github.com/akfamily/akshare)
+[![Final Audit Gate](https://github.com/Caesar-ZZh/cosmos/actions/workflows/final-audit.yml/badge.svg)](https://github.com/Caesar-ZZh/cosmos/actions/workflows/final-audit.yml)
+[![Security Scan](https://github.com/Caesar-ZZh/cosmos/actions/workflows/security.yml/badge.svg)](https://github.com/Caesar-ZZh/cosmos/actions/workflows/security.yml)
+[![Windows Desktop](https://github.com/Caesar-ZZh/cosmos/actions/workflows/windows-desktop.yml/badge.svg)](https://github.com/Caesar-ZZh/cosmos/actions/workflows/windows-desktop.yml)
+[![iOS CI](https://github.com/Caesar-ZZh/cosmos/actions/workflows/ios-beta.yml/badge.svg)](https://github.com/Caesar-ZZh/cosmos/actions/workflows/ios-beta.yml)
+[![CodeQL](https://github.com/Caesar-ZZh/cosmos/actions/workflows/codeql.yml/badge.svg)](https://github.com/Caesar-ZZh/cosmos/actions/workflows/codeql.yml)
+
+---
+
+## 项目亮点
+
+- **全栈投研闭环**：行情扫描 → 5 Agent 深度分析 → 多空辩论 → 组合路线 → 投资简报 → 建议复盘，一条命令跑通
+- **Web 股票站（React）**：每日复盘、资讯雷达（12 赛道 108 个公开 RSS 源）、板块中心、个股全景、自选股、多空辩论、策略实验室、我的持仓 / 研报 / 笔记
+- **多端可用**：Streamlit Web / React Web / Windows 桌面（便携包 + 安装器）/ iOS 客户端雏形，移动端响应式适配
+- **决策可复盘**：决策记录冻结、样本外 T+1~T+20 评价、真实账户复盘、置信度校准，拒绝前视偏差
+- **免费数据源**：AkShare / 腾讯行情，无需付费 API Key；LLM 支持任意 OpenAI 兼容接口
 
 ---
 
 ## 目录
 
+- [项目亮点](#项目亮点)
 - [它能做什么](#它能做什么)
 - [快速开始](#快速开始)
 - [工作原理](#工作原理)
