@@ -135,7 +135,9 @@ def fetch_radar() -> dict:
                     results_by_idx[i] = fut.result()
                 except Exception:
                     results_by_idx[i] = None
-        except TimeoutError:
+        except Exception:
+            # 注意：Python 3.10 的 concurrent.futures.TimeoutError 不继承 builtin TimeoutError
+            # （3.11+ 才继承），用 except Exception 兜底才能稳定捕获。
             # 25s 到了，剩下的全部标 None（计入 failed_sources）
             for fut, (i, _s) in futures.items():
                 if i not in results_by_idx:
