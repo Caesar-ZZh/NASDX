@@ -182,5 +182,79 @@ class SingleCorsLayerContracts(unittest.TestCase):
         self.assertIn("workflow_dispatch:", wf)
 
 
+def _cors_probe(cors_env_value: str, origin: str = "https://evil.example") -> str:
+    """在子进程里以指定 VR_ALLOW_ORIGINS 建 app，返回预检的 ACAO 头。
+
+    子进程隔离：base_app 在 import 时读环境变量挂 CORS 中间件，同一进程内
+    reload 难以保证干净；每次探测各起一个解释器，互不污染。
+    """
+    import os
+    import subprocess
+    import textwrap
+
+    code = textwrap.dedent(
+        """
+        import sys
+        from pathlib import Path
+        ROOT = Path(r"__ROOT__")
+        ORIGIN = r"__ORIGIN__"
+        for p in (str(ROOT), str(ROOT / "server" / "stock")):
+            if p not in sys.path:
+                sys.path.insert(0, p)
+        from fastapi.testclient import TestClient
+        import server.stock.base_app as base_app
+        client = TestClient(base_app.app)
+        pre = client.options(
+            "/api/chat",
+            headers={
+                "Origin": ORIGIN,
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        print(pre.headers.get("access-control-allow-origin", "<absent>"))
+        """
+    ).replace("__ROOT__", str(ROOT)).replace("__ORIGIN__", origin)
+    env = {**os.environ, "VR_ALLOW_ORIGINS": cors_env_value}
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+        cwd=str(ROOT),
+    )
+    if proc.returncode != 0:
+        self_fail = f"probe failed rc={proc.returncode}: {proc.stderr[-400:]}"
+        raise AssertionError(self_fail)
+    return proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else "<absent>"
+
+
+@unittest.skipUnless(
+    _FASTAPI_AVAILABLE,
+    "CORS 行为契约需要 fastapi（TestClient），见 server/requirements.txt",
+)
+class CorsDefaultClosedContracts(unittest.TestCase):
+    """CORS 默认收紧（2026-08-31）：同源部署不该给任何网站跨站读 API 的口子。"""
+
+    def test_unset_env_mounts_no_cors(self):
+        """默认（未设 VR_ALLOW_ORIGINS）→ 预检不回 ACAO，恶意站读不到响应。"""
+        self.assertEqual(_cors_probe(""), "<absent>")
+
+    def test_star_wildcard_must_be_explicit(self):
+        """显式 "*" 才放开——隐式默认不再是 *。"""
+        self.assertEqual(_cors_probe("*"), "*")
+
+    def test_whitelist_echoes_listed_origin(self):
+        """白名单内的 origin 正常回显。"""
+        self.assertEqual(
+            _cors_probe("https://good.example", origin="https://good.example"),
+            "https://good.example",
+        )
+
+    def test_whitelist_rejects_unknown_origin(self):
+        """白名单外的恶意 origin 拿不到 ACAO（浏览器拦截其跨站读取）。"""
+        self.assertEqual(_cors_probe("https://good.example"), "<absent>")
+
+
 if __name__ == "__main__":
     unittest.main()

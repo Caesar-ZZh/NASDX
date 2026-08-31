@@ -43,15 +43,20 @@ def _warm_market_cache():
     """后台预抓首屏市场总览，启动本身不等待第三方数据源。"""
     market.warm_cache()
 
-# CORS：默认放开（本地自托管友好）；公网部署时用 VR_ALLOW_ORIGINS 收紧成白名单。
-#   例：VR_ALLOW_ORIGINS="https://myhost"  （逗号分隔多个）
-_ORIGINS = [o.strip() for o in os.environ.get("VR_ALLOW_ORIGINS", "*").split(",") if o.strip()] or ["*"]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_ORIGINS,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-)
+# CORS：默认收紧。同源部署（FastAPI 直接服务 frontend/dist、桌面 webview 指向自身）
+# 浏览器根本不需要跨域头，不挂中间件才能保证任何第三方网站的 JS 无法跨站读取本 API
+# （行情/研报/持仓都在 GET 里）。分体部署（前端在另一 origin）时用 VR_ALLOW_ORIGINS
+# 显式白名单，逗号分隔；显式传 "*" 可恢复放开行为，但这是明确选择而非隐式默认。
+#   例：VR_ALLOW_ORIGINS="https://myhost"  或  "https://a.com,https://b.com"
+_cors_raw = os.environ.get("VR_ALLOW_ORIGINS", "").strip()
+_CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+if _CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_CORS_ORIGINS,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+    )
 
 # 可选鉴权：设了 VR_API_KEY 就要求所有 /api/* 带 `Authorization: Bearer <key>`
 #   （本地自托管不设=开放；公网部署务必设，否则别人能读你的持仓/调你的后端）。
