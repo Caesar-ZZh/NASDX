@@ -542,23 +542,25 @@ export function DailyReview() {
           renderOverviewEmpty()
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            {/* 移动端字号小、列紧、单元格强制不换行——避免「半」「导」单字断行。
+                行业列给 min-w 撑住 2-4 个中文；数字列用 tabular-nums 让小数点对齐。 */}
+            <table className="w-full text-xs sm:text-sm">
               <thead>
-                <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
-                  {["行业", "涨跌%", "今日净流入", "流入", "流出", "家数"].map((h) => (
-                    <th key={h} className="whitespace-nowrap px-2 py-2 font-medium">{h}</th>
+                <tr className="border-b border-border/50 text-left text-[11px] text-muted-foreground sm:text-xs">
+                  {["行业", "涨跌%", "净流入(亿)", "流入", "流出", "家数"].map((h) => (
+                    <th key={h} className="whitespace-nowrap px-1.5 py-2 font-medium sm:px-2">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {sectors.slice(0, 15).map((s) => (
                   <tr key={s.name} className="border-b border-border/30">
-                    <td className="px-2 py-2 font-medium">{s.name}</td>
-                    <td className={cn("px-2 py-2 font-mono", pctColor(s.pct))}>{s.pct > 0 ? "+" : ""}{s.pct}%</td>
-                    <td className={cn("px-2 py-2 font-mono", pctColor(s.net))}>{s.net > 0 ? "+" : ""}{fmt(s.net)} 亿</td>
-                    <td className="px-2 py-2 font-mono text-muted-foreground">{fmt(s.inflow)}</td>
-                    <td className="px-2 py-2 font-mono text-muted-foreground">{fmt(s.outflow)}</td>
-                    <td className="px-2 py-2 font-mono text-muted-foreground">{s.firms}</td>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-medium sm:px-2">{s.name}</td>
+                    <td className={cn("whitespace-nowrap px-1.5 py-2 font-mono tabular-nums sm:px-2", pctColor(s.pct))}>{s.pct > 0 ? "+" : ""}{s.pct}%</td>
+                    <td className={cn("whitespace-nowrap px-1.5 py-2 font-mono tabular-nums sm:px-2", pctColor(s.net))}>{s.net > 0 ? "+" : ""}{fmt(s.net)}亿</td>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums text-muted-foreground sm:px-2">{fmt(s.inflow)}</td>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums text-muted-foreground sm:px-2">{fmt(s.outflow)}</td>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums text-muted-foreground sm:px-2">{s.firms}</td>
                   </tr>
                 ))}
               </tbody>
