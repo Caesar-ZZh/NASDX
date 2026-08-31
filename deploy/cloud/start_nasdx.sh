@@ -45,6 +45,13 @@ with open(sys.argv[2], "w", encoding="utf-8") as out:
         value = str(llm.get(key, "")).strip()
         if value:
             out.write(f"export NASDX_{key.upper()}={value!r}\n")
+    # 可选 API 访问鉴权：[api] api_key 非空时导出 VR_API_KEY，
+    # server 层会要求所有 /api/* 带 Authorization: Bearer <key>。
+    # config.toml 被 .gitignore 忽略，key 不会进仓库。
+    api = cfg.get("api", {}) or {}
+    api_key = str(api.get("api_key", "")).strip()
+    if api_key:
+        out.write(f"export VR_API_KEY={api_key!r}\n")
 PY
 # shellcheck disable=SC1090
 . "$ENV_FILE"
