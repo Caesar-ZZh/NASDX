@@ -15,11 +15,14 @@ final class QuoteSocket {
     /// v1 轮询实现
     func startPolling(codes: [String], interval: TimeInterval = 3) {
         stop()
-        let client = APIClient.shared
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
-            Task { [weak self] in
+            // 本类是 @MainActor，而 Task 默认不继承 actor 隔离：不加 @MainActor 的话
+            // onUpdate 就成了「在 actor 外访问 main actor 属性」，Swift 6 直接判红。
+            // APIClient 同样是 @MainActor，也放到 Task 内部再取，避免在
+            // Timer 的 non-Sendable 闭包里跨 actor 捕获它。
+            Task { @MainActor [weak self] in
                 do {
-                    let res: QuoteResponse = try await client.send(.quote(codes: codes))
+                    let res: QuoteResponse = try await APIClient.shared.send(.quote(codes: codes))
                     let map = Dictionary(uniqueKeysWithValues: res.quotes.map { ($0.code, $0.price) })
                     self?.onUpdate?(map)
                 } catch {

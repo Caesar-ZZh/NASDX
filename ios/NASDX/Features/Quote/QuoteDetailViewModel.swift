@@ -28,7 +28,6 @@ final class QuoteDetailViewModel {
         QuoteSocket.shared.onUpdate = { [weak self] map in
             guard let price = map[code], let self else { return }
             if let q = self.quote {
-                let last = q.price
                 let changeAmt = price - q.lastClose
                 self.quote = Quote(code: q.code, name: q.name, price: price,
                                    lastClose: q.lastClose, open: q.open,
