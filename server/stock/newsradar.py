@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -118,6 +119,12 @@ def fetch_radar() -> dict:
         industries.append({"key": ind["key"], "name": ind["name"], "accent": ind["accent"], "total": len(pool), "items": []})
         for s in pool:
             tasks.append((i, s))
+
+    # 跨 industry shuffle：原顺序按 industry 0..11 排，导致大池子（科技 18、AI 16、财经 13）
+    # 排在末批，30 worker 跑前两批就被卡到 40s timeout 时还没轮到它们。
+    # 混排后每批都包含各 industry 的源，公平分配 worker 时间窗口。
+    random.seed(42)  # 固定种子，让结果可复现（debug 时稳定）
+    random.shuffle(tasks)
 
     ex = ThreadPoolExecutor(max_workers=30)
     try:
