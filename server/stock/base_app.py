@@ -217,14 +217,18 @@ def analysis(code: str, req: AnalysisReq):
 
     返回 FinalReport 的 JSON（summary / final_signal / research_results / votes /
     decision_plan / operation_advice 等）。无 LLM Key 时自动降级规则深度报告。
+    行情数据由服务器现拉（腾讯实时 + qfq 日 K），支持任意 6 位代码。
     同步执行，耗时取决于深度与缓存（full 无缓存约 30-120s）。
     """
     code = _validate(code)
     try:
         from nasdx.analyzer import NasdxAnalyzer
 
+        from analysis import load_data_for_analysis
+
+        data = load_data_for_analysis(code)
         analyzer = NasdxAnalyzer(risk_profile=req.risk_profile, depth=req.depth, use_cache=True)
-        report = analyzer.analyze(code)
+        report = analyzer.analyze(code, data=data)
         return {"report": report.model_dump()}
     except HTTPException:
         raise
