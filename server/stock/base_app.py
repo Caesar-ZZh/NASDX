@@ -206,6 +206,52 @@ def reflect(req: ReflectReq):
     return _ndjson(lambda: reflect_layer.run_reflection_stream(cfg, req.source, req.title))
 
 
+class AnalysisReq(BaseModel):
+    risk_profile: str = "balanced"
+    depth: str = "full"  # full | intraday | refresh
+
+
+@app.post("/api/analysis/{code}")
+def analysis(code: str, req: AnalysisReq):
+    """完整深度分析（复用 CLI 的 nasdx.analyzer）：Research(5 Agent) → Battle → Synthesis。
+
+    返回 FinalReport 的 JSON（summary / final_signal / research_results / votes /
+    decision_plan / operation_advice 等）。无 LLM Key 时自动降级规则深度报告。
+    同步执行，耗时取决于深度与缓存（full 无缓存约 30-120s）。
+    """
+    code = _validate(code)
+    try:
+        from nasdx.analyzer import NasdxAnalyzer
+
+        analyzer = NasdxAnalyzer(risk_profile=req.risk_profile, depth=req.depth, use_cache=True)
+        report = analyzer.analyze(code)
+        return {"report": report.model_dump()}
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001 — 分析失败给可读信息
+        raise HTTPException(502, f"深度分析失败：{e}") from e
+
+
+class PlanReq(BaseModel):
+    risk_profile: str = "balanced"
+
+
+@app.post("/api/portfolio/plan")
+def portfolio_plan(req: PlanReq):
+    """投资路线（组合级）：按风险画像生成仓位框架 / 候选分层 / 未来情景推演 / 执行规则 / 监控清单。
+
+    读本地最新 scan 产物（etf50 / stocks60 / 行情快照）；产物缺失时 action_gate=
+    refresh_required（前端提示先刷新扫描）。LLM 不参与，纯本地确定性规则。
+    """
+    try:
+        from nasdx.portfolio import build_portfolio_plan
+
+        plan = build_portfolio_plan(risk_profile=req.risk_profile)
+        return {"plan": plan}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"投资路线生成失败：{e}") from e
+
+
 class HoldingIn(BaseModel):
     code: str
     shares: float

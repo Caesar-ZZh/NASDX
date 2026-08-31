@@ -13,6 +13,8 @@ import { Notes } from "@/pages/Notes";
 import { Settings } from "@/pages/Settings";
 import { Cockpit } from "@/pages/Cockpit";
 import { StrategyLab } from "@/pages/StrategyLab";
+import { DeepAnalysis } from "@/pages/DeepAnalysis";
+import { PortfolioPlanPage } from "@/pages/PortfolioPlan";
 
 export const router = createBrowserRouter([
   {
@@ -32,6 +34,8 @@ export const router = createBrowserRouter([
       { path: "/settings", element: <Settings /> },
       { path: "/cockpit", element: <Cockpit /> },
       { path: "/strategy-lab", element: <StrategyLab /> },
+      { path: "/deep-analysis", element: <DeepAnalysis /> },
+      { path: "/portfolio-plan", element: <PortfolioPlanPage /> },
     ],
   },
 ]);
