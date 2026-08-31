@@ -14,7 +14,7 @@ import os
 import re
 import urllib.request
 import xml.etree.ElementTree as ET
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 
@@ -60,7 +60,9 @@ def _fetch_source(src: dict, per: int, cutoff, redline: list[str]):
             "User-Agent": UA,
             "Accept": "application/rss+xml,application/atom+xml,application/xml,text/xml,*/*",
         })
-        with urllib.request.urlopen(req, timeout=14) as r:
+        # 单源 timeout 5s：14s 在源不可达时会拖慢整批（108 源 ÷ 40 并发 × 14s ≈ 42s，
+        # 加上 SSL/重试可能超 60s，触发前端超时）。5s 足够国内外正常 RSS，失败即放弃。
+        with urllib.request.urlopen(req, timeout=5) as r:
             raw = r.read()
         root = ET.fromstring(raw)
         out = []
@@ -118,10 +120,30 @@ def fetch_radar() -> dict:
             tasks.append((i, s))
 
     with ThreadPoolExecutor(max_workers=40) as ex:
-        results = list(ex.map(lambda t: (t[0], _fetch_source(t[1], per, cutoff, redline)), tasks))
+        # 用 dict 关联 future ↔ (产业下标)，便于按 idx 收集结果
+        futures = {ex.submit(_fetch_source, s, per, cutoff, redline): (i, s)
+                   for i, s in tasks}
+        results_by_idx: dict[int, list | None] = {}
+        # 整体 25s 硬上限：到点后放弃剩下的（取消未启动的；已在跑的等最多 5s 自然收尾）。
+        # 原实现 list(ex.map(...)) 会等所有 future 跑完，108 源全不可达时 ≈42s 起；
+        # 改 wait-as_completed 后失败源即时计入 failed_sources，不阻塞返回。
+        try:
+            for fut in as_completed(futures, timeout=25):
+                i, _s = futures[fut]
+                try:
+                    results_by_idx[i] = fut.result()
+                except Exception:
+                    results_by_idx[i] = None
+        except TimeoutError:
+            # 25s 到了，剩下的全部标 None（计入 failed_sources）
+            for fut, (i, _s) in futures.items():
+                if i not in results_by_idx:
+                    if not fut.done():
+                        fut.cancel()
+                    results_by_idx[i] = None
 
     failed = 0
-    for idx, items in results:
+    for idx, items in results_by_idx.items():
         if items is None:
             failed += 1
             continue
