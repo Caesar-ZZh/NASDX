@@ -147,9 +147,17 @@ export function DeepAnalysis() {
           </p>
         )}
         {err && (
-          <p className="mt-3 flex items-center gap-1.5 text-sm text-warning">
-            <AlertTriangle className="h-4 w-4" /> {err}
-          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-warning">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span className="flex-1">{err}</span>
+            <button
+              onClick={run}
+              disabled={loading}
+              className="rounded border border-warning/40 px-2 py-0.5 text-xs hover:bg-warning/10"
+            >
+              重试
+            </button>
+          </div>
         )}
       </GlassCard>
 

@@ -219,21 +219,38 @@ def analysis(code: str, req: AnalysisReq):
     decision_plan / operation_advice 等）。无 LLM Key 时自动降级规则深度报告。
     行情数据由服务器现拉（腾讯实时 + qfq 日 K），支持任意 6 位代码。
     同步执行，耗时取决于深度与缓存（full 无缓存约 30-120s）。
+    LLM 服务偶发瞬时故障时自动重试 1 次。
     """
     code = _validate(code)
+    from analysis import load_data_for_analysis
+    from nasdx.analyzer import NasdxAnalyzer
+
     try:
-        from nasdx.analyzer import NasdxAnalyzer
-
-        from analysis import load_data_for_analysis
-
         data = load_data_for_analysis(code)
-        analyzer = NasdxAnalyzer(risk_profile=req.risk_profile, depth=req.depth, use_cache=True)
-        report = analyzer.analyze(code, data=data)
-        return {"report": report.model_dump()}
-    except HTTPException:
-        raise
-    except Exception as e:  # noqa: BLE001 — 分析失败给可读信息
+    except Exception as e:
         raise HTTPException(502, f"深度分析失败：{e}") from e
+
+    # LLM 瞬时故障重试 1 次：单次失败可能是网络抖动/上游限流
+    last_err: Exception | None = None
+    for attempt in (1, 2):
+        try:
+            analyzer = NasdxAnalyzer(risk_profile=req.risk_profile, depth=req.depth, use_cache=True)
+            report = analyzer.analyze(code, data=data)
+            if attempt > 1:
+                print(f"[analysis] {code} 第 {attempt} 次重试成功", flush=True)
+            return {"report": report.model_dump()}
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            print(f"[analysis] {code} 第 {attempt} 次失败：{e}", flush=True)
+            # 第 1 次失败时先重试一次（瞬时 LLM 故障可能恢复）
+            if attempt == 1:
+                import time as _t
+                _t.sleep(2)
+
+    raise HTTPException(
+        502,
+        f"深度分析失败（已重试 1 次）：{last_err}。LLM 服务可能瞬时不可用，请稍后重试。",
+    ) from last_err
 
 
 class PlanReq(BaseModel):
