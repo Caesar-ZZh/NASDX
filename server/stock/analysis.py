@@ -39,7 +39,8 @@ def _fetch_tencent_kline(code: str, days: int = 240):
         items = rows.get("qfqday") or rows.get("day") or []
         if not items:
             return None
-        df = pd.DataFrame(items, columns=["日期", "开盘", "收盘", "最高", "最低", "成交量"])
+        # 腾讯 qfqday 行可能是 6 或 7+ 列（含成交额/振幅等），统一截断到前 6 列
+        df = pd.DataFrame([row[:6] for row in items], columns=["日期", "开盘", "收盘", "最高", "最低", "成交量"])
         for col in ["开盘", "收盘", "最高", "最低", "成交量"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
         df["涨跌幅"] = df["收盘"].pct_change() * 100
