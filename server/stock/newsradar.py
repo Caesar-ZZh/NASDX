@@ -119,17 +119,19 @@ def fetch_radar() -> dict:
         for s in pool:
             tasks.append((i, s))
 
-    ex = ThreadPoolExecutor(max_workers=40)
+    ex = ThreadPoolExecutor(max_workers=30)
     try:
         # 用 dict 关联 future ↔ (产业下标)，便于按 idx 收集结果
         futures = {ex.submit(_fetch_source, s, per, cutoff, redline): (i, s)
                    for i, s in tasks}
         results_by_idx: dict[int, list | None] = {}
-        # 整体 25s 硬上限：到点后放弃剩下的（取消未启动的；已在跑的等最多 5s 自然收尾）。
+        # 整体 40s 硬上限：AI/大模型有 16 源、其他赛道 5-9 源，108 源 ÷ 30 并发 × 5s ≈ 18s
+        # 足够覆盖大部分；20s 留白给大源（OpenAI 700KB 解析 1-2s）写盘等。
+        # 前端 /api/radar/refresh 60s 兜底，余 20s 给 shutdown + 序列化。
         # 原实现 list(ex.map(...)) 会等所有 future 跑完，108 源全不可达时 ≈42s 起；
         # 改 wait-as_completed 后失败源即时计入 failed_sources，不阻塞返回。
         try:
-            for fut in as_completed(futures, timeout=25):
+            for fut in as_completed(futures, timeout=40):
                 i, _s = futures[fut]
                 try:
                     results_by_idx[i] = fut.result()

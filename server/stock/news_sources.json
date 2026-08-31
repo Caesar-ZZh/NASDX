@@ -1,10 +1,10 @@
 {
  "_comment": "tier-1 策展源(每行业公认大媒体,高信号,纯RSS)。",
- "fetch": {
-  "per_source": 6,
-  "timeout": 15,
-  "recent_days": 7
- },
+  "fetch": {
+    "per_source": 4,
+    "timeout": 15,
+    "recent_days": 7
+  },
  "industries": [
   {
    "key": "ai",
