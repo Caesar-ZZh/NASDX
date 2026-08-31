@@ -209,7 +209,8 @@ export function DailyReview() {
       {/* 1. 大盘指数（实时） */}
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-muted-foreground">大盘指数</h3>
-        <button onClick={loadIndices} className="text-muted-foreground hover:text-primary" title="刷新"><RefreshCw className="h-3.5 w-3.5" /></button>
+        {/* 图标只有 14px，外面套 32px 触控区，不然手指点不到 */}
+        <button onClick={loadIndices} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-primary" title="刷新" aria-label="刷新指数"><RefreshCw className="h-3.5 w-3.5" /></button>
       </div>
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {indices.length === 0
@@ -253,7 +254,7 @@ export function DailyReview() {
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-muted-foreground">关注股票</h3>
         {watchCodes.length > 0 && (
-          <button onClick={() => refreshWatch(watchCodes)} className="text-muted-foreground hover:text-primary" title="刷新价格">
+          <button onClick={() => refreshWatch(watchCodes)} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-primary" title="刷新价格" aria-label="刷新价格">
             {watchLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           </button>
         )}
@@ -265,7 +266,7 @@ export function DailyReview() {
             onChange={(e) => setWatchInput(e.target.value.replace(/[^\d,\s]/g, "").slice(0, 80))}
             onKeyDown={(e) => e.key === "Enter" && addWatch()}
             placeholder="加自选：可批量，如 600519 000858"
-            className="w-60 rounded-lg border border-border bg-black/20 px-3 py-2 text-sm outline-none focus:border-primary/50"
+            className="min-w-0 flex-1 rounded-lg border border-border bg-black/20 px-3 py-2 text-sm outline-none focus:border-primary/50 sm:w-60 sm:flex-none"
           />
           <button onClick={addWatch}
             className="inline-flex items-center gap-1.5 rounded-lg bg-primary/15 px-4 py-2 text-sm font-medium text-primary shadow-glow hover:bg-primary/25">
@@ -280,8 +281,10 @@ export function DailyReview() {
               const q = watchQuotes[c];
               return (
                 <div key={c} className="group relative rounded-lg bg-muted/25 p-3">
-                  <button onClick={() => removeWatch(c)} title="移除"
-                    className="absolute right-1.5 top-1.5 text-muted-foreground/40 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100">
+                  {/* 触屏没有 hover：移动端常显删除按钮，桌面端才走 hover 显隐。
+                      同时用 h-8 w-8 撑出触控区，图标仍保持 14px 不抢视觉。 */}
+                  <button onClick={() => removeWatch(c)} title="移除" aria-label={`移除 ${q?.name || c}`}
+                    className="absolute right-1 top-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/40 transition-colors hover:text-destructive md:right-1.5 md:top-1.5 md:opacity-0 md:group-hover:opacity-100">
                     <X className="h-3.5 w-3.5" />
                   </button>
                   <p className="truncate text-xs text-muted-foreground">{q?.name || c}</p>
@@ -334,7 +337,7 @@ export function DailyReview() {
         {overview?.updated && <span className="text-[11px] text-muted-foreground/40">· 更新 {overview.updated.slice(11, 16)}</span>}
         <button
           onClick={loadOverview}
-          className="ml-auto inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+          className="ml-auto inline-flex items-center gap-1 rounded px-2 py-2 text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground md:py-0.5"
           title="刷新市场情绪"
         >
           <RefreshCw className="h-3 w-3" /> 刷新

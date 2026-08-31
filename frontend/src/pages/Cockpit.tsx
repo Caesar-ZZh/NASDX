@@ -54,7 +54,7 @@ export function Cockpit() {
             <span className="text-xs text-muted-foreground/70">更新 {fmtTime(pulse.updatedAt ?? live.updatedAt)}</span>
             <button
               onClick={refreshAll}
-              className="flex items-center gap-1 rounded-lg border border-border/60 px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+              className="flex items-center gap-1 rounded-lg border border-border/60 px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground md:py-1"
               title="立即刷新"
             >
               <RefreshCw className="h-3.5 w-3.5" /> 刷新

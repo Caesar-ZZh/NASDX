@@ -24,7 +24,8 @@ export function SectorDetail() {
 
   return (
     <div>
-      <Link to="/sectors" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+      {/* 移动端 py-2 撑到 32px+，返回入口在窄屏上很容易点空 */}
+      <Link to="/sectors" className="mb-3 -ml-2 inline-flex items-center gap-1 py-2 pl-2 pr-1 text-sm text-muted-foreground hover:text-foreground md:py-0">
         <ArrowLeft className="h-4 w-4" /> 板块中心
       </Link>
 

@@ -127,7 +127,8 @@ function InvestmentNewsPanel() {
             {industries.map((ind) => (
               <button key={ind.key} onClick={() => selectSector(ind.key)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
+                  // 移动端 py-2（约 34px 高）——原来 26px 的手指点不准
+                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs transition-colors md:py-1",
                   active === ind.key
                     ? "border-primary bg-primary/15 font-medium text-primary shadow-glow"
                     : "border-primary/25 text-muted-foreground hover:border-primary/60 hover:text-foreground",

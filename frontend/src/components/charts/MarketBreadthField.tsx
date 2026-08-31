@@ -135,7 +135,9 @@ export function MarketBreadthField({ sentiment }: Props) {
             key={group.key}
             type="button"
             aria-pressed={pinned === group.key}
-            className="rounded border border-border/60 bg-background/80 px-2 py-0.5 text-[10px] transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+            // 移动端 py-2（约 30px）：原来 21px 的手指按不准。加大后向上延伸，
+            // 但徽章浮在图形底部留白处，不会压住散点。
+            className="rounded border border-border/60 bg-background/80 px-2 py-2 text-[11px] transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary md:py-0.5 md:text-[10px]"
             style={{ color: group.color, opacity: selectedKey && selectedKey !== group.key ? 0.35 : 1 }}
             onMouseEnter={() => setActive(group.key)}
             onMouseLeave={() => setActive(null)}
