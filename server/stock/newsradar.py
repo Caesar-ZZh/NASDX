@@ -119,7 +119,8 @@ def fetch_radar() -> dict:
         for s in pool:
             tasks.append((i, s))
 
-    with ThreadPoolExecutor(max_workers=40) as ex:
+    ex = ThreadPoolExecutor(max_workers=40)
+    try:
         # 用 dict 关联 future ↔ (产业下标)，便于按 idx 收集结果
         futures = {ex.submit(_fetch_source, s, per, cutoff, redline): (i, s)
                    for i, s in tasks}
@@ -141,6 +142,12 @@ def fetch_radar() -> dict:
                     if not fut.done():
                         fut.cancel()
                     results_by_idx[i] = None
+    finally:
+        # 关键：wait=False 让 fetch_radar 立即返回。with 块默认 wait=True 会卡到
+        # 所有已 submit 的 future 跑完（包括被 cancel 失败的、socket 还 hang 的），
+        # 在 uvicorn 长跑进程里这会让 POST /api/radar/refresh 一直阻塞到 30s+。
+        # 已启动的 future 仍会跑完才释放 socket —— 这是可接受的代价。
+        ex.shutdown(wait=False)
 
     failed = 0
     for idx, items in results_by_idx.items():
