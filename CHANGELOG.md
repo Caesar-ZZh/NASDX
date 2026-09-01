@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-01
+
+- Added a background job center (`server/jobhub.py` + `server/jobs_api.py`) so slow analyses run detached from the HTTP connection: submit returns a `job_id` immediately, then poll with a cursor for incremental events. `/api/jobs/analysis` and `/api/jobs/debate` wrap the existing deep-analysis and multi-agent debate pipelines; the old synchronous `/api/analysis/{code}` and `/api/debate` endpoints stay untouched.
+- Deep Analysis and Multi-Agent Debate pages now use background jobs: the job id is persisted to localStorage, so navigating away (or even refreshing) does not cancel the work — come back later and the result is already there. Debate keeps its progressive per-speaker rendering by replaying streamed events from the job log.
+- Job center is in-memory, single-process, with a 5k-event cap per job, TTL reaping of terminal results, and cooperative cancellation (`NASDX_JOB_MAX_WORKERS` to tune parallelism).
+- Added `tests/test_jobhub_contracts.py` covering the job state machine, cursor increments, stale-cursor full replay, cancellation, generator runners, TTL reaping, and HTTP route contracts.
+
 ## 2026-06-22
 
 - Added five `.claude/agents` templates for upstream analysis, single-feature implementation, contract audit, Streamlit verification, and delivery closeout.

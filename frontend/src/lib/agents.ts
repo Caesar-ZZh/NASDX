@@ -22,6 +22,9 @@ function requireLlm() {
   return loadLlm() ?? { provider: "" as ProviderId, baseURL: "", apiKey: "", model: "" };
 }
 
+// 供后台任务提交（debateStore）复用同一份 LLM 配置来源
+export { requireLlm };
+
 function dispatchDebate(ev: NdjsonEvent, h: DebateHandlers) {
   switch (ev.type) {
     case "status":

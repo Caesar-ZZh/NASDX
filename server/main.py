@@ -17,6 +17,11 @@ from fastapi import HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
 from base_app import app
+from server.jobs_api import router as jobs_router
+
+# 后台任务：慢分析（深度分析 / 多空辩论）脱离 HTTP 连接执行，前端切页面不丢结果。
+# 必须在 SPA 兜底路由（文件末尾的 /{full_path:path}）之前注册，否则会被它吃掉。
+app.include_router(jobs_router)
 
 # CORS 由 base_app 统一配置（VR_ALLOW_ORIGINS 白名单，默认放开）；
 # 此处不再叠加第二层通配 CORS——两层互相架空会让白名单收紧失效。

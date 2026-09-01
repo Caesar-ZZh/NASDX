@@ -1,4 +1,5 @@
-import { Swords, Play, Square, Save, CheckCircle2, Circle, AlertTriangle } from "lucide-react";
+import { useEffect } from "react";
+import { Swords, Play, Square, Save, CheckCircle2, Circle, AlertTriangle, Timer } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -22,10 +23,15 @@ const DOSSIER_HINT = "多空双方拿到的是同一份接口实时拉取的数�
 export function Debate() {
   const {
     code, rounds, running, status, progress, missing, stages, error, saved,
-    setCode, setRounds, start, stop, save,
+    setCode, setRounds, start, resume, stop, save,
   } = useDebateStore();
 
   const finished = stages.length > 0 && stages.every((s) => s.done);
+
+  // 页面挂载时恢复：上次提交的辩论还没跑完就继续追，跑完了直接看到结果
+  useEffect(() => {
+    resume();
+  }, [resume]);
 
   return (
     <div>
@@ -89,7 +95,19 @@ export function Debate() {
           </p>
         )}
 
-        {status && <p className="mt-3 text-xs text-muted-foreground">{status}</p>}
+        {/* 后台任务提示：辩论在服务端跑，切走不中断 */}
+        {running && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/[0.05] px-3 py-2.5">
+            <Timer className="mt-0.5 h-4 w-4 shrink-0 text-primary/70" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs leading-relaxed text-foreground/90">{status || "辩论已在后台运行…"}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                你可以先去看别的页面，辩论在后台继续；回来这里直接看结果，刷新页面也不丢。
+              </p>
+            </div>
+          </div>
+        )}
+        {status && !running && <p className="mt-3 text-xs text-muted-foreground">{status}</p>}
         {error && (
           <p className="mt-3 flex items-start gap-1.5 text-xs text-destructive">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {error}

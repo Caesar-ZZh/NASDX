@@ -355,6 +355,34 @@ export interface PortfolioPlan {
   disclaimer: string;
 }
 
+// ---- 后台任务（深度分析 / 多空辩论脱离 HTTP 连接执行）----
+// 提交立刻拿 job_id，之后按 cursor 增量轮询；切页面 / 刷新浏览器都不丢结果。
+
+export type JobStatus = "pending" | "running" | "done" | "error" | "cancelled";
+
+export interface JobEvent {
+  type: string;
+  [key: string]: unknown;
+}
+
+export interface JobSnapshot {
+  id: string;
+  kind: string;
+  title: string;
+  params: Record<string, unknown>;
+  status: JobStatus;
+  progress: { message?: string; step?: number; total?: number };
+  events: JobEvent[];
+  cursor: number;
+  /** true = 事件被裁过/游标失效，本次是全量重放，前端需重置本地累积状态 */
+  replay: boolean;
+  result: unknown;
+  error: string;
+  created_at: number;
+  updated_at: number;
+  elapsed: number;
+}
+
 export const api = {
   health: () => get<{ ok: boolean }>("/health"),
   indices: () => get<IndexQuote[]>("/indices", 15_000),
@@ -405,4 +433,15 @@ export const api = {
   // 投资路线：组合级规划（读本地 scan 产物，确定性规则）
   portfolioPlan: (riskProfile = "balanced") =>
     request<{ plan: PortfolioPlan }>("/portfolio/plan", "POST", { risk_profile: riskProfile }, 60_000),
+
+  // ---- 后台任务 ----
+  // 提交很快（只做参数校验 + 建任务），超时给短一点，卡住要能快速失败。
+  startAnalysisJob: (code: string, opts?: { risk_profile?: string; depth?: string }) =>
+    request<{ job_id: string } & JobSnapshot>("/jobs/analysis", "POST", { code, ...(opts ?? {}) }, 15_000),
+  startDebateJob: (code: string, rounds: number, llm: unknown) =>
+    request<{ job_id: string } & JobSnapshot>("/jobs/debate", "POST", { code, rounds, llm }, 15_000),
+  // 轮询很轻，3s 拿不到就当这次没拿到，下一轮再来（不要误判成任务失败）
+  getJob: (jobId: string, cursor = 0) =>
+    get<JobSnapshot>(`/jobs/${jobId}?cursor=${cursor}`, 10_000),
+  cancelJob: (jobId: string) => request<{ ok: boolean } & Partial<JobSnapshot>>(`/jobs/${jobId}`, "DELETE"),
 };

@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Search, Loader2, AlertTriangle, Swords, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { Search, Loader2, AlertTriangle, Swords, TrendingUp, TrendingDown, Minus, Timer } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Disclaimer } from "@/components/ui/Disclaimer";
 import { api, type AnalysisReport, type AnalysisVote } from "@/lib/api";
+import { useBackgroundJob } from "@/hooks/useBackgroundJob";
 import { cn } from "@/lib/utils";
 
 // A 股红涨绿跌：看多=红（涨色），看空=绿（跌色），中性=灰。
@@ -66,28 +67,40 @@ export function DeepAnalysis() {
   const [riskProfile, setRiskProfile] = useState("balanced");
   const [depth, setDepth] = useState("full");
   const [report, setReport] = useState<AnalysisReport | null>(null);
-  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // 后台任务：提交后立刻返回，分析在服务端线程池里跑。
+  // job_id 存在 localStorage —— 切去别的页面、甚至刷新浏览器，
+  // 回来都会自动续上，直接看到结果，不用干等。
+  const job = useBackgroundJob({
+    storageKey: "deep-analysis",
+    start: async () => {
+      const res = await api.startAnalysisJob(code.trim(), { risk_profile: riskProfile, depth });
+      return res.job_id;
+    },
+    onDone: (result) => {
+      setErr(null);
+      setReport((result as { report?: AnalysisReport } | null)?.report ?? null);
+    },
+    onError: (message) => setErr(message),
+  });
 
   const run = async () => {
     if (!/^\d{6}$/.test(code.trim())) {
       setErr("请输入 6 位股票代码，如 600519");
       return;
     }
-    setLoading(true);
     setErr(null);
     setReport(null);
     try {
-      const res = await api.analysis(code.trim(), { risk_profile: riskProfile, depth });
-      setReport(res.report);
+      await job.submit();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "分析失败");
-    } finally {
-      setLoading(false);
+      setErr(e instanceof Error ? e.message : "分析提交失败");
     }
   };
 
   const finalSig = report ? signalMeta(report.final_signal) : null;
+  const busy = job.busy;
 
   return (
     <div>
@@ -113,6 +126,7 @@ export function DeepAnalysis() {
             <select
               value={riskProfile}
               onChange={(e) => setRiskProfile(e.target.value)}
+              disabled={busy}
               className="rounded-lg border border-border bg-background/50 px-3 py-2 text-sm outline-none focus:border-primary/50"
             >
               {RISK_OPTIONS.map((o) => (
@@ -125,6 +139,7 @@ export function DeepAnalysis() {
             <select
               value={depth}
               onChange={(e) => setDepth(e.target.value)}
+              disabled={busy}
               className="rounded-lg border border-border bg-background/50 px-3 py-2 text-sm outline-none focus:border-primary/50"
             >
               <option value="full">完整分析</option>
@@ -134,17 +149,33 @@ export function DeepAnalysis() {
           </label>
           <button
             onClick={run}
-            disabled={loading}
+            disabled={busy}
             className="inline-flex items-center gap-1.5 rounded-lg bg-primary/15 px-4 py-2 text-sm font-medium text-primary shadow-glow hover:bg-primary/25 disabled:opacity-50"
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-            {loading ? "分析中…" : "开始分析"}
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            {busy ? "分析中…" : "开始分析"}
           </button>
         </div>
-        {loading && (
-          <p className="mt-3 text-xs text-muted-foreground">
-            正在执行 5 Agent 研究 + 多空辩论 + 综合研判，通常 30–120 秒（有缓存时更快）…
-          </p>
+
+        {/* 后台任务提示：点了就能走，回来直接看结果 */}
+        {busy && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/[0.05] px-3 py-2.5">
+            <Timer className="mt-0.5 h-4 w-4 shrink-0 text-primary/70" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs leading-relaxed text-foreground/90">
+                {job.progress?.message || "分析已在后台运行…"}
+                {typeof job.progress?.step === "number" && typeof job.progress?.total === "number" && (
+                  <span className="text-muted-foreground">
+                    {" "}（阶段 {job.progress.step}/{job.progress.total}）
+                  </span>
+                )}
+              </p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                你可以先去看别的页面，分析在后台继续；回来这里就是完整结果。
+                {job.elapsed > 0 && ` 已运行 ${job.elapsed}s。`}
+              </p>
+            </div>
+          </div>
         )}
         {err && (
           <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-warning">
@@ -152,7 +183,7 @@ export function DeepAnalysis() {
             <span className="flex-1">{err}</span>
             <button
               onClick={run}
-              disabled={loading}
+              disabled={busy}
               className="rounded border border-warning/40 px-2 py-0.5 text-xs hover:bg-warning/10"
             >
               重试
