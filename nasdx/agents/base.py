@@ -36,9 +36,13 @@ class BaseAgent:
         self.state = AgentState.RUNNING
         self.memory.clear()
 
-        # 注入股票基础信息
+        # 注入股票基础信息。若 _build_context 返回空字符串（子类刻意为之或
+        # 实现遗漏），不要把空 user 消息塞进 memory——OpenAI 兼容网关（Agnes /
+        # DeepSeek / Qwen 等）会把空 content 的 user 消息判定为 invalid_request
+        # 直接 400，导致整个 Agent 卡片显示「分析失败: LLM 请求无效」。
         intro = self._build_context(stock_code, stock_data)
-        self.memory.add_message(Message.user_message(intro))
+        if intro and intro.strip():
+            self.memory.add_message(Message.user_message(intro))
 
         try:
             result = self._analyze(stock_code, stock_data)

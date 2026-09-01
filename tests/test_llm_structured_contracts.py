@@ -316,6 +316,70 @@ class LLMStructuredContractsTest(unittest.TestCase):
         ]:
             self.assertNotIn("_parse_signal", agent_class.__dict__, agent_class.__name__)
 
+    def test_sector_intro_is_non_empty(self):
+        """修复：sector Agent 之前 _build_context 返回空字符串，导致
+        BaseAgent.run() 向 LLM 发出首条 content 为空的 user 消息，
+        Agnes / DeepSeek 等网关返回 400，整张 sector 卡片显示
+        「分析失败：LLM 请求无效」。见 issue 截图。"""
+        agent = SectorAgent()
+        intro = agent._build_context(
+            "688123",
+            {"name": "某 ETF", "sector_name": "半导体", "indicators": {"change_pct": 0.5}},
+        )
+        self.assertTrue(intro and intro.strip(), "sector intro must be non-empty")
+        # 内容里至少要有 stock_code 和 sector_name，方便审计 / 回溯。
+        self.assertIn("688123", intro)
+        self.assertIn("半导体", intro)
+
+    def test_base_agent_skips_empty_intro_message(self):
+        """防御：BaseAgent.run() 必须跳过空字符串 intro，否则会把空 user
+        消息交给网关，触发 invalid_request。子类即便忘了实现 _build_context，
+        也不应让整个 Agent 因 400 全部失败。"""
+
+        class EmptyIntroAgent(BaseAgent):
+            name = "empty_intro_agent"
+            description = "测试用：刻意返回空 intro"
+
+            @property
+            def dimension(self) -> str:
+                return "empty_intro"
+
+            def _build_context(self, stock_code, stock_data):  # noqa: D401
+                return ""
+
+            def _analyze(self, stock_code, stock_data):
+                # 不实际调用 LLM，只验证 memory 没有空 user 消息。
+                self.memory.add_message(
+                    __import__("nasdx.schema", fromlist=["Message"]).Message.user_message(
+                        "实际分析 prompt"
+                    )
+                )
+                from nasdx.schema import AnalysisResult
+
+                return AnalysisResult(
+                    agent_name=self.name,
+                    dimension=self.dimension,
+                    conclusion="ok",
+                    signal="neutral",
+                    confidence=0.5,
+                    key_points=[],
+                )
+
+        agent = EmptyIntroAgent()
+        result = agent.run("600000", {"name": "测试", "sector_name": "X"})
+
+        self.assertEqual(result.conclusion, "ok")
+        messages = agent.memory.to_list()
+        # _build_context 返回空 → BaseAgent 必须跳过；剩余 memory 中不应有
+        # content 为空的 user 消息，避免触发网关 400。
+        for msg in messages:
+            self.assertTrue(
+                msg["content"] and msg["content"].strip(),
+                f"non-empty content expected, got {msg!r}",
+            )
+        # 没有 _build_context 的消息记录，但 _analyze 注入的真实 prompt 必须保留。
+        self.assertTrue(any("实际分析 prompt" in m["content"] for m in messages))
+
 
 if __name__ == "__main__":
     unittest.main()
