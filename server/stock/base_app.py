@@ -31,7 +31,7 @@ import portfolio as pf
 import reflection as reflect_layer
 import ios_api  # NASDX iOS 专用契约层（/api/v1/ios/*）
 
-app = FastAPI(title="Cosmos API", version="0.3.0")
+app = FastAPI(title="Cosmos API", version="0.3.1")
 app.include_router(quant_router.router)
 
 # 每半小时后台刷新持仓数据
@@ -87,7 +87,7 @@ def _validate(code: str) -> str:
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "service": "cosmos-api", "version": "0.3.0"}
+    return {"ok": True, "service": "cosmos-api", "version": "0.3.1"}
 
 
 class LLMConfig(BaseModel):

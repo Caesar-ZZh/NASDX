@@ -34,7 +34,7 @@ class SleepingAgent:
 
 class ArchitectureContractTests(unittest.TestCase):
     def test_cosmos_release_version_is_synchronized(self):
-        expected = "0.3.0"
+        expected = "0.3.1"
         package = json.loads((ROOT / "frontend" / "package.json").read_text(encoding="utf-8"))
         package_lock = json.loads((ROOT / "frontend" / "package-lock.json").read_text(encoding="utf-8"))
         layout_source = (ROOT / "frontend" / "src" / "components" / "layout" / "Layout.tsx").read_text(

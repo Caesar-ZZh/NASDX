@@ -2,10 +2,40 @@
 BaseAgent — 所有专家 Agent 的抽象基类
 同步版（无 asyncio），直接调用 LLM
 """
+import re
+import time
 from abc import abstractmethod
 from typing import Any, Dict, Optional, Tuple
 from nasdx.schema import AgentState, AnalysisResult, Memory, Message
 from nasdx.llm import extract_json_payload, llm
+
+
+# Agent 层外层重试开关。LLM 客户端在单次 ask() 内部已有 5 次重试 + fallback；
+# 但当 5 次全部失败时，丢整张卡片对单只股票的影响太大——绝大多数瞬时抖动
+# （request_timeout / rate_limit / 上游限流）在 2s 后再试就能恢复。详见
+# test_llm_structured_contracts 中的 test_agent_retries_once_on_transient
+# 与 test_agent_does_not_retry_invalid_request。
+_AGENT_RETRY_DELAY_SECONDS = 2.0
+# 决定是否值得重试的错误分类：与 LLMClient 内部的 _classify_api_error 一致。
+# invalid_request (400/422 等) 是请求本身有问题，重试不会恢复；authentication
+# 是凭证问题，重试同样不会恢复；其余全部按瞬时错误处理。
+# llm.py 的中文报错用全角括号「（）」，按 ASCII / 全角都接住。
+_TRANSIENT_CLASSIFICATION_RE = re.compile(
+    r"[(（](?:错误分类|classification)[：:](?P<cls>[a-z_]+)[)）]"
+)
+_NON_RETRYABLE_CLASSIFICATIONS = frozenset({"invalid_request", "authentication", "fatal"})
+
+
+def _should_retry_agent(error_message: str) -> bool:
+    """判断 Agent 层外层是否值得重试：仅在错误属于瞬时类（timeout / rate /
+    transient / elapsed budget）时返回 True；invalid_request / auth / fatal 直接吞。
+    """
+    match = _TRANSIENT_CLASSIFICATION_RE.search(error_message or "")
+    if not match:
+        # 没有分类信息说明不是 LLMClient 抛出的——通常是 _analyze 内部别的代码
+        # 路径，比如 _parse_structured_signal 之类的本地错误，没必要重试。
+        return False
+    return match.group("cls") not in _NON_RETRYABLE_CLASSIFICATIONS
 
 
 class BaseAgent:
@@ -44,20 +74,37 @@ class BaseAgent:
         if intro and intro.strip():
             self.memory.add_message(Message.user_message(intro))
 
-        try:
-            result = self._analyze(stock_code, stock_data)
-            self.state = AgentState.FINISHED
-            return result
-        except Exception as e:
-            self.state = AgentState.ERROR
-            return AnalysisResult(
-                agent_name=self.name,
-                dimension=self.dimension,
-                conclusion=f"分析失败：{e}",
-                signal="neutral",
-                confidence=0.0,
-                key_points=[],
-            )
+        # Agent 层外层重试：LLM 客户端内部 5 次重试全部失败时，丢整张卡片对
+        # 深度分析的影响不可接受（risk / sector 等单点失败会让最终看多占比失真）。
+        # 绝大多数瞬时抖动 2s 后再试一次就能恢复；invalid_request / auth 这类
+        # 确定性错误不重试，避免拖慢整体节奏。
+        last_error: Optional[BaseException] = None
+        retried = False
+        for attempt in (1, 2):
+            try:
+                result = self._analyze(stock_code, stock_data)
+                self.state = AgentState.FINISHED
+                return result
+            except Exception as e:
+                last_error = e
+                if attempt == 1 and _should_retry_agent(str(e)):
+                    retried = True
+                    time.sleep(_AGENT_RETRY_DELAY_SECONDS)
+                    self.memory.clear()
+                    if intro and intro.strip():
+                        self.memory.add_message(Message.user_message(intro))
+                    continue
+                break
+        self.state = AgentState.ERROR
+        suffix = "（已重试 1 次）" if retried else ""
+        return AnalysisResult(
+            agent_name=self.name,
+            dimension=self.dimension,
+            conclusion=f"分析失败：{last_error}{suffix}",
+            signal="neutral",
+            confidence=0.0,
+            key_points=[],
+        )
 
     @property
     def dimension(self) -> str:

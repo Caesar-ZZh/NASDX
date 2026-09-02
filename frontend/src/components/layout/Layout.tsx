@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { storageGet, storageSet } from "@/lib/storage";
 
-const APP_VERSION = "v0.3.0";
+const APP_VERSION = "v0.3.1";
 const REPO_URL = "https://github.com/Caesar-ZZh/cosmos";
 // 作者联系方式
 const X_URL = "https://github.com/Caesar-ZZh";
