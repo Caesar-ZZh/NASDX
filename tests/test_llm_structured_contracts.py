@@ -380,6 +380,118 @@ class LLMStructuredContractsTest(unittest.TestCase):
         # 没有 _build_context 的消息记录，但 _analyze 注入的真实 prompt 必须保留。
         self.assertTrue(any("实际分析 prompt" in m["content"] for m in messages))
 
+    def test_agent_retries_once_on_transient_llm_failure(self):
+        """修复：risk 卡片之前显示「所有模型均不可用（request_timeout）」，根因
+        是 LLM 客户端 5 次内部重试 + fallback 全部被上游吃掉。BaseAgent.run
+        加一层外层重试：瞬时分类（request_timeout / rate_limit / transient /
+        elapsed_budget_exhausted）下重试 1 次、间隔 2s，让单点抖动不至于让
+        整张卡片永久失败。"""
+        from nasdx.agents.base import _AGENT_RETRY_DELAY_SECONDS
+
+        class FlakyAgent(BaseAgent):
+            name = "flaky_agent"
+            description = "测试用：第一次抛 transient，第二次成功"
+
+            @property
+            def dimension(self) -> str:
+                return "flaky"
+
+            def _build_context(self, stock_code, stock_data):
+                return "intro"
+
+            def __init__(self):
+                super().__init__()
+                self.calls = 0
+
+            def _analyze(self, stock_code, stock_data):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError(
+                        "所有模型均不可用（错误分类：request_timeout）"
+                    )
+                from nasdx.schema import AnalysisResult
+
+                return AnalysisResult(
+                    agent_name=self.name,
+                    dimension=self.dimension,
+                    conclusion="recovered",
+                    signal="neutral",
+                    confidence=0.5,
+                    key_points=["ok"],
+                )
+
+        agent = FlakyAgent()
+        with patch("time.sleep", return_value=None) as sleep:
+            result = agent.run("600000", {"name": "测试", "sector_name": "X"})
+
+        self.assertEqual(result.conclusion, "recovered")
+        self.assertEqual(agent.calls, 2)
+        sleep.assert_called_once_with(_AGENT_RETRY_DELAY_SECONDS)
+
+    def test_agent_does_not_retry_invalid_request(self):
+        """invalid_request / authentication / fatal 是请求/凭证层面的确定性错误，
+        再重试只会拖慢节奏还照样失败——BaseAgent.run 必须直接吞，不重试。"""
+
+        class BadRequestAgent(BaseAgent):
+            name = "bad_request_agent"
+            description = "测试用：模拟 LLM 返回 invalid_request"
+
+            @property
+            def dimension(self) -> str:
+                return "bad_request"
+
+            def _build_context(self, stock_code, stock_data):
+                return "intro"
+
+            def __init__(self):
+                super().__init__()
+                self.calls = 0
+
+            def _analyze(self, stock_code, stock_data):
+                self.calls += 1
+                raise RuntimeError("LLM 请求无效，请检查模型、上下文长度和请求参数")
+
+        agent = BadRequestAgent()
+        with patch("time.sleep", return_value=None) as sleep:
+            result = agent.run("600000", {"name": "测试", "sector_name": "X"})
+
+        self.assertEqual(agent.calls, 1, "invalid_request 不应触发第二次 _analyze")
+        self.assertIn("分析失败", result.conclusion)
+        # invalid_request 是确定性错误，未触发重试 → 提示语不带「已重试 1 次」。
+        self.assertNotIn("已重试", result.conclusion)
+        sleep.assert_not_called()
+
+    def test_agent_retry_failure_mentions_attempted_retry(self):
+        """重试之后仍然失败时，conclusion 必须显式告知「已重试 1 次」，避免用户
+        把 1 次抖动误判成永久不可用。"""
+
+        class PersistentFailureAgent(BaseAgent):
+            name = "persistent_failure_agent"
+            description = "测试用：两次都抛 transient"
+
+            @property
+            def dimension(self) -> str:
+                return "persistent_failure"
+
+            def _build_context(self, stock_code, stock_data):
+                return "intro"
+
+            def __init__(self):
+                super().__init__()
+                self.calls = 0
+
+            def _analyze(self, stock_code, stock_data):
+                self.calls += 1
+                raise RuntimeError("所有模型均不可用（错误分类：request_timeout）")
+
+        agent = PersistentFailureAgent()
+        with patch("time.sleep", return_value=None):
+            result = agent.run("600000", {"name": "测试", "sector_name": "X"})
+
+        self.assertEqual(agent.calls, 2)
+        self.assertIn("分析失败", result.conclusion)
+        self.assertIn("已重试 1 次", result.conclusion)
+
 
 if __name__ == "__main__":
     unittest.main()
