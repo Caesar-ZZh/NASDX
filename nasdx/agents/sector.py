@@ -23,7 +23,20 @@ class SectorAgent(BaseAgent):
         return "sector"
 
     def _build_context(self, stock_code: str, stock_data: Dict[str, Any]) -> str:
-        return ""  # 板块 Agent 使用完整板块数据，context 在 _analyze 中构建
+        # 即使板块分析在 _analyze 中已经构建了完整 sector context，这里仍要返回
+        # 非空字符串：BaseAgent.run() 会把它当第一条 user 消息塞进 memory，
+        # 空内容会让 OpenAI 兼容网关（Agnes / DeepSeek / Qwen 等）报 400
+        # 「LLM 请求无效」。详见 test_llm_structured_contracts.py 中的
+        # test_sector_intro_is_non_empty 回归测试。
+        name = stock_data.get("name", "")
+        sector_name = stock_data.get("sector_name", "未知板块")
+        change_pct = stock_data.get("indicators", {}).get("change_pct")
+        change_pct_str = f"{change_pct:+.2f}%" if isinstance(change_pct, (int, float)) else "N/A"
+        return (
+            f"股票：{stock_code} {name}（{sector_name}板块）\n"
+            f"该股当日涨跌：{change_pct_str}\n"
+            "板块整体表现 / 板块内分化 / ETF 资金态度将在下一轮 user 消息中给出。"
+        )
 
     def run_sector(
         self,

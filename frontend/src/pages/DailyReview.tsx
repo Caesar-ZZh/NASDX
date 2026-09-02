@@ -209,7 +209,8 @@ export function DailyReview() {
       {/* 1. 大盘指数（实时） */}
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-muted-foreground">大盘指数</h3>
-        <button onClick={loadIndices} className="text-muted-foreground hover:text-primary" title="刷新"><RefreshCw className="h-3.5 w-3.5" /></button>
+        {/* 图标只有 14px，外面套 32px 触控区，不然手指点不到 */}
+        <button onClick={loadIndices} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-primary" title="刷新" aria-label="刷新指数"><RefreshCw className="h-3.5 w-3.5" /></button>
       </div>
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {indices.length === 0
@@ -253,7 +254,7 @@ export function DailyReview() {
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-muted-foreground">关注股票</h3>
         {watchCodes.length > 0 && (
-          <button onClick={() => refreshWatch(watchCodes)} className="text-muted-foreground hover:text-primary" title="刷新价格">
+          <button onClick={() => refreshWatch(watchCodes)} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-primary" title="刷新价格" aria-label="刷新价格">
             {watchLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           </button>
         )}
@@ -265,7 +266,7 @@ export function DailyReview() {
             onChange={(e) => setWatchInput(e.target.value.replace(/[^\d,\s]/g, "").slice(0, 80))}
             onKeyDown={(e) => e.key === "Enter" && addWatch()}
             placeholder="加自选：可批量，如 600519 000858"
-            className="w-60 rounded-lg border border-border bg-black/20 px-3 py-2 text-sm outline-none focus:border-primary/50"
+            className="min-w-0 flex-1 rounded-lg border border-border bg-black/20 px-3 py-2 text-sm outline-none focus:border-primary/50 sm:w-60 sm:flex-none"
           />
           <button onClick={addWatch}
             className="inline-flex items-center gap-1.5 rounded-lg bg-primary/15 px-4 py-2 text-sm font-medium text-primary shadow-glow hover:bg-primary/25">
@@ -280,8 +281,10 @@ export function DailyReview() {
               const q = watchQuotes[c];
               return (
                 <div key={c} className="group relative rounded-lg bg-muted/25 p-3">
-                  <button onClick={() => removeWatch(c)} title="移除"
-                    className="absolute right-1.5 top-1.5 text-muted-foreground/40 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100">
+                  {/* 触屏没有 hover：移动端常显删除按钮，桌面端才走 hover 显隐。
+                      同时用 h-8 w-8 撑出触控区，图标仍保持 14px 不抢视觉。 */}
+                  <button onClick={() => removeWatch(c)} title="移除" aria-label={`移除 ${q?.name || c}`}
+                    className="absolute right-1 top-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/40 transition-colors hover:text-destructive md:right-1.5 md:top-1.5 md:opacity-0 md:group-hover:opacity-100">
                     <X className="h-3.5 w-3.5" />
                   </button>
                   <p className="truncate text-xs text-muted-foreground">{q?.name || c}</p>
@@ -334,7 +337,7 @@ export function DailyReview() {
         {overview?.updated && <span className="text-[11px] text-muted-foreground/40">· 更新 {overview.updated.slice(11, 16)}</span>}
         <button
           onClick={loadOverview}
-          className="ml-auto inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+          className="ml-auto inline-flex items-center gap-1 rounded px-2 py-2 text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground md:py-0.5"
           title="刷新市场情绪"
         >
           <RefreshCw className="h-3 w-3" /> 刷新
@@ -461,24 +464,28 @@ export function DailyReview() {
                 <p className="text-xs text-muted-foreground/50">今日无 2 板以上个股</p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-xs sm:text-sm">
                     <thead>
-                      <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
+                      <tr className="border-b border-border/50 text-left text-[11px] text-muted-foreground sm:text-xs">
                         {["名称", "连板", "现价", "涨停%", "成交额", "流通市值", "概念"].map((h) => (
-                          <th key={h} className="whitespace-nowrap px-2 py-2 font-medium">{h}</th>
+                          <th key={h} className="whitespace-nowrap px-1.5 py-2 font-medium sm:px-2">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {emotion.lianban_stocks.map((s) => (
                         <tr key={s.code} className="border-b border-border/30">
-                          <td className="px-2 py-2"><span className="font-medium">{s.name}</span> <span className="text-xs text-muted-foreground/50">{s.code}</span></td>
-                          <td className="whitespace-nowrap px-2 py-2 font-mono font-bold text-primary">{s.boards} 板</td>
-                          <td className="px-2 py-2 font-mono">{s.price}</td>
-                          <td className="px-2 py-2 font-mono text-danger">+{s.pct}%</td>
-                          <td className="whitespace-nowrap px-2 py-2 font-mono text-muted-foreground">{yi(s.amount)}</td>
-                          <td className="whitespace-nowrap px-2 py-2 font-mono text-muted-foreground">{yi(s.float_cap)}</td>
-                          <td className="whitespace-nowrap px-2 py-2 text-xs text-muted-foreground">{s.industry}</td>
+                          {/* 名称+代码用 inline-block + whitespace-nowrap 锁住，避免 6 位代码也按数字断行 */}
+                          <td className="whitespace-nowrap px-1.5 py-2 sm:px-2">
+                            <span className="font-medium">{s.name}</span>{" "}
+                            <span className="text-xs text-muted-foreground/50">{s.code}</span>
+                          </td>
+                          <td className="whitespace-nowrap px-1.5 py-2 font-mono font-bold text-primary sm:px-2">{s.boards} 板</td>
+                          <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums sm:px-2">{s.price}</td>
+                          <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums text-danger sm:px-2">+{s.pct}%</td>
+                          <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums text-muted-foreground sm:px-2">{yi(s.amount)}</td>
+                          <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums text-muted-foreground sm:px-2">{yi(s.float_cap)}</td>
+                          <td className="whitespace-nowrap px-1.5 py-2 text-xs text-muted-foreground sm:px-2">{s.industry}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -501,26 +508,30 @@ export function DailyReview() {
           pending(toDone, toError, loadTurnover)
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs sm:text-sm">
               <thead>
-                <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
+                <tr className="border-b border-border/50 text-left text-[11px] text-muted-foreground sm:text-xs">
                   {["#", "名称", "现价", "涨跌%", "成交额", "总市值", "行业"].map((h) => (
-                    <th key={h} className="whitespace-nowrap px-2 py-2 font-medium">{h}</th>
+                    <th key={h} className="whitespace-nowrap px-1.5 py-2 font-medium sm:px-2">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {turnover.stocks.map((s, i) => (
                   <tr key={s.code} className="border-b border-border/30">
-                    <td className="px-2 py-2 font-mono text-xs text-muted-foreground/50">{i + 1}</td>
-                    <td className="px-2 py-2"><span className="font-medium">{s.name}</span> <span className="text-xs text-muted-foreground/50">{s.code}</span></td>
-                    <td className="px-2 py-2 font-mono">{s.price ?? "—"}</td>
-                    <td className={cn("px-2 py-2 font-mono", s.pct == null ? "text-muted-foreground" : pctColor(s.pct))}>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-mono text-xs text-muted-foreground/50 tabular-nums sm:px-2">{i + 1}</td>
+                    {/* 名称+代码用 whitespace-nowrap 锁住，避免 6 位代码按数字断行 */}
+                    <td className="whitespace-nowrap px-1.5 py-2 sm:px-2">
+                      <span className="font-medium">{s.name}</span>{" "}
+                      <span className="text-xs text-muted-foreground/50">{s.code}</span>
+                    </td>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums sm:px-2">{s.price ?? "—"}</td>
+                    <td className={cn("whitespace-nowrap px-1.5 py-2 font-mono tabular-nums sm:px-2", s.pct == null ? "text-muted-foreground" : pctColor(s.pct))}>
                       {s.pct == null ? "—" : `${s.pct > 0 ? "+" : ""}${s.pct}%`}
                     </td>
-                    <td className="whitespace-nowrap px-2 py-2 font-mono">{yi(s.amount)}</td>
-                    <td className="whitespace-nowrap px-2 py-2 font-mono text-muted-foreground">{yi(s.mcap)}</td>
-                    <td className="whitespace-nowrap px-2 py-2 text-xs text-muted-foreground">{s.industry}</td>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums sm:px-2">{yi(s.amount)}</td>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums text-muted-foreground sm:px-2">{yi(s.mcap)}</td>
+                    <td className="whitespace-nowrap px-1.5 py-2 text-xs text-muted-foreground sm:px-2">{s.industry}</td>
                   </tr>
                 ))}
               </tbody>
@@ -539,23 +550,25 @@ export function DailyReview() {
           renderOverviewEmpty()
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            {/* 移动端字号小、列紧、单元格强制不换行——避免「半」「导」单字断行。
+                行业列给 min-w 撑住 2-4 个中文；数字列用 tabular-nums 让小数点对齐。 */}
+            <table className="w-full text-xs sm:text-sm">
               <thead>
-                <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
-                  {["行业", "涨跌%", "今日净流入", "流入", "流出", "家数"].map((h) => (
-                    <th key={h} className="whitespace-nowrap px-2 py-2 font-medium">{h}</th>
+                <tr className="border-b border-border/50 text-left text-[11px] text-muted-foreground sm:text-xs">
+                  {["行业", "涨跌%", "净流入(亿)", "流入", "流出", "家数"].map((h) => (
+                    <th key={h} className="whitespace-nowrap px-1.5 py-2 font-medium sm:px-2">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {sectors.slice(0, 15).map((s) => (
                   <tr key={s.name} className="border-b border-border/30">
-                    <td className="px-2 py-2 font-medium">{s.name}</td>
-                    <td className={cn("px-2 py-2 font-mono", pctColor(s.pct))}>{s.pct > 0 ? "+" : ""}{s.pct}%</td>
-                    <td className={cn("px-2 py-2 font-mono", pctColor(s.net))}>{s.net > 0 ? "+" : ""}{fmt(s.net)} 亿</td>
-                    <td className="px-2 py-2 font-mono text-muted-foreground">{fmt(s.inflow)}</td>
-                    <td className="px-2 py-2 font-mono text-muted-foreground">{fmt(s.outflow)}</td>
-                    <td className="px-2 py-2 font-mono text-muted-foreground">{s.firms}</td>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-medium sm:px-2">{s.name}</td>
+                    <td className={cn("whitespace-nowrap px-1.5 py-2 font-mono tabular-nums sm:px-2", pctColor(s.pct))}>{s.pct > 0 ? "+" : ""}{s.pct}%</td>
+                    <td className={cn("whitespace-nowrap px-1.5 py-2 font-mono tabular-nums sm:px-2", pctColor(s.net))}>{s.net > 0 ? "+" : ""}{fmt(s.net)}亿</td>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums text-muted-foreground sm:px-2">{fmt(s.inflow)}</td>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums text-muted-foreground sm:px-2">{fmt(s.outflow)}</td>
+                    <td className="whitespace-nowrap px-1.5 py-2 font-mono tabular-nums text-muted-foreground sm:px-2">{s.firms}</td>
                   </tr>
                 ))}
               </tbody>

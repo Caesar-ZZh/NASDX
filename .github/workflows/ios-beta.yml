@@ -1,0 +1,111 @@
+name: iOS CI / Release
+
+on:
+  push:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-beta.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'build | beta | bootstrap-signing'
+        required: true
+        default: 'beta'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (simulator, no signing)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Select latest Xcode
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: latest-stable
+      - name: Install tooling
+        # 只装 xcodegen：xcpretty 已从 Homebrew 下架，安装会让整条流水线红灯。
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+      - name: Build for Simulator
+        # 原实现把输出 pipe 给 xcpretty（已下架）。改用 xcodebuild -quiet：
+        # 只输出错误与警告，日志更短且不再依赖外部工具。
+        run: xcodebuild -quiet build -scheme NASDX -destination 'generic/platform=iOS Simulator' -configuration Debug CODE_SIGNING_ALLOWED=NO
+      - name: SwiftPM Core tests (optional)
+        run: swift test 2>/dev/null || true
+
+  bootstrap-signing:
+    name: Bootstrap signing (match init)
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'bootstrap-signing'
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ios
+    env:
+      BUNDLE_IDENTIFIER: ${{ secrets.BUNDLE_IDENTIFIER }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+      APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY_ID }}
+      APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY }}
+      FASTLANE_MATCH_GIT_URL: ${{ secrets.FASTLANE_MATCH_GIT_URL }}
+      FASTLANE_MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.FASTLANE_MATCH_GIT_BASIC_AUTHORIZATION }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      FASTLANE_PASSWORD: ${{ secrets.FASTLANE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: latest-stable
+      - run: brew install xcodegen
+      - run: xcodegen generate --spec project.yml
+      - run: bundle install
+      - run: bundle exec fastlane match_init
+
+  beta:
+    name: Build & TestFlight
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'beta'
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ios
+    env:
+      BUNDLE_IDENTIFIER: ${{ secrets.BUNDLE_IDENTIFIER }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+      APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY_ID }}
+      APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY }}
+      FASTLANE_MATCH_GIT_URL: ${{ secrets.FASTLANE_MATCH_GIT_URL }}
+      FASTLANE_MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.FASTLANE_MATCH_GIT_BASIC_AUTHORIZATION }}
+      MATCH_READONLY: ${{ secrets.MATCH_READONLY }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      FASTLANE_PASSWORD: ${{ secrets.FASTLANE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: latest-stable
+      - run: brew install xcodegen
+      - run: xcodegen generate --spec project.yml
+      - run: bundle install
+      - run: bundle exec fastlane beta

@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import urllib.request
 import xml.etree.ElementTree as ET
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 
@@ -60,7 +61,9 @@ def _fetch_source(src: dict, per: int, cutoff, redline: list[str]):
             "User-Agent": UA,
             "Accept": "application/rss+xml,application/atom+xml,application/xml,text/xml,*/*",
         })
-        with urllib.request.urlopen(req, timeout=14) as r:
+        # 单源 timeout 5s：14s 在源不可达时会拖慢整批（108 源 ÷ 40 并发 × 14s ≈ 42s，
+        # 加上 SSL/重试可能超 60s，触发前端超时）。5s 足够国内外正常 RSS，失败即放弃。
+        with urllib.request.urlopen(req, timeout=5) as r:
             raw = r.read()
         root = ET.fromstring(raw)
         out = []
@@ -117,14 +120,55 @@ def fetch_radar() -> dict:
         for s in pool:
             tasks.append((i, s))
 
-    with ThreadPoolExecutor(max_workers=40) as ex:
-        results = list(ex.map(lambda t: (t[0], _fetch_source(t[1], per, cutoff, redline)), tasks))
+    # 跨 industry shuffle：原顺序按 industry 0..11 排，导致大池子（科技 18、AI 16、财经 13）
+    # 排在末批，30 worker 跑前两批就被卡到 40s timeout 时还没轮到它们。
+    # 混排后每批都包含各 industry 的源，公平分配 worker 时间窗口。
+    random.seed(42)  # 固定种子，让结果可复现（debug 时稳定）
+    random.shuffle(tasks)
 
-    failed = 0
-    for idx, items in results:
-        if items is None:
-            failed += 1
-            continue
+    ex = ThreadPoolExecutor(max_workers=30)
+    try:
+        # 用 dict 关联 future ↔ (产业下标)，便于按 idx 收集结果
+        futures = {ex.submit(_fetch_source, s, per, cutoff, redline): (i, s)
+                   for i, s in tasks}
+        # 预初始化每个 industry 为空 list：失败源不影响同 industry 其他源累积。
+        # 之前的 bug：失败源标 None 之后，同 industry 后续成功的 yield 被 `=` 覆盖，
+        # 导致 AI 16 源 11 成功时最终 items=0——只保留了最后一次 yield 的 list。
+        results_by_idx: dict[int, list] = {i: [] for i in range(len(industries))}
+        failed_sources = 0  # 全局 source 维度计数（无论 industry 怎么分布）
+        # 整体 40s 硬上限：AI/大模型有 16 源、其他赛道 5-9 源，108 源 ÷ 30 并发 × 5s ≈ 18s
+        # 足够覆盖大部分；20s 留白给大源（OpenAI 700KB 解析 1-2s）写盘等。
+        # 前端 /api/radar/refresh 60s 兜底，余 20s 给 shutdown + 序列化。
+        # 原实现 list(ex.map(...)) 会等所有 future 跑完，108 源全不可达时 ≈42s 起；
+        # 改 wait-as_completed 后失败源即时计入 failed_sources，不阻塞返回。
+        try:
+            for fut in as_completed(futures, timeout=40):
+                i, _s = futures[fut]
+                try:
+                    r = fut.result()
+                except Exception:
+                    r = None
+                if r is None:
+                    failed_sources += 1
+                else:
+                    results_by_idx[i].extend(r)
+        except Exception:
+            # 注意：Python 3.10 的 concurrent.futures.TimeoutError 不继承 builtin TimeoutError
+            # （3.11+ 才继承），用 except Exception 兜底才能稳定捕获。
+            # 40s 到了，剩下的全部计入 failed_sources
+            for fut in futures:
+                if not fut.done():
+                    fut.cancel()
+                    failed_sources += 1
+    finally:
+        # 关键：wait=False 让 fetch_radar 立即返回。with 块默认 wait=True 会卡到
+        # 所有已 submit 的 future 跑完（包括被 cancel 失败的、socket 还 hang 的），
+        # 在 uvicorn 长跑进程里这会让 POST /api/radar/refresh 一直阻塞到 30s+。
+        # 已启动的 future 仍会跑完才释放 socket —— 这是可接受的代价。
+        ex.shutdown(wait=False)
+
+    failed = failed_sources
+    for idx, items in results_by_idx.items():
         industries[idx]["items"].extend(items)
     for ind in industries:
         ind["items"].sort(key=lambda x: x.get("ts", 0), reverse=True)

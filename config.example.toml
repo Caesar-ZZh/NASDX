@@ -5,13 +5,14 @@
 # 不要把真实 config.toml、.env 或 API Key 提交到 Git。
 
 [llm]
-# 支持任何 OpenAI 兼容接口：DeepSeek / Qwen / GPT-4o / Ollama
-api_key   = ""
-base_url  = "https://api.deepseek.com"    # DeepSeek（推荐，低成本）
-# base_url = "https://api.openai.com/v1" # OpenAI
-# base_url = "http://localhost:11434/v1"  # Ollama 本地
-model     = "deepseek-chat"
-fallback_models = "deepseek-reasoner,deepseek-chat" # 非 DeepSeek 提供商建议留空或显式填写其支持模型
+# 支持任何 OpenAI 兼容接口：Agnes / DeepSeek / Qwen / GPT-4o / Ollama
+api_key   = ""    # 必填；Agnes AI 平台获取：https://apihub.agnes-ai.com
+base_url  = "https://apihub.agnes-ai.com/v1"   # Agnes AI（默认模型）
+# base_url = "https://api.deepseek.com"         # DeepSeek（低成本备选）
+# base_url = "https://api.openai.com/v1"        # OpenAI
+# base_url = "http://localhost:11434/v1"        # Ollama 本地
+model     = "agnes-2.5-flash"
+fallback_models = "" # 非 Agnes 提供商时留空或显式填写其支持模型
 # model   = "gpt-4o"
 # model   = "qwen2.5:14b"
 max_tokens  = 4096

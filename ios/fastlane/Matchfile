@@ -1,0 +1,6 @@
+# fastlane Matchfile — NASDX iOS 签名证书/描述文件（存于独立私有 git 仓库）
+git_url(ENV["FASTLANE_MATCH_GIT_URL"])
+storage_mode("git")
+type("appstore")
+app_identifier(ENV.fetch("BUNDLE_IDENTIFIER", "com.nasdx.ios"))
+username(ENV["APPLE_ID"])

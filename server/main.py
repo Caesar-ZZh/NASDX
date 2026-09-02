@@ -17,6 +17,11 @@ from fastapi import HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
 from base_app import app
+from server.jobs_api import router as jobs_router
+
+# 后台任务：慢分析（深度分析 / 多空辩论）脱离 HTTP 连接执行，前端切页面不丢结果。
+# 必须在 SPA 兜底路由（文件末尾的 /{full_path:path}）之前注册，否则会被它吃掉。
+app.include_router(jobs_router)
 
 # CORS 由 base_app 统一配置（VR_ALLOW_ORIGINS 白名单，默认放开）；
 # 此处不再叠加第二层通配 CORS——两层互相架空会让白名单收紧失效。
@@ -35,6 +40,18 @@ async def serve_spa(full_path: str):
     if full_path.startswith("api/"):
         raise HTTPException(status_code=404, detail="not found")
 
+    # 路径归一化防穿越：URL 里的 ../（含 %2e%2e 编码变体）与绝对路径注入，
+    # 解析后必须仍落在 dist 内；越界一律 404，绝不回退 index.html 掩盖攻击面。
+    #
+    # 必须排在 dist 存在性检查之前：否则前端未构建（CI、全新克隆）时越界请求
+    # 会先拿到 200 的「尚未构建」提示，防护形同虚设，安全性随构建状态漂移。
+    try:
+        candidate = (_DIST / full_path).resolve()
+    except OSError:
+        candidate = None
+    if candidate is None or not candidate.is_relative_to(_DIST):
+        raise HTTPException(status_code=404, detail="not found")
+
     if not _DIST.exists():
         return JSONResponse(
             status_code=200,
@@ -44,14 +61,6 @@ async def serve_spa(full_path: str):
             },
         )
 
-    # 路径归一化防穿越：URL 里的 ../（含 %2e%2e 编码变体）与绝对路径注入，
-    # 解析后必须仍落在 dist 内；越界一律 404，绝不回退 index.html 掩盖攻击面。
-    try:
-        candidate = (_DIST / full_path).resolve()
-    except OSError:
-        candidate = None
-    if candidate is None or not candidate.is_relative_to(_DIST):
-        raise HTTPException(status_code=404, detail="not found")
     if candidate.is_file():
         return FileResponse(str(candidate))
     # 非文件请求（如 /stock-data/600519）回退到 index.html，交由 React Router 处理

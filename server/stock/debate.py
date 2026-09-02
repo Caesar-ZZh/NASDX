@@ -120,17 +120,33 @@ def collect_dossier(code: str):
     par = [s for s in _DOSSIER_SPEC if s[3]]
     seq = [s for s in _DOSSIER_SPEC if not s[3]]
 
-    with ThreadPoolExecutor(max_workers=_PARALLEL_WORKERS) as ex:
+    ex = ThreadPoolExecutor(max_workers=_PARALLEL_WORKERS)
+    try:
         futures = {ex.submit(_fetch_section, s, code): s for s in par}
-        for fut in as_completed(futures):
-            spec = futures[fut]
-            try:
-                sec = fut.result()
-            except Exception as e:  # noqa: BLE001 — 单项失败只记缺口
-                sec = {"title": spec[2], "tool": spec[0], "data": {"error": str(e)}, "ok": False}
-            done[sec["title"]] = sec
-            yield {"type": "dossier_progress", "title": sec["title"], "ok": sec["ok"],
-                   "loaded": len(done), "total": total}
+        # 整体 20s 硬上限：newsradar.py 修过同样问题（详见那里）。
+        # 原实现 as_completed 无 timeout，4 个 section 任一卡死都会让 dossier 一直阻塞。
+        try:
+            for fut in as_completed(futures, timeout=20):
+                spec = futures[fut]
+                try:
+                    sec = fut.result()
+                except Exception as e:  # noqa: BLE001 — 单项失败只记缺口
+                    sec = {"title": spec[2], "tool": spec[0], "data": {"error": str(e)}, "ok": False}
+                done[sec["title"]] = sec
+                yield {"type": "dossier_progress", "title": sec["title"], "ok": sec["ok"],
+                       "loaded": len(done), "total": total}
+        except Exception:
+            # 20s 到了：把还没完成的 section 标缺口，让前端看到进度停在哪
+            for fut, spec in futures.items():
+                title = spec[2]
+                if title in done:
+                    continue
+                done[title] = {"title": title, "tool": spec[0], "data": {"error": "section timeout"}, "ok": False}
+                yield {"type": "dossier_progress", "title": title, "ok": False,
+                       "loaded": len(done), "total": total}
+    finally:
+        # wait=False：executor __exit__ 不等剩余 future（socket hang 时不让 handler 阻塞）
+        ex.shutdown(wait=False)
 
     for spec in seq:  # 走 em_get 的，保持串行以尊重节流
         try:

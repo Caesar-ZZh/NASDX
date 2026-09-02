@@ -309,6 +309,80 @@ export interface Etf50QuantResult {
   results: EtfQuantRow[];
 }
 
+// ---- 深度分析 / 投资路线（复用 CLI 的 nasdx 分析链路） ----
+
+export interface AnalysisVote {
+  agent_name: string;
+  vote: string; // bullish / bearish / neutral
+  reasoning: string;
+}
+
+export interface AnalysisReport {
+  stock_code: string;
+  stock_name: string;
+  date: string;
+  research_results: Record<string, unknown>;
+  battle_transcript: string[];
+  votes: AnalysisVote[];
+  final_signal: string; // bullish / bearish / neutral
+  bullish_pct: number;
+  summary: string;
+  operation_advice: string;
+  decision_plan: Record<string, unknown>;
+  data_quality: Record<string, unknown>;
+  analysis_depth: string;
+  freshness: Record<string, unknown>;
+  performance: Record<string, unknown>;
+}
+
+export interface PortfolioPlan {
+  generated_at: string;
+  risk_profile: string;
+  risk_profile_label: string;
+  posture: string;
+  action_gate: string; // ok | refresh_required | position_cap
+  allocation: Record<string, unknown>;
+  core_candidates: unknown[];
+  satellite_candidates: unknown[];
+  watchlist: unknown[];
+  trim_or_avoid: unknown[];
+  next_actions: string[];
+  future_scenarios: string[];
+  decision_rules: string[];
+  monitoring_checklist: string[];
+  review_cadence: string[];
+  data_quality: Record<string, unknown>;
+  disclaimer: string;
+}
+
+// ---- 后台任务（深度分析 / 多空辩论脱离 HTTP 连接执行）----
+// 提交立刻拿 job_id，之后按 cursor 增量轮询；切页面 / 刷新浏览器都不丢结果。
+
+export type JobStatus = "pending" | "running" | "done" | "error" | "cancelled";
+
+export interface JobEvent {
+  type: string;
+  [key: string]: unknown;
+}
+
+export interface JobSnapshot {
+  id: string;
+  kind: string;
+  title: string;
+  params: Record<string, unknown>;
+  status: JobStatus;
+  progress: { message?: string; step?: number; total?: number };
+  events: JobEvent[];
+  cursor: number;
+  /** true = 事件被裁过/游标失效，本次是全量重放，前端需重置本地累积状态 */
+  replay: boolean;
+  result: unknown;
+  error: string;
+  created_at: number;
+  updated_at: number;
+  elapsed: number;
+}
+
 export const api = {
   health: () => get<{ ok: boolean }>("/health"),
   indices: () => get<IndexQuote[]>("/indices", 15_000),
@@ -353,4 +427,21 @@ export const api = {
   uploadReport: (name: string, contentB64: string) =>
     request<MyReport>("/myreports", "POST", { name, content_b64: contentB64 }),
   deleteReport: (id: string) => request<{ ok: boolean }>(`/myreports/${id}`, "DELETE"),
+  // 深度分析：完整 5 Agent → 辩论 → 综合研判，同步执行，慢（30-120s）
+  analysis: (code: string, opts?: { risk_profile?: string; depth?: string }) =>
+    request<{ report: AnalysisReport }>(`/analysis/${code}`, "POST", opts ?? {}, 180_000),
+  // 投资路线：组合级规划（读本地 scan 产物，确定性规则）
+  portfolioPlan: (riskProfile = "balanced") =>
+    request<{ plan: PortfolioPlan }>("/portfolio/plan", "POST", { risk_profile: riskProfile }, 60_000),
+
+  // ---- 后台任务 ----
+  // 提交很快（只做参数校验 + 建任务），超时给短一点，卡住要能快速失败。
+  startAnalysisJob: (code: string, opts?: { risk_profile?: string; depth?: string }) =>
+    request<{ job_id: string } & JobSnapshot>("/jobs/analysis", "POST", { code, ...(opts ?? {}) }, 15_000),
+  startDebateJob: (code: string, rounds: number, llm: unknown) =>
+    request<{ job_id: string } & JobSnapshot>("/jobs/debate", "POST", { code, rounds, llm }, 15_000),
+  // 轮询很轻，3s 拿不到就当这次没拿到，下一轮再来（不要误判成任务失败）
+  getJob: (jobId: string, cursor = 0) =>
+    get<JobSnapshot>(`/jobs/${jobId}?cursor=${cursor}`, 10_000),
+  cancelJob: (jobId: string) => request<{ ok: boolean } & Partial<JobSnapshot>>(`/jobs/${jobId}`, "DELETE"),
 };

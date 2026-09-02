@@ -29,6 +29,7 @@ import myreports as mr
 import newsradar
 import portfolio as pf
 import reflection as reflect_layer
+import ios_api  # NASDX iOS 专用契约层（/api/v1/ios/*）
 
 app = FastAPI(title="Cosmos API", version="0.3.0")
 app.include_router(quant_router.router)
@@ -42,15 +43,20 @@ def _warm_market_cache():
     """后台预抓首屏市场总览，启动本身不等待第三方数据源。"""
     market.warm_cache()
 
-# CORS：默认放开（本地自托管友好）；公网部署时用 VR_ALLOW_ORIGINS 收紧成白名单。
-#   例：VR_ALLOW_ORIGINS="https://myhost"  （逗号分隔多个）
-_ORIGINS = [o.strip() for o in os.environ.get("VR_ALLOW_ORIGINS", "*").split(",") if o.strip()] or ["*"]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_ORIGINS,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-)
+# CORS：默认收紧。同源部署（FastAPI 直接服务 frontend/dist、桌面 webview 指向自身）
+# 浏览器根本不需要跨域头，不挂中间件才能保证任何第三方网站的 JS 无法跨站读取本 API
+# （行情/研报/持仓都在 GET 里）。分体部署（前端在另一 origin）时用 VR_ALLOW_ORIGINS
+# 显式白名单，逗号分隔；显式传 "*" 可恢复放开行为，但这是明确选择而非隐式默认。
+#   例：VR_ALLOW_ORIGINS="https://myhost"  或  "https://a.com,https://b.com"
+_cors_raw = os.environ.get("VR_ALLOW_ORIGINS", "").strip()
+_CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+if _CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_CORS_ORIGINS,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+    )
 
 # 可选鉴权：设了 VR_API_KEY 就要求所有 /api/* 带 `Authorization: Bearer <key>`
 #   （本地自托管不设=开放；公网部署务必设，否则别人能读你的持仓/调你的后端）。
@@ -198,6 +204,73 @@ def reflect(req: ReflectReq):
         raise HTTPException(400, "source 不能为空")
     cfg = _check_llm(req.llm)
     return _ndjson(lambda: reflect_layer.run_reflection_stream(cfg, req.source, req.title))
+
+
+class AnalysisReq(BaseModel):
+    risk_profile: str = "balanced"
+    depth: str = "full"  # full | intraday | refresh
+
+
+@app.post("/api/analysis/{code}")
+def analysis(code: str, req: AnalysisReq):
+    """完整深度分析（复用 CLI 的 nasdx.analyzer）：Research(5 Agent) → Battle → Synthesis。
+
+    返回 FinalReport 的 JSON（summary / final_signal / research_results / votes /
+    decision_plan / operation_advice 等）。无 LLM Key 时自动降级规则深度报告。
+    行情数据由服务器现拉（腾讯实时 + qfq 日 K），支持任意 6 位代码。
+    同步执行，耗时取决于深度与缓存（full 无缓存约 30-120s）。
+    LLM 服务偶发瞬时故障时自动重试 1 次。
+    """
+    code = _validate(code)
+    from analysis import load_data_for_analysis
+    from nasdx.analyzer import NasdxAnalyzer
+
+    try:
+        data = load_data_for_analysis(code)
+    except Exception as e:
+        raise HTTPException(502, f"深度分析失败：{e}") from e
+
+    # LLM 瞬时故障重试 1 次：单次失败可能是网络抖动/上游限流
+    last_err: Exception | None = None
+    for attempt in (1, 2):
+        try:
+            analyzer = NasdxAnalyzer(risk_profile=req.risk_profile, depth=req.depth, use_cache=True)
+            report = analyzer.analyze(code, data=data)
+            if attempt > 1:
+                print(f"[analysis] {code} 第 {attempt} 次重试成功", flush=True)
+            return {"report": report.model_dump()}
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            print(f"[analysis] {code} 第 {attempt} 次失败：{e}", flush=True)
+            # 第 1 次失败时先重试一次（瞬时 LLM 故障可能恢复）
+            if attempt == 1:
+                import time as _t
+                _t.sleep(2)
+
+    raise HTTPException(
+        502,
+        f"深度分析失败（已重试 1 次）：{last_err}。LLM 服务可能瞬时不可用，请稍后重试。",
+    ) from last_err
+
+
+class PlanReq(BaseModel):
+    risk_profile: str = "balanced"
+
+
+@app.post("/api/portfolio/plan")
+def portfolio_plan(req: PlanReq):
+    """投资路线（组合级）：按风险画像生成仓位框架 / 候选分层 / 未来情景推演 / 执行规则 / 监控清单。
+
+    读本地最新 scan 产物（etf50 / stocks60 / 行情快照）；产物缺失时 action_gate=
+    refresh_required（前端提示先刷新扫描）。LLM 不参与，纯本地确定性规则。
+    """
+    try:
+        from nasdx.portfolio import build_portfolio_plan
+
+        plan = build_portfolio_plan(risk_profile=req.risk_profile)
+        return {"plan": plan}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"投资路线生成失败：{e}") from e
 
 
 class HoldingIn(BaseModel):
@@ -694,3 +767,10 @@ def industry(top: int = Query(20, ge=5, le=50)):
         return {"data": data}
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"行业排名异常：{e}") from e
+
+
+# ---------------------------------------------------------------------------
+# NASDX iOS 专用契约层（/api/v1/ios/*）
+# 复用本模块已有的 astock/market/portfolio 数据，重塑为移动端友好 JSON。
+# ---------------------------------------------------------------------------
+app.include_router(ios_api.router)

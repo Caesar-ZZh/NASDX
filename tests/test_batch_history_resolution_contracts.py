@@ -47,6 +47,32 @@ def _history_frame(code: str = "600000", rows: int = 30) -> pd.DataFrame:
     )
 
 
+def _is_bootstrap_guard(node: ast.If) -> bool:
+    """识别脚本头部「运行引导」if：``if __name__ == "__main__":`` 或
+    ``if _ROOT_DIR not in sys.path:`` 这类只做 sys.path / 入口判断、无业务副作用的守卫。
+
+    脚本自根目录迁入 ``scripts/`` 后，头部新增了 sys.path 引导块。若不跳过，
+    前缀加载器会截断在引导 if 处，导致后续 STOCK_POOL / 解析函数 /
+    fetch_stock_hist 等定义无法加载（这些 if 在 ``__name__ != "__main__"``
+    或 sys.path 已含根目录时本就不会执行，跳过安全）。
+    """
+    test = node.test
+    if not isinstance(test, ast.Compare):
+        return False
+    names: list[str] = []
+
+    def _collect(value: object) -> None:
+        if isinstance(value, ast.Name):
+            names.append(value.id)
+        elif isinstance(value, ast.Attribute):
+            names.append(value.attr)
+
+    _collect(test.left)
+    for comparator in test.comparators:
+        _collect(comparator)
+    return "__name__" in names or "path" in names or "sys" in names
+
+
 def _load_script_definitions(path: Path, module_name: str) -> types.ModuleType:
     """只执行脚本的「定义前缀」，拿到真实函数对象做行为级测试。
 
@@ -75,13 +101,9 @@ def _load_script_definitions(path: Path, module_name: str) -> types.ModuleType:
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
             prefix.append(node)  # 模块 docstring
             continue
-        if (
-            isinstance(node, ast.If)
-            and isinstance(node.test, ast.Compare)
-            and "_ROOT_DIR" in ast.unparse(node.test)
-            and "sys.path" in ast.unparse(node.test)
-        ):
-            prefix.append(node)  # scripts/ 的仓库根 sys.path 引导
+        # 跳过脚本头部 sys.path / __name__ 运行引导块（迁入 scripts/ 后新增），
+        # 否则前缀截断在引导 if 处，后续 STOCK_POOL / 解析函数 / fetch_stock_hist 等定义无法加载。
+        if isinstance(node, ast.If) and _is_bootstrap_guard(node):
             continue
         break
     module = types.ModuleType(module_name)

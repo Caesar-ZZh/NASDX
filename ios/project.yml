@@ -1,0 +1,44 @@
+# XcodeGen spec — NASDX iOS
+# 只提交这个文本文件；CI(云 Mac) 用 `xcodegen generate` 生成 NASDX.xcodeproj。
+# Windows 上不需要 Xcode 即可维护此文件。
+name: NASDX
+options:
+  bundleIdPrefix: com.nasdx
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+settings:
+  base:
+    PRODUCT_BUNDLE_IDENTIFIER: com.nasdx.ios
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+    SWIFT_VERSION: "6.0"
+    TARGETED_DEVICE_FAMILY: "1,2"   # 1=iPhone, 2=iPad
+    # 签名不在此固化，交给 fastlane match / xcodebuild 参数（CI 注入 TEAM）
+    GENERATE_INFOPLIST_FILE: "YES"
+    INFOPLIST_KEY_CFBundleDisplayName: NASDX
+    INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+    INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: "YES"   # iPad 指针/妙控
+targets:
+  NASDX:
+    type: application
+    platform: iOS
+    sources:
+      - path: NASDX
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nasdx.ios
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    # 未来启用外部 SPM 依赖时取消注释（同时取消 packages 段）：
+    # dependencies:
+    #   - package: Starscream
+    #   - package: Hero
+    # packages:
+    #   Starscream:
+    #     url: https://github.com/daltoniam/Starscream
+    #     from: 4.0.4
+    #   Hero:
+    #     url: https://github.com/HeroTransitions/Hero
+    #     from: 1.6.3

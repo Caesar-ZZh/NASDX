@@ -2,17 +2,33 @@
 
 # NASDX — A 股多智能体量化分析系统
 
-> 基于 [FinGenius](https://github.com/HuaYaoAI/FinGenius) 架构构建，无需付费行情 API，使用 AkShare / 腾讯行情免费数据源，支持任意 OpenAI 兼容接口。
+> 基于 [FinGenius](https://github.com/HuaYaoAI/FinGenius) 架构构建，无需付费行情 API，使用 AkShare / 腾讯行情免费数据源，支持任意 OpenAI 兼容接口。Web（React）与桌面（Windows）双端可用，附带 iOS 客户端雏形。
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.59.2-ff4b4b.svg)](https://streamlit.io/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Data](https://img.shields.io/badge/Data-AkShare%20%2F%20Tencent-blueviolet.svg)](https://github.com/akfamily/akshare)
+[![Final Audit Gate](https://github.com/Caesar-ZZh/cosmos/actions/workflows/final-audit.yml/badge.svg)](https://github.com/Caesar-ZZh/cosmos/actions/workflows/final-audit.yml)
+[![Security Scan](https://github.com/Caesar-ZZh/cosmos/actions/workflows/security.yml/badge.svg)](https://github.com/Caesar-ZZh/cosmos/actions/workflows/security.yml)
+[![Windows Desktop](https://github.com/Caesar-ZZh/cosmos/actions/workflows/windows-desktop.yml/badge.svg)](https://github.com/Caesar-ZZh/cosmos/actions/workflows/windows-desktop.yml)
+[![iOS CI](https://github.com/Caesar-ZZh/cosmos/actions/workflows/ios-beta.yml/badge.svg)](https://github.com/Caesar-ZZh/cosmos/actions/workflows/ios-beta.yml)
+[![CodeQL](https://github.com/Caesar-ZZh/cosmos/actions/workflows/codeql.yml/badge.svg)](https://github.com/Caesar-ZZh/cosmos/actions/workflows/codeql.yml)
+
+---
+
+## 项目亮点
+
+- **全栈投研闭环**：行情扫描 → 5 Agent 深度分析 → 多空辩论 → 组合路线 → 投资简报 → 建议复盘，一条命令跑通
+- **Web 股票站（React）**：每日复盘、资讯雷达（12 赛道 108 个公开 RSS 源）、板块中心、个股全景、自选股、多空辩论、策略实验室、我的持仓 / 研报 / 笔记
+- **多端可用**：Streamlit Web / React Web / Windows 桌面（便携包 + 安装器）/ iOS 客户端雏形，移动端响应式适配
+- **决策可复盘**：决策记录冻结、样本外 T+1~T+20 评价、真实账户复盘、置信度校准，拒绝前视偏差
+- **免费数据源**：AkShare / 腾讯行情，无需付费 API Key；LLM 支持任意 OpenAI 兼容接口
 
 ---
 
 ## 目录
 
+- [项目亮点](#项目亮点)
 - [它能做什么](#它能做什么)
 - [快速开始](#快速开始)
 - [工作原理](#工作原理)
@@ -25,7 +41,27 @@
 
 ## 它能做什么
 
-按主题分组的核心能力，无需 API Key 也能跑通大部分分析：
+### Web 股票站（React，推荐入口）
+
+12 个页面，移动端响应式适配，无 API Key 也能跑通大部分：
+
+| 页面 | 做什么 |
+|---|---|
+| **每日复盘** | 大盘指数（实时）+ 全球市场（隔夜外围）+ 关注股票 + 市场情绪（涨跌家数）+ 短线情绪（连板梯队 / 打板情绪）+ 全市场成交额 TOP20 + 板块资金趋势榜（行业净流入）+ 资金轮动，一屏复盘全市场 |
+| **资讯雷达** | 事件概率（规划中）/ A 股公告 / 公开新闻 / **Investment News**（12 赛道 108 个公开 RSS 源，已按合规词表过滤），AI 一键提炼「今日要点」 |
+| **板块中心** | 12 个行业板块的产业链环节拆解 + 6 个常看板块快捷入口 |
+| **深度分析** | 5 个专家 Agent 并行研究 → 多空辩论 → 综合研判，输出深度报告与操作建议。后台任务：点完可切去别的页面，回来直接看结果 |
+| **个股数据** | 行情 · 估值 · 研报 · 新闻，客观数据配齐，判断交给你的 AI |
+| **多空辩论** | 同一份客观数据，多方与空方各自立论、互相质疑，中立主持归纳分歧点与验证清单——不给买卖结论。后台任务：点完可切去别的页面，回来直接看结果 |
+| **自选股** | 批量添加、一屏总览、实时行情轮询，数据只存本地 |
+| **实时驾驶舱** | 大盘 · 涨跌家数 · 板块热力 · 自选股，盘中一屏看全市场 |
+| **策略实验室** | 本地量化引擎：1–12 只标的、多策略（动量 / 均值回归 / 因子排名）历史回测对比 + ETF50 客观评分，只读不荐股 |
+| **我的持仓** | 自己录入、存本地，实时看浮动盈亏 |
+| **我的研报** | 研报拖入归档、按行业自动分类，只存本地 |
+| **研究记录** | 把 AI 复盘 / 要点 / 问答沉淀在本地，随时回看 |
+| **接入 AI** | 配置一次（任意 OpenAI 兼容接口），全站的「问 AI」「复盘」都用你自己的模型 |
+
+### Streamlit / CLI（原版入口，与 React 双轨并存）
 
 | 主题 | 能力 |
 |---|---|
@@ -33,11 +69,18 @@
 | **多智能体分析** | 5 个专家 Agent（技术面 / 资金流 / 风险 / 板块 / 供应链瓶颈）+ 多空 Battle 辩论 + 综合研判 |
 | **投研闭环** | 一键串联行情刷新 → ETF / 个股扫描 → 深度分析 → 组合路线 → 投资简报 |
 | **决策与风控** | 保守 / 均衡 / 进取三档仓位纪律、数据质量闸门、候选证据核查、建议漂移追踪与结果复盘 |
-| **桌面化** | Windows 桌面控制面板、便携包、安装器，复用现有 Streamlit UI |
-| **React 股票站** | 个股全景、自选股、板块中心、持仓、每日复盘、多空辩论，以及只读的策略实验室（历史回测对比 + ETF50 客观评分）；与 Streamlit 双轨并存，`启动NASDX桌面React.bat` 一键桌面启动 |
 | **历史与复盘** | SQLite 历史库、真实账户复盘（成交 CSV）、复盘快照包、盘前 / 盘中 / 盘后执行队列 |
 
 > 无 API Key 时自动生成同结构的规则深度报告，仍进入组合路线与最终简报；有 Key 时升级为 LLM 结构化分析。
+
+### 多端形态
+
+| 形态 | 入口 |
+|---|---|
+| **React 股票站** | `python -m uvicorn server.main:app --port 8901`（同源托管前端），支持公网部署 |
+| **Streamlit 网页** | `streamlit run app.py`（或双击 `启动网页.bat`） |
+| **Windows 桌面** | `启动NASDX桌面React.bat` / `启动NASDX桌面.bat`（控制面板 + 便携包 + 安装器） |
+| **iOS 客户端** | `ios/` 目录，SwiftUI 雏形（自选列表 / 行情 / 个股详情） |
 
 ---
 
@@ -60,20 +103,20 @@ python -m pip install -r requirements_nasdx.txt
 
 ### 2. 启动界面
 
-三种方式，任选其一：
+任选其一：
 
 ```bash
-# 方式 A：一键启动（双击 启动网页.bat 亦可）
-streamlit run app.py
-
-# 方式 B：Windows 桌面控制面板
-python -B desktop\control_panel.py
-
-# 方式 C：React 股票站（API 与页面同源，端口 8900；前置：frontend/ 已构建）
+# 方式 A（推荐）：React 股票站（API 与页面同源，端口 8901；前置：frontend/ 已构建）
 pip install -r server/requirements.txt
 cd frontend && npm install && npm run build && cd ..
-python -m uvicorn server.main:app --host 127.0.0.1 --port 8900
-# 桌面模式：双击 启动NASDX桌面React.bat（pywebview 未装时自动降级浏览器）
+python -m uvicorn server.main:app --host 127.0.0.1 --port 8901
+# 浏览器打开 http://127.0.0.1:8901 ；桌面模式：双击 启动NASDX桌面React.bat
+
+# 方式 B：Streamlit 一键启动（双击 启动网页.bat 亦可）
+streamlit run app.py
+
+# 方式 C：Windows 桌面控制面板
+python -B desktop\control_panel.py
 ```
 
 ### 3. 最常用的命令
@@ -179,7 +222,7 @@ python scripts/run_product_readiness.py    # 产品化巡检聚合（单测 + �
 
 ## 工作原理
 
-分析分三个阶段，最终输出 HTML / JSON 报告：
+CLI 深度分析链路（`scripts/run_analysis.py`）分三个阶段，最终输出 HTML / JSON 报告；React 端复用同一套 `quant/` 引擎（策略实验室、个股数据等）：
 
 ```
 用户输入股票代码

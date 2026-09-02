@@ -90,7 +90,8 @@ export function Watchlist() {
               onClick={toggleLive}
               title={live ? "关闭实时行情" : "开启实时行情（交易时段每 3 秒自动刷新）"}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs transition-colors",
+                // 移动端 py-2.5（约 38px 高），桌面端恢复紧凑的 py-1.5
+                "inline-flex items-center gap-1.5 rounded-lg border px-3 py-2.5 text-xs transition-colors md:py-1.5",
                 live
                   ? "border-primary/50 bg-primary/10 text-primary"
                   : "border-border/60 text-muted-foreground hover:text-foreground",
@@ -171,8 +172,9 @@ export function Watchlist() {
             <button
               onClick={refresh}
               disabled={loading}
-              className="text-muted-foreground hover:text-primary"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-primary"
               title="立即刷新"
+              aria-label="立即刷新"
             >
               <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
             </button>
@@ -209,8 +211,9 @@ export function Watchlist() {
                       <td className="px-2 py-2.5">
                         <button
                           onClick={() => remove(c)}
-                          className="text-muted-foreground/50 hover:text-destructive"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive"
                           title="移除"
+                          aria-label={`移除 ${q?.name || c}`}
                         >
                           <X className="h-3.5 w-3.5" />
                         </button>
